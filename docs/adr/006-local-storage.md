@@ -1,0 +1,3 @@
+# ADR 006: Local files for media; SQLite for metadata; Keychain for secrets
+
+Accepted 2026-09-16. Projects live under the creator's Movies library (configurable). WAL SQLite holds project metadata, events, jobs, assets and explicit preferences. JSON snapshots/artifacts make production history inspectable. Large media remains on disk and all transformations create derived outputs. Paths reject traversal and managed symlinks. Keychain holds OpenAI credentials; no project file or log contains them. SQLite is authoritative if a crash leaves an export snapshot stale. There is no cloud sync, account backend, inferred preference learning or automatic cache deletion.

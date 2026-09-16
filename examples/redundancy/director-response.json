@@ -1,5 +1,206 @@
 {
-  "provider": "mock",
-  "model": "deterministic-v1",
-  "summary": "Deterministic demo direction: alternate explanation, callout, and architecture. This is a mock, not AI analysis."
+  "schemaVersion": "1.0.0",
+  "id": "demo-plan",
+  "projectId": "demo-project",
+  "version": 1,
+  "createdAt": "2026-09-16T00:00:00.000Z",
+  "scriptVersion": 1,
+  "transcriptHash": "2f4bec1c59c768569d659419ec07dc0940a5c5fcf8635546d92cf915c307dc36",
+  "frameRate": 30,
+  "resolution": {
+    "width": 1280,
+    "height": 720
+  },
+  "durationFrames": 2160,
+  "director": {
+    "provider": "mock",
+    "model": "deterministic-v1",
+    "summary": "Deterministic demo direction: alternate explanation, callout, and architecture. This is a mock, not AI analysis."
+  },
+  "scenes": [
+    {
+      "id": "scene-001",
+      "startFrame": 0,
+      "durationFrames": 360,
+      "sourceInFrame": 0,
+      "narration": "You have two servers. Two copies of the database. Maybe even two regions. Then one ordinary deployment takes everything down. The architecture was redundant. The service was not available.",
+      "transcriptSegmentIds": ["segment-1"],
+      "camera": {
+        "recordingId": "demo-recording",
+        "framing": "medium",
+        "punchIn": 1
+      },
+      "visual": {
+        "type": "presenter",
+        "description": "Leave room for the explanation.",
+        "graphic": null
+      },
+      "audio": {
+        "gainDb": 0
+      },
+      "transition": "cut",
+      "enabled": true,
+      "rationale": "Let the presenter carry the thought."
+    },
+    {
+      "id": "scene-002",
+      "startFrame": 360,
+      "durationFrames": 360,
+      "sourceInFrame": 360,
+      "narration": "Redundancy describes the parts you own. Availability describes what a user can actually do. Adding another copy only helps when the failure that breaks one copy leaves the other useful.",
+      "transcriptSegmentIds": ["segment-2"],
+      "camera": {
+        "recordingId": "demo-recording",
+        "framing": "medium",
+        "punchIn": 1
+      },
+      "visual": {
+        "type": "graphic",
+        "description": "Two copies. One failure domain.",
+        "graphic": {
+          "engine": "remotion",
+          "template": "Callout",
+          "templateVersion": "1.0.0",
+          "parameters": {
+            "title": "Two copies. One failure domain.",
+            "subtitle": "Design for recovery, then prove it.",
+            "nodes": [],
+            "emphasis": -1
+          }
+        }
+      },
+      "audio": {
+        "gainDb": 0
+      },
+      "transition": "cut",
+      "enabled": true,
+      "rationale": "Make the dependency or decision visible."
+    },
+    {
+      "id": "scene-003",
+      "startFrame": 720,
+      "durationFrames": 360,
+      "sourceInFrame": 720,
+      "narration": "Imagine two application servers behind a load balancer. Both depend on one database endpoint. When that shared dependency fails, the second application server is just another machine returning the same error.",
+      "transcriptSegmentIds": ["segment-3"],
+      "camera": {
+        "recordingId": "demo-recording",
+        "framing": "medium",
+        "punchIn": 1
+      },
+      "visual": {
+        "type": "graphic",
+        "description": "A shared dependency can break both.",
+        "graphic": {
+          "engine": "remotion",
+          "template": "ArchitectureFlow",
+          "templateVersion": "1.0.0",
+          "parameters": {
+            "title": "A shared dependency can break both.",
+            "subtitle": "Redundant servers still depend on the same database.",
+            "nodes": ["Requests", "App A + B", "Database"],
+            "emphasis": 2
+          }
+        }
+      },
+      "audio": {
+        "gainDb": 0
+      },
+      "transition": "cut",
+      "enabled": true,
+      "rationale": "Make the dependency or decision visible."
+    },
+    {
+      "id": "scene-004",
+      "startFrame": 1080,
+      "durationFrames": 360,
+      "sourceInFrame": 1080,
+      "narration": "Even independent copies are not enough. Something must detect the failure, route traffic, and preserve the information needed to continue. A standby that nobody can reach is capacity, not recovery.",
+      "transcriptSegmentIds": ["segment-4"],
+      "camera": {
+        "recordingId": "demo-recording",
+        "framing": "medium",
+        "punchIn": 1
+      },
+      "visual": {
+        "type": "presenter",
+        "description": "Leave room for the explanation.",
+        "graphic": null
+      },
+      "audio": {
+        "gainDb": 0
+      },
+      "transition": "cut",
+      "enabled": true,
+      "rationale": "Let the presenter carry the thought."
+    },
+    {
+      "id": "scene-005",
+      "startFrame": 1440,
+      "durationFrames": 360,
+      "sourceInFrame": 1440,
+      "narration": "So test the entire path. Break a dependency. Watch detection. Measure the switch. Check a real request. Include the control plane, credentials, and the people who have to make the decision.",
+      "transcriptSegmentIds": ["segment-5"],
+      "camera": {
+        "recordingId": "demo-recording",
+        "framing": "medium",
+        "punchIn": 1
+      },
+      "visual": {
+        "type": "graphic",
+        "description": "Failover is a path you must test.",
+        "graphic": {
+          "engine": "remotion",
+          "template": "ArchitectureFlow",
+          "templateVersion": "1.0.0",
+          "parameters": {
+            "title": "Failover is a path you must test.",
+            "subtitle": "Detect → route → serve → verify",
+            "nodes": ["Detect", "Route", "Standby", "Verify"],
+            "emphasis": -1
+          }
+        }
+      },
+      "audio": {
+        "gainDb": 0
+      },
+      "transition": "cut",
+      "enabled": true,
+      "rationale": "Make the dependency or decision visible."
+    },
+    {
+      "id": "scene-006",
+      "startFrame": 1800,
+      "durationFrames": 360,
+      "sourceInFrame": 1800,
+      "narration": "The useful question is not, how many copies do we have? It is, what happens to the next user request when this part fails? Availability is a behavior. Build it, then prove it.",
+      "transcriptSegmentIds": ["segment-6"],
+      "camera": {
+        "recordingId": "demo-recording",
+        "framing": "medium",
+        "punchIn": 1
+      },
+      "visual": {
+        "type": "graphic",
+        "description": "Availability is a behavior.",
+        "graphic": {
+          "engine": "remotion",
+          "template": "ChapterTitle",
+          "templateVersion": "1.0.0",
+          "parameters": {
+            "title": "Availability is a behavior.",
+            "subtitle": "Design for recovery, then prove it.",
+            "nodes": [],
+            "emphasis": -1
+          }
+        }
+      },
+      "audio": {
+        "gainDb": 0
+      },
+      "transition": "cut",
+      "enabled": true,
+      "rationale": "Make the dependency or decision visible."
+    }
+  ]
 }

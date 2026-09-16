@@ -1,0 +1,3 @@
+# ADR 007: Trusted parameterized production adapters
+
+Accepted 2026-09-16. Remotion selects checked-in Callout, ArchitectureFlow and ChapterTitle templates. A trusted Python bridge probes/imports through documented Resolve APIs and never evaluates model scripts. When scripting is unavailable, the same project exports FCPXML/OTIO. Future Blender/Fusion/image engines must have typed instructions, validated parameters and explicit capability discovery. A model may recommend an unavailable engine, but execution must reject it. GUI automation is not part of any production adapter; manual Resolve UI use was solely integration verification.

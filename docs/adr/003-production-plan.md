@@ -1,0 +1,3 @@
+# ADR 003: The versioned production plan is the execution contract
+
+Accepted 2026-09-16. Strict Zod schemas generate JSON Schema and inferred TypeScript types. Integer frames separate timeline placement from source selection. Semantic validation rejects gaps, overlaps, invalid references and unsupported template parameters. Models emit data, not executable code. Immutable plans and explicit typed patch operations provide approval binding, diffs, provenance and undo. A disabled visual retains narration/A-roll. Schema expansion for other engines must advertise only capabilities the deterministic runtime can actually execute.

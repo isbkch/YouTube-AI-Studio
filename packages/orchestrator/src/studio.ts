@@ -58,6 +58,45 @@ export class Studio {
       release();
     }
   }
+  async recover(projectId: string) {
+    return this.locked(projectId, (p) => {
+      const status = p.status;
+      if (
+        [
+          "TRANSCRIBING",
+          "PLANNING",
+          "GENERATING_ASSETS",
+          "ASSEMBLING",
+        ].includes(status)
+      ) {
+        this.store.update(p.id, (x) => {
+          x.status = transition(
+            x.status,
+            ["TRANSCRIBING", "PLANNING"].includes(status)
+              ? "MEDIA_IMPORTED"
+              : "AWAITING_STORYBOARD_APPROVAL",
+          );
+        });
+      }
+      for (const job of this.store
+        .jobs(p.id)
+        .filter((j) => ["RUNNING", "QUEUED", "BLOCKED"].includes(j.status))) {
+        this.store.job({
+          ...job,
+          status: "FAILED",
+          completedAt: now(),
+          error: {
+            kind: "EXTERNAL_TOOL",
+            message: "Interrupted operation recovered.",
+            recovery: "Retry the operation. Verified outputs will be reused.",
+            retryable: true,
+          },
+        });
+      }
+      this.store.event(p.id, { event: "project.recovered" });
+      return this.snapshot(p.id);
+    });
+  }
   private async operation(
     p: Project,
     type: string,

@@ -44,6 +44,8 @@ async function dispatch(
         .parse(params);
       return store.create(p.title, p.description, p.targetDuration);
     }
+    case "project.recover":
+      return studio.recover(project.parse(params).projectId);
     case "project.get":
       return studio.snapshot(project.parse(params).projectId);
     case "script.save": {

@@ -14,7 +14,12 @@ import {
   validatePlan,
   validateSources,
 } from "../../production-plan/src/index.ts";
-import { extractAudio, proxy, verifyOutput } from "../../media/src/index.ts";
+import {
+  analyzeAudio,
+  extractAudio,
+  proxy,
+  verifyOutput,
+} from "../../media/src/index.ts";
 import {
   renderGraphic,
   templateHash,
@@ -394,7 +399,19 @@ export async function buildProject(
           plan.durationFrames / plan.frameRate,
           ctx.signal,
         );
+        const audio = await analyzeAudio(
+          await safePath(dir, previewPath),
+          ctx.signal,
+        );
         const warnings: string[] = [];
+        if (audio.silenceStarts.length)
+          warnings.push(
+            `${audio.silenceStarts.length} silence interval(s) of 2 seconds or more: review pacing.`,
+          );
+        if (audio.maxVolumeDb !== null && audio.maxVolumeDb > -1)
+          warnings.push(
+            "Audio peaks exceed -1 dBFS: review gain and potential clipping.",
+          );
         if (!p.recordings[0]?.hasAudio)
           warnings.push(
             "Source has no narration audio. Preview contains silence.",
@@ -422,6 +439,7 @@ export async function buildProject(
             "Original source content hashes verified",
           ],
           metadata: meta,
+          audio,
           warnings,
           humanChecks: [
             "Factual accuracy and narration/graphic agreement",
