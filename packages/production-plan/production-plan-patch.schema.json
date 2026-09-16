@@ -1,0 +1,413 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+    },
+    "originatingRequest": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "affectedScenes": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+      }
+    },
+    "previousVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "resultingVersion": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "operations": {
+      "minItems": 1,
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "replaceVisual"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "visual": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "presenter",
+                      "graphic"
+                    ]
+                  },
+                  "description": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "graphic": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "engine": {
+                            "type": "string",
+                            "const": "remotion"
+                          },
+                          "template": {
+                            "type": "string",
+                            "enum": [
+                              "Callout",
+                              "ArchitectureFlow",
+                              "ChapterTitle"
+                            ]
+                          },
+                          "templateVersion": {
+                            "type": "string",
+                            "const": "1.0.0"
+                          },
+                          "parameters": {
+                            "type": "object",
+                            "properties": {
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100
+                              },
+                              "subtitle": {
+                                "type": "string",
+                                "maxLength": 180
+                              },
+                              "nodes": {
+                                "maxItems": 5,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 24
+                                }
+                              },
+                              "emphasis": {
+                                "type": "integer",
+                                "minimum": -1,
+                                "maximum": 4
+                              }
+                            },
+                            "required": [
+                              "title",
+                              "subtitle",
+                              "nodes",
+                              "emphasis"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "engine",
+                          "template",
+                          "templateVersion",
+                          "parameters"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "description",
+                  "graphic"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "visual"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "updateFraming"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "framing": {
+                "type": "string",
+                "enum": [
+                  "wide",
+                  "medium",
+                  "close"
+                ]
+              },
+              "punchIn": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 1.35
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "framing",
+              "punchIn"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "updateGraphicParameters"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "subtitle": {
+                    "type": "string",
+                    "maxLength": 180
+                  },
+                  "nodes": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 24
+                    }
+                  },
+                  "emphasis": {
+                    "type": "integer",
+                    "minimum": -1,
+                    "maximum": 4
+                  }
+                },
+                "required": [
+                  "title",
+                  "subtitle",
+                  "nodes",
+                  "emphasis"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "parameters"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "removeGraphic"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              }
+            },
+            "required": [
+              "type",
+              "sceneId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "disableScene"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "disabled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "disabled"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "updateTiming"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "startFrame": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "durationFrames": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "sourceInFrame": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "startFrame",
+              "durationFrames",
+              "sourceInFrame"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "updateAudio"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "gainDb": {
+                "type": "number",
+                "minimum": -24,
+                "maximum": 12
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "gainDb"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "splitScene"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "atFrame": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "newSceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "atFrame",
+              "newSceneId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "mergeScenes"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "nextSceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              }
+            },
+            "required": [
+              "type",
+              "sceneId",
+              "nextSceneId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "id",
+    "createdAt",
+    "originatingRequest",
+    "rationale",
+    "affectedScenes",
+    "previousVersion",
+    "resultingVersion",
+    "operations"
+  ],
+  "additionalProperties": false
+}

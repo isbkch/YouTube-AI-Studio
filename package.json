@@ -1,0 +1,43 @@
+{
+  "name": "winthecloud-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.24.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "wts": "tsx packages/orchestrator/src/cli.ts",
+    "demo": "tsx scripts/demo.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "test:integration": "tsx --test tests/*.integration.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "macos:build": "bash scripts/build-macos.sh",
+    "macos": "bash scripts/launch-macos.sh",
+    "schema": "tsx scripts/schema.ts"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.525",
+    "@remotion/renderer": "4.0.525",
+    "openai": "7.15.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.525",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "prettier": "^3.9.7",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
+  }
+}
