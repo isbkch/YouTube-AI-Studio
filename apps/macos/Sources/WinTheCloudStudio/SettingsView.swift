@@ -52,7 +52,7 @@ struct SettingsView: View {
           Text(
             "Local whisper transcribes on this Mac with whisper.cpp — no credits, no uploads. OpenAI sends the approved script and transcript for planning, and extracted audio for transcription; the key is read from OPENAI_API_KEY in the repository .env or macOS Keychain, and is passed only to the private local runtime. Final Cut speech analysis can be imported directly in Transcript."
           ).font(.caption).foregroundStyle(.secondary)
-        }.padding(20).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+        }.padding(20).studioCard(cornerRadius: 12)
         VStack(alignment: .leading, spacing: 14) {
           HStack {
             Text("Environment").font(.title3)
@@ -90,7 +90,7 @@ struct SettingsView: View {
               } catch { m.error = error.localizedDescription }
             }
           }.disabled(!m.runtime.connected)
-        }.padding(20).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+        }.padding(20).studioCard(cornerRadius: 12)
         VStack(alignment: .leading, spacing: 14) {
           Text("Creator profile & explicit preferences").font(.title3)
           Text(
@@ -127,7 +127,7 @@ struct SettingsView: View {
               }
             }
           }
-        }.padding(20).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+        }.padding(20).studioCard(cornerRadius: 12)
         if let error = m.error { Banner(text: error, isError: true) { m.error = nil } }
         if let notice = m.notice { Banner(text: notice, isError: false) { m.notice = nil } }
       }.padding(28)

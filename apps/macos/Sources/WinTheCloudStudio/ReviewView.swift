@@ -22,8 +22,8 @@ struct ReviewView: View {
             VStack(spacing: 16) {
               Image(systemName: "play.rectangle").font(.system(size: 50, weight: .ultraLight))
               Text("Build a rough cut to preview it here.")
-            }.foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 300).background(
-              Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+            }.foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 300).studioCard(
+              cornerRadius: 12)
           }
           if let build = p.latestBuild {
             HStack {
@@ -49,7 +49,7 @@ struct ReviewView: View {
                   "roughCut.approve", label: "Rough-cut approval",
                   params: ["version": build.planVersion])
               }
-            }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
+            }.buttonStyle(.borderedProminent).disabled(
               m.busy || p.currentBuild == nil || p.status != "AWAITING_ROUGH_CUT_APPROVAL")
           }
           if let a = p.roughCutApproval {
@@ -170,7 +170,7 @@ struct ReviewView: View {
               } else {
                 Text(r.status.capitalized).font(.caption).foregroundStyle(.secondary)
               }
-            }.padding(15).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 11))
+            }.padding(15).studioCard(cornerRadius: 11)
           }
           if p.plans.count > 1 {
             Button("Restore Previous Plan as New Version") {
