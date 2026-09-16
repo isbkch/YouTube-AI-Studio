@@ -7,6 +7,7 @@ import { defaultRoot } from "./store.ts";
 import { resolveApp } from "../../resolve-engine/src/index.ts";
 import { defaultWhisperModel } from "../../agents/src/whisper.ts";
 import { envCredential, loadDotEnv } from "../../shared/src/index.ts";
+import { readLibrary } from "./library.ts";
 export interface Check {
   name: string;
   status: "AVAILABLE" | "NOT FOUND" | "UNSUPPORTED VERSION";
@@ -202,6 +203,34 @@ export async function doctor(root = defaultRoot()) {
     guidance:
       "Set OPENAI_API_KEY in .env or save a key in the app’s Settings. Mock and local whisper need no key.",
   });
+  checks.push({
+    name: "Image generation",
+    status: (await hasCredential()) ? "AVAILABLE" : "NOT FOUND",
+    version: process.env.WTS_IMAGE_MODEL || "gpt-image-1",
+    required: false,
+    guidance:
+      "Shares the OpenAI credential: enables GPT-image B-roll. The mock provider renders deterministic gradient stills without credits.",
+  });
+  try {
+    const library = await readLibrary(root);
+    const music = library.tracks.filter((t) => t.kind === "music").length;
+    const sfx = library.tracks.filter((t) => t.kind === "sfx").length;
+    checks.push({
+      name: "Music/SFX library",
+      status: "AVAILABLE",
+      version: `${music} music, ${sfx} SFX`,
+      required: false,
+      guidance: path.join(root, "library"),
+    });
+  } catch (e) {
+    checks.push({
+      name: "Music/SFX library",
+      status: "NOT FOUND",
+      version: "",
+      required: false,
+      guidance: e instanceof Error ? e.message : "Fix library/library.json.",
+    });
+  }
   try {
     await mkdir(root, { recursive: true });
     await access(root, constants.W_OK);

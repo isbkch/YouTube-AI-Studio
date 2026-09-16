@@ -11,6 +11,7 @@ import {
   verifyOutput,
 } from "../packages/media/src/index.ts";
 import { renderPlaceholder } from "../packages/remotion-engine/src/index.ts";
+import { MockImageProvider } from "../packages/image-engine/src/index.ts";
 import {
   atomicJSON,
   defaultCreator,
@@ -18,6 +19,87 @@ import {
   hash,
 } from "../packages/shared/src/index.ts";
 const repo = fileURLToPath(new URL("..", import.meta.url));
+/** Deterministic, fully local demo library — nothing copyrighted ships. */
+async function synthesizeLibrary(root: string) {
+  const dir = path.join(root, "library");
+  const music = path.join(dir, "music", "ambient-demo.mp3");
+  const sfx = path.join(dir, "sfx", "whoosh-demo.mp3");
+  await mkdir(path.dirname(music), { recursive: true });
+  await mkdir(path.dirname(sfx), { recursive: true });
+  try {
+    await inspect(music);
+  } catch {
+    await ffmpeg([
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=110:duration=96",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=165:duration=96",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=220:duration=96",
+      "-filter_complex",
+      "[0:a]volume=0.22[a0];[1:a]volume=0.15[a1];[2:a]volume=0.10[a2];[a0][a1][a2]amix=inputs=3:normalize=0,tremolo=f=0.15:d=0.5,aformat=sample_rates=48000:channel_layouts=stereo",
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      "128k",
+      music,
+    ]);
+  }
+  try {
+    await inspect(sfx);
+  } catch {
+    await ffmpeg([
+      "-f",
+      "lavfi",
+      "-i",
+      "anoisesrc=d=0.9:c=pink:a=0.4",
+      "-af",
+      "lowpass=f=1800,highpass=f=180,afade=t=in:st=0:d=0.35,afade=t=out:st=0.45:d=0.45,aformat=sample_rates=48000:channel_layouts=stereo",
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      "128k",
+      sfx,
+    ]);
+  }
+  await atomicJSON(path.join(dir, "library.json"), {
+    schemaVersion: "1.0.0",
+    tracks: [
+      {
+        trackId: "ambient-demo",
+        title: "Ambient Demo Bed",
+        kind: "music",
+        file: "music/ambient-demo.mp3",
+        mood: ["calm", "technical"],
+        energy: 1,
+        bpm: null,
+        loopable: true,
+        duration: 96,
+        license:
+          "Synthesized by the demo harness; no third-party rights involved.",
+      },
+      {
+        trackId: "whoosh-demo",
+        title: "Demo Whoosh",
+        kind: "sfx",
+        file: "sfx/whoosh-demo.mp3",
+        mood: ["transition"],
+        energy: 3,
+        bpm: null,
+        loopable: false,
+        duration: 0.9,
+        license:
+          "Synthesized by the demo harness; no third-party rights involved.",
+      },
+    ],
+  });
+}
 export async function demo(
   root = process.env.WTS_HOME || path.join(repo, ".demo"),
 ) {
@@ -118,6 +200,7 @@ export async function demo(
     ]);
   }
   const store = new Store(root);
+  await synthesizeLibrary(root);
   let last = "";
   const studio = new Studio(store, undefined, undefined, (event) => {
     const e = event as {
@@ -131,6 +214,7 @@ export async function demo(
       }
     }
   });
+  studio.images = new MockImageProvider();
   try {
     const p = store.create(
       "Why Redundancy Is Not High Availability",
@@ -258,15 +342,71 @@ export async function demo(
       ),
       before,
     );
+    console.log(
+      "Milestone 3: visual-direction pass proposes generated B-roll and a music bed…",
+    );
+    const visualPatch = await studio.proposeVisualPass(p.id);
+    const treatmentOps = visualPatch.operations.filter(
+      (o) => o.type === "setBroll",
+    );
+    assert.ok(
+      visualPatch.operations.some((o) => o.type === "setAudioDesign"),
+      "the visual pass always states the audio design explicitly",
+    );
+    assert.ok(
+      treatmentOps.length >= 1,
+      "the mock pass treats at least one scene",
+    );
+    await studio.decidePatch(p.id, visualPatch.id, true);
+    await studio.approvePlan(p.id, 3);
+    await studio.build(p.id);
+    const treated = store
+      .get(p.id)
+      .plans.at(-1)!
+      .scenes.flatMap((s) => s.broll);
+    assert.equal(treated.length, treatmentOps.length);
+    const stillAssets = store
+      .assets(p.id)
+      .filter((a) => a.type === "generated-image");
+    const clipAssets = store
+      .assets(p.id)
+      .filter((a) => a.type === "broll-clip");
+    const mixAssets = store.assets(p.id).filter((a) => a.type === "audio-mix");
+    assert.equal(stillAssets.length, treated.length);
+    assert.equal(clipAssets.length, treated.length);
+    assert.equal(mixAssets.length, 1);
+    const mixed = store.get(p.id).plans.at(-1)!.audioDesign;
+    assert.ok(mixed.music, "the demo bed was selected and mixed in");
     const current = store.get(p.id),
       latest = current.builds.at(-1)!;
     const cutSeconds = plan.durationFrames / plan.frameRate;
-    await verifyOutput(path.join(store.dir(p), latest.previewPath), cutSeconds);
+    const previewAbs = path.join(store.dir(p), latest.previewPath);
+    await verifyOutput(previewAbs, cutSeconds);
+    const mixedAudio = await (
+      await import("../packages/media/src/index.ts")
+    ).analyzeAudio(previewAbs);
+    assert.ok(
+      mixedAudio.maxVolumeDb !== null && mixedAudio.maxVolumeDb > -45,
+      "the music bed is audible in the mixed rough cut",
+    );
+    const qa = JSON.parse(
+      await readFile(path.join(store.dir(p), latest.qaPath), "utf8"),
+    ) as {
+      status: string;
+      attention: string[];
+      visual?: { reviewedBy?: string; scenes?: unknown[] };
+    };
+    assert.equal(qa.status, "PASS");
+    assert.deepEqual(qa.attention, []);
+    assert.ok(
+      (qa.visual?.scenes?.length ?? 0) >= 1,
+      "the mock vision review covered every enabled scene",
+    );
     const receipt = {
       projectId: p.id,
       root,
       projectDirectory: store.dir(p),
-      preview: path.join(store.dir(p), latest.previewPath),
+      preview: previewAbs,
       resolveExport: path.join(store.dir(p), latest.exportPath),
       durationSeconds: Math.round(cutSeconds * 100) / 100,
       scenes: plan.scenes.length,
@@ -276,6 +416,14 @@ export async function demo(
         reusedGraphics: graphicScenes.length - 1,
         regeneratedSegments: 1,
         reusedSegments: plan.scenes.length - 1,
+      },
+      visualPass: {
+        treatedScenes: treatmentOps.length,
+        generatedStills: stillAssets.length,
+        motionClips: clipAssets.length,
+        musicBed: mixed.music!.trackId,
+        sfxCount: mixed.sfx.length,
+        visualQA: qa.visual?.reviewedBy ?? null,
       },
       sourceUnchanged: true,
       scriptGate: "approved by deterministic demo harness",

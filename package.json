@@ -24,6 +24,7 @@
     "format:check": "prettier --check .",
     "check": "bun run typecheck && bun run lint && bun run test",
     "macos:build": "bash scripts/build-macos.sh",
+    "icons": "bash scripts/make-icon.sh",
     "macos": "bash scripts/launch-macos.sh",
     "schema": "tsx scripts/schema.ts",
     "macos:demo": "bash scripts/launch-macos.sh --demo",

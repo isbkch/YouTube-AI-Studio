@@ -12,9 +12,16 @@ import {
   type Transcriber,
 } from "../../agents/src/index.ts";
 import { WhisperCLIProvider } from "../../agents/src/whisper.ts";
+import {
+  MockImageProvider,
+  OpenAIImageProvider,
+} from "../../image-engine/src/index.ts";
 import { validatePlan } from "../../production-plan/src/index.ts";
 import { errorInfo, loadDotEnv, StudioError } from "../../shared/src/index.ts";
-import { resolveCommand } from "../../resolve-engine/src/index.ts";
+import {
+  FINAL_RENDER_PRESETS,
+  resolveCommand,
+} from "../../resolve-engine/src/index.ts";
 loadDotEnv();
 const { positionals: a, values: v } = parseArgs({
   allowPositionals: true,
@@ -26,6 +33,8 @@ const { positionals: a, values: v } = parseArgs({
     duration: { type: "string", default: "900" },
     version: { type: "string" },
     recording: { type: "string" },
+    preset: { type: "string", default: "H.264 Master" },
+    macro: { type: "string" },
     apply: { type: "boolean" },
     help: { type: "boolean" },
   },
@@ -52,9 +61,11 @@ bun run wts build <project> | render <project> | jobs <project>
 bun run wts revision propose <project> <scene-id> "Creative direction" [--provider openai]
 bun run wts revision range <project> 3:42-4:10 "illustrate the failover"
 bun run wts revision edit <project> <operations.json>
+bun run wts visuals propose <project> [--provider openai]
 bun run wts revision apply <project> <patch-id> | revision reject <project> <patch-id>
 bun run wts plan undo <project>
 bun run wts review approve <project> --version 1
+bun run wts final macros | final render <project> [--preset "H.264 Master"] [--macro CinematicGrade]
 bun run wts resolve probe | resolve import <absolute.fcpxml> "New project name"
 
 All approvals refer to an exact version. Publishing is unavailable.
@@ -81,7 +92,9 @@ try {
     );
   else {
     store = new Store();
-    const needsAI = ["transcribe", "plan", "revision"].includes(a[0]);
+    const needsAI = ["transcribe", "plan", "revision", "visuals"].includes(
+      a[0],
+    );
     const needsKey = needsAI && v.provider === "openai";
     let provider: AIProvider = new MockAIProvider();
     if (needsKey)
@@ -95,6 +108,14 @@ try {
       if (job)
         process.stderr.write(JSON.stringify({ event: "job", ...job }) + "\n");
     });
+    if (v.provider === "openai") {
+      try {
+        studio.images = new OpenAIImageProvider(await openAICredential());
+      } catch {
+        studio.images = null;
+      }
+    } else if (["visuals", "build", "render"].includes(a[0]))
+      studio.images = new MockImageProvider();
     let result: unknown;
     if (a[0] === "project" && a[1] === "create")
       result = store.create(a[2], v.description, Number(v.duration));
@@ -155,10 +176,22 @@ try {
         await readJSONFile(a[3]),
         "Explicit CLI edit",
       );
+    else if (a[0] === "visuals" && a[1] === "propose")
+      result = await studio.proposeVisualPass(a[2], abort.signal);
     else if (a[0] === "revision" && ["apply", "reject"].includes(a[1]))
       result = await studio.decidePatch(a[2], a[3], a[1] === "apply");
     else if (a[0] === "review" && a[1] === "approve")
       result = await studio.approveRoughCut(a[2], Number(v.version));
+    else if (a[0] === "final" && a[1] === "macros") {
+      const { fusionMacros } =
+        await import("../../resolve-engine/src/index.ts");
+      result = { macros: await fusionMacros(), presets: FINAL_RENDER_PRESETS };
+    } else if (a[0] === "final" && a[1] === "render")
+      result = await studio.renderFinal(a[2], {
+        preset: v.preset as "H.264 Master" | undefined,
+        macroId: v.macro,
+        signal: abort.signal,
+      });
     else
       throw new StudioError(
         "INVALID_INPUT",

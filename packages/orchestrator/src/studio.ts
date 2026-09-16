@@ -6,19 +6,23 @@ import {
   applyPatch,
   patchSchema,
   normalizePlan,
+  validateAudioDesign,
   validatePlan,
   validateSources,
   operationSchema,
   type Graphic,
+  type Operation,
   type PlanPatch,
   type ProductionPlan,
 } from "../../production-plan/src/index.ts";
 import {
   DirectorAgent,
   MockAIProvider,
+  VisualPassAgent,
   validateTranscript,
   type AIProvider,
   type Transcriber,
+  type VisualPassCapabilities,
 } from "../../agents/src/index.ts";
 import {
   fileHash,
@@ -29,7 +33,16 @@ import {
   StudioError,
   type CreatorProfile,
 } from "../../shared/src/index.ts";
-import { importRecording, extractAudio } from "../../media/src/index.ts";
+import {
+  importRecording,
+  extractAudio,
+  verifyOutput,
+} from "../../media/src/index.ts";
+import type { ImageProvider } from "../../image-engine/src/index.ts";
+import {
+  FINAL_RENDER_PRESETS,
+  resolveCommand,
+} from "../../resolve-engine/src/index.ts";
 import { Store } from "./store.ts";
 import {
   transition,
@@ -39,6 +52,8 @@ import {
 } from "./model.ts";
 import { buildProject } from "./build.ts";
 import { JobGraph } from "./jobs.ts";
+import { engineCapabilities, validateEngines } from "./engines.ts";
+import { readLibrary, trackRefs } from "./library.ts";
 import { alignScript, alignmentSchema, type Alignment } from "./alignment.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import {
@@ -50,6 +65,8 @@ import {
 
 export class Studio {
   public transcription: Transcriber;
+  /** Still-image generation engine; null fails B-roll plans closed (ADR 007). */
+  public images: ImageProvider | null = null;
   constructor(
     public store: Store,
     public provider: AIProvider = new MockAIProvider(),
@@ -642,8 +659,12 @@ export class Studio {
     });
   }
   async build(projectId: string, signal?: AbortSignal) {
-    return buildProject(this.store, projectId, signal, (job) =>
-      this.notify?.({ event: "job", job }),
+    return buildProject(
+      this.store,
+      projectId,
+      signal,
+      (job) => this.notify?.({ event: "job", job }),
+      { images: this.images, provider: this.provider },
     );
   }
   async propose(
@@ -706,7 +727,9 @@ export class Studio {
             ops.flatMap((o) =>
               o.type === "mergeScenes"
                 ? [o.sceneId, o.nextSceneId]
-                : [o.sceneId],
+                : "sceneId" in o
+                  ? [o.sceneId]
+                  : [],
             ),
           ),
         ],
@@ -777,6 +800,53 @@ export class Studio {
             operations.push({ type: "removeGraphic", sceneId: scene.id });
           continue;
         }
+        if (intent.broll && scene.visual.type === "presenter") {
+          const hook = (scene.narration.split(/(?<=\.)\s/)[0] || request).slice(
+            0,
+            300,
+          );
+          if (hook.trim().length >= 3 && scene.durationFrames >= 60) {
+            const startFrame = Math.min(
+              24,
+              Math.floor(scene.durationFrames * 0.25),
+            );
+            operations.push({
+              type: "setBroll",
+              sceneId: scene.id,
+              broll: [
+                {
+                  id: `broll-${scene.id}`,
+                  startFrame,
+                  durationFrames: Math.max(
+                    24,
+                    Math.min(
+                      Math.floor(scene.durationFrames * 0.6),
+                      scene.durationFrames - startFrame,
+                    ),
+                  ),
+                  placement: "inset",
+                  inset: { x: 0.55, y: 0.5, width: 0.38 },
+                  motion: "zoom-in",
+                  asset: {
+                    engine: "gpt-image",
+                    template: "GeneratedStill",
+                    templateVersion: "1.0.0",
+                    parameters: {
+                      brief: `Illustrate the narration: ${hook}`.slice(0, 600),
+                      style: "technical-illustration",
+                      palette: null,
+                      avoid: "text, watermarks, distorted geometry",
+                      quality: "low",
+                      expectsText: false,
+                    },
+                  },
+                  narrationHook: hook,
+                },
+              ],
+            });
+            continue;
+          }
+        }
         if (intent.illustrate) {
           if (scene.visual.type === "graphic") continue;
           const suggestion =
@@ -820,8 +890,8 @@ export class Studio {
         rationale: `Scoped range revision over ${rangeText}; only the listed scene instructions change.`,
         affectedScenes: [
           ...new Set(
-            (operations as { type: string; sceneId: string }[]).map(
-              (o) => o.sceneId,
+            operations.flatMap((o) =>
+              "sceneId" in o ? [o.sceneId as string] : [],
             ),
           ),
         ],
@@ -834,6 +904,118 @@ export class Studio {
         x.revisions.push({ patch, status: "PROPOSED", decidedAt: null });
       });
       return patch;
+    });
+  }
+  /**
+   * Visual-direction pass: decide whether the video needs generated B-roll,
+   * music or SFX, what each treatment communicates, where it belongs and how
+   * long it lasts — then propose it as a patch through the human gate.
+   */
+  async proposeVisualPass(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      this.revisionAllowed(p);
+      const plan = validatePlan(p.plans.at(-1));
+      const library = await readLibrary(this.store.root);
+      const capabilities = engineCapabilities(this.images, library);
+      const visualCapabilities: VisualPassCapabilities = {
+        "gpt-image": capabilities["gpt-image"],
+        blender: null,
+        musicTracks: library.tracks
+          .filter((t) => t.kind === "music")
+          .map((t) => ({
+            trackId: t.trackId,
+            title: t.title,
+            mood: t.mood,
+            energy: t.energy,
+            bpm: t.bpm,
+            loopable: t.loopable,
+            duration: t.duration,
+          })),
+        sfxTracks: library.tracks
+          .filter((t) => t.kind === "sfx")
+          .map((t) => ({
+            trackId: t.trackId,
+            title: t.title,
+            duration: t.duration,
+          })),
+      };
+      const budget = {
+        maxGeneratedStills: Math.max(
+          1,
+          Number(process.env.WTS_IMAGE_BUDGET) || 8,
+        ),
+      };
+      let patch: PlanPatch | undefined;
+      await this.operation(
+        p,
+        "visual-pass",
+        "Visual direction • B-roll, music and SFX",
+        async (signal) => {
+          const result = await new VisualPassAgent(this.provider).propose(
+            {
+              plan,
+              capabilities: visualCapabilities,
+              budget,
+              creator: p.creator,
+            },
+            signal,
+          );
+          const pass = result.output;
+          const total = pass.treatments.reduce((n, t) => n + t.broll.length, 0);
+          if (total > budget.maxGeneratedStills)
+            throw new StudioError(
+              "INVALID_PLAN",
+              `Visual pass proposed ${total} generated stills against a budget of ${budget.maxGeneratedStills}.`,
+              "Raise WTS_IMAGE_BUDGET or retry the pass.",
+              true,
+            );
+          const operations: Operation[] = pass.treatments
+            .filter((t) => t.broll.length)
+            .map((t) => ({
+              type: "setBroll" as const,
+              sceneId: t.sceneId,
+              broll: t.broll,
+            }));
+          operations.push({
+            type: "setAudioDesign",
+            audioDesign: { music: pass.music, sfx: pass.sfx },
+          });
+          const proposal: PlanPatch = {
+            id: id("patch"),
+            createdAt: now(),
+            originatingRequest: `Visual direction pass (${result.usage.provider}/${result.usage.model})`,
+            rationale: pass.summary,
+            affectedScenes: [
+              ...new Set(
+                operations.flatMap((o) =>
+                  "sceneId" in o ? [o.sceneId as string] : [],
+                ),
+              ),
+            ],
+            previousVersion: plan.version,
+            resultingVersion: plan.version + 1,
+            operations,
+          };
+          // Fail closed before approval: engines must be configured and the
+          // audio design must resolve in the creator's library.
+          const next = applyPatch(plan, this.validateProposal(p, proposal));
+          validateEngines(next, this.images);
+          validateAudioDesign(next, trackRefs(library.tracks));
+          this.store.update(p.id, (x) => {
+            x.usage.push(result.usage);
+          });
+          patch = proposal;
+        },
+        signal,
+      );
+      this.store.update(p.id, (x) => {
+        x.revisions.push({
+          patch: patch!,
+          status: "PROPOSED",
+          decidedAt: null,
+        });
+      });
+      return patch!;
     });
   }
   private revisionAllowed(p: Project) {
@@ -956,7 +1138,88 @@ export class Studio {
           approvedAt: now(),
           approvedBy: "creator",
         };
-        this.store.event(p.id, { event: "roughCut.approved", version });
+        this.store.event(x.id, { event: "roughCut.approved", version });
+      });
+    });
+  }
+  /**
+   * Headless finishing through Resolve: import the current timeline, apply an
+   * optional checked-in Fusion macro, and render with a validated preset.
+   */
+  async renderFinal(
+    projectId: string,
+    options: {
+      preset?: (typeof FINAL_RENDER_PRESETS)[number];
+      macroId?: string;
+      signal?: AbortSignal;
+    } = {},
+  ) {
+    return this.locked(projectId, async (p) => {
+      if (!["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].includes(p.status))
+        throw new StudioError(
+          "CONFLICT",
+          "Approve the rough cut before finishing.",
+        );
+      const plan = validatePlan(p.plans.at(-1));
+      const build = p.builds.findLast((b) => b.planVersion === plan.version);
+      if (!build)
+        throw new StudioError("CONFLICT", "Build the current plan first.");
+      const preset = options.preset ?? "H.264 Master";
+      if (!(FINAL_RENDER_PRESETS as readonly string[]).includes(preset))
+        throw new StudioError(
+          "INVALID_INPUT",
+          `Unknown render preset. Choose one of: ${FINAL_RENDER_PRESETS.join(", ")}.`,
+        );
+      const dir = this.store.dir(p);
+      const slug =
+        preset.replace(/[^a-z0-9]+/gi, "") +
+        (options.macroId ? `-${options.macroId}` : "");
+      const output = await safePath(
+        dir,
+        `renders/final-v${plan.version}-${slug}.mp4`,
+      );
+      let produced: string | null = null;
+      await this.operation(
+        p,
+        "final-render",
+        `Resolve • final render (${preset}${options.macroId ? ` + ${options.macroId}` : ""})`,
+        async (signal) => {
+          const result = await resolveCommand(
+            "render",
+            await safePath(dir, build.exportPath),
+            `WTS Final ${p.title.slice(0, 60)} ${plan.version} ${Date.now()}`,
+            output,
+            preset,
+            options.macroId,
+            signal ?? options.signal,
+          );
+          if (!result.output)
+            throw new StudioError(
+              "EXTERNAL_TOOL",
+              `Resolve render did not produce ${path.basename(output)} (status ${result.renderStatus ?? "unknown"}).`,
+              "Check the Resolve render queue, then retry.",
+              true,
+            );
+          await verifyOutput(
+            result.output,
+            plan.durationFrames / plan.frameRate,
+            signal,
+          );
+          produced = result.output;
+        },
+        options.signal,
+      );
+      const relative = produced!
+        ? path.relative(dir, produced!)
+        : `renders/final-v${plan.version}-${slug}.mp4`;
+      return this.store.update(p.id, (x) => {
+        x.finalRender = relative;
+        this.store.event(p.id, {
+          event: "final.rendered",
+          planVersion: plan.version,
+          preset,
+          macro: options.macroId ?? null,
+        });
       });
     });
   }
@@ -1039,6 +1302,7 @@ function parseIntent(request: string) {
         request,
       ),
     punch: /\b(punch in|zoom in|tighter)\b/i.test(request),
+    broll: /\bb-?roll\b|\bgenerated (image|still)\b/i.test(request),
     chapter: chapterMatch ? chapterMatch[1].trim().slice(0, 120) : null,
     fallback: {
       template: "Callout" as const,

@@ -1,4 +1,12 @@
-import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   atomicJSON,
@@ -8,27 +16,51 @@ import {
   now,
   safePath,
   StudioError,
+  type Usage,
 } from "../../shared/src/index.ts";
 import {
   coverageSummary,
   graphicKey,
+  validateAudioDesign,
   validatePlan,
   validateSources,
 } from "../../production-plan/src/index.ts";
+import { validateEngines } from "./engines.ts";
 import {
   PREVIEW,
   analyzeAudio,
+  detectAnomalies,
   extractAudio,
+  mixAudio,
   proxy,
+  sampleFrames,
   verifyOutput,
 } from "../../media/src/index.ts";
+import {
+  VisualQAAgent,
+  reviewStill,
+  type AIProvider,
+  type SceneReviewInput,
+  type StillReview,
+  type VisualReview,
+} from "../../agents/src/index.ts";
 import {
   renderGraphic,
   templateHash,
 } from "../../remotion-engine/src/index.ts";
+import {
+  BROLL_SOURCE_SIZE,
+  brollBox,
+  brollClipKey,
+  brollStillKey,
+  buildImagePrompt,
+  renderMotionClip,
+  type ImageProvider,
+} from "../../image-engine/src/index.ts";
 import { Store } from "./store.ts";
 import { transition, type Asset } from "./model.ts";
 import { JobGraph, type Task, type TaskContext } from "./jobs.ts";
+import { readLibrary, resolveTrack, trackRefs } from "./library.ts";
 import {
   makeTimeline,
   toOTIO,
@@ -36,7 +68,17 @@ import {
   toChapters,
   renderSegment,
   concatenateSegments,
+  type SegmentOverlay,
+  type TimelineAudio,
+  type TimelineBrollClip,
 } from "./timeline.ts";
+/** Providers the build may invoke; null engines make plans fail closed. */
+export interface BuildContext {
+  images: ImageProvider | null;
+  /** Structured-output provider for automated visual QA; null skips review. */
+  provider: AIProvider | null;
+}
+const visualQAEnabled = () => process.env.WTS_VISUAL_QA !== "off";
 interface Cached {
   path: string;
   outputHash: string;
@@ -86,13 +128,18 @@ export async function buildProject(
   projectId: string,
   signal?: AbortSignal,
   onJob?: (job: import("./model.ts").Job) => void,
+  context: BuildContext = { images: null, provider: null },
 ) {
   let p = store.get(projectId);
   const release = store.acquire(p.id);
   p = store.get(p.id);
   const dir = store.dir(p);
   const graphics = new Map<string, Asset>(),
-    segments = new Map<string, Asset>();
+    segments = new Map<string, Asset>(),
+    /** sceneId → brollId → rendered clip asset. */
+    brollClips = new Map<string, Map<string, Asset>>(),
+    /** sceneId/brollId → generated-still review verdict. */
+    stillReviews = new Map<string, StillReview>();
   try {
     const plan = validatePlan(p.plans.at(-1));
     if (
@@ -132,6 +179,31 @@ export async function buildProject(
     )
       throw new StudioError("CONFLICT", "Approved script content changed.");
     validateSources(plan, p.recordings, p.transcripts);
+    // Engine capability gates (ADR 007): unavailable engines fail the build
+    // before any pixels are spent, and audio design must resolve in-library.
+    validateEngines(plan, context.images);
+    const library = await readLibrary(store.root);
+    validateAudioDesign(plan, trackRefs(library.tracks));
+    const design = plan.audioDesign;
+    const musicTrack = design.music
+      ? await resolveTrack(
+          store.root,
+          library.tracks.find((t) => t.trackId === design.music!.trackId)!,
+        )
+      : null;
+    const sfxTracks = [] as {
+      event: (typeof design)["sfx"][number];
+      resolved: Awaited<ReturnType<typeof resolveTrack>>;
+    }[];
+    for (const event of design.sfx) {
+      sfxTracks.push({
+        event,
+        resolved: await resolveTrack(
+          store.root,
+          library.tracks.find((t) => t.trackId === event.trackId)!,
+        ),
+      });
+    }
     const templateSourceHash = await templateHash();
     const tasks: Task[] = [];
     const persistAsset = (
@@ -281,6 +353,128 @@ export async function buildProject(
           },
         });
       }
+      const sceneBroll = scene.enabled ? scene.broll : [];
+      for (const entry of sceneBroll) {
+        const stillId = `broll-still-${scene.id}-${entry.id}`;
+        const clipTaskId = `broll-clip-${scene.id}-${entry.id}`;
+        const stillKey = brollStillKey(entry, context.images!);
+        tasks.push({
+          id: stillId,
+          type: "image",
+          label: `GeneratedStill • ${scene.id}/${entry.id}`,
+          dependencies: [],
+          run: async (ctx) => {
+            let usage: Usage | null = null;
+            const c = await cachedFile(
+              dir,
+              stillKey,
+              `assets/generated/still-${stillKey}.png`,
+              async (temp) => {
+                const result = await context.images!.generate({
+                  prompt: buildImagePrompt(entry.asset),
+                  size: BROLL_SOURCE_SIZE,
+                  quality: entry.asset.parameters.quality,
+                  signal: ctx.signal,
+                });
+                usage = result.usage;
+                await writeFile(temp, result.data);
+              },
+            );
+            if (usage && !c.reused) {
+              const spent = usage;
+              store.update(p.id, (x) => x.usage.push(spent));
+            }
+            persistAsset(ctx, "generated-image", stillKey, c, scene.id, {
+              generator: entry.asset.engine,
+              template: entry.asset.template,
+              templateVersion: entry.asset.templateVersion,
+              parameters: entry.asset.parameters,
+              instruction: entry.narrationHook,
+              provider: context.images!.name,
+              model: context.images!.model,
+            });
+            // Vision gate before compositing: flag, never auto-regenerate.
+            if (context.provider && visualQAEnabled() && !c.reused) {
+              try {
+                const review = await reviewStill(
+                  context.provider,
+                  {
+                    sceneId: scene.id,
+                    stillPath: await safePath(dir, c.path),
+                    brief: entry.asset.parameters.brief,
+                    style: entry.asset.parameters.style,
+                    expectsText: entry.asset.parameters.expectsText,
+                  },
+                  ctx.signal,
+                );
+                store.update(p.id, (x) => x.usage.push(review.usage));
+                stillReviews.set(`${scene.id}/${entry.id}`, review.output);
+                if (review.output.verdict !== "pass")
+                  ctx.log(
+                    `Still review ${review.output.verdict}: ${review.output.findings.map((f) => f.kind).join(", ") || review.output.note}`,
+                  );
+              } catch (e) {
+                ctx.log(
+                  `Still review unavailable: ${e instanceof Error ? e.message : String(e)}`,
+                );
+              }
+            }
+          },
+        });
+        tasks.push({
+          id: clipTaskId,
+          type: "broll",
+          label: `B-roll motion • ${scene.id}/${entry.id}`,
+          dependencies: [stillId],
+          run: async (ctx) => {
+            const key = brollClipKey(entry, plan);
+            const box = brollBox(entry, plan);
+            const c = await cachedFile(
+              dir,
+              key,
+              `assets/generated/broll-${key}.mp4`,
+              async (temp) => {
+                await renderMotionClip({
+                  still: await safePath(
+                    dir,
+                    `assets/generated/still-${stillKey}.png`,
+                  ),
+                  output: temp,
+                  width: box.width,
+                  height: box.height,
+                  durationFrames: entry.durationFrames,
+                  frameRate: plan.frameRate,
+                  motion: entry.motion,
+                  signal: ctx.signal,
+                  progress: ctx.progress,
+                });
+                await verifyOutput(
+                  temp,
+                  entry.durationFrames / plan.frameRate,
+                  ctx.signal,
+                );
+              },
+            );
+            let perScene = brollClips.get(scene.id);
+            if (!perScene) brollClips.set(scene.id, (perScene = new Map()));
+            perScene.set(
+              entry.id,
+              persistAsset(ctx, "broll-clip", key, c, scene.id, {
+                generator: "ffmpeg-zoompan",
+                template: entry.asset.template,
+                templateVersion: entry.asset.templateVersion,
+                parameters: {
+                  motion: entry.motion,
+                  placement: entry.placement,
+                  inset: entry.inset,
+                },
+                sourceAssets: scene.transcriptSegmentIds,
+                instruction: entry.narrationHook,
+              }),
+            );
+          },
+        });
+      }
       tasks.push({
         id: `segment-${scene.id}`,
         type: "preview-segment",
@@ -288,29 +482,81 @@ export async function buildProject(
         dependencies: [
           `proxy-${scene.camera.recordingId}`,
           ...(scene.enabled && scene.visual.graphic ? [graphicId] : []),
+          ...sceneBroll.map((b) => `broll-clip-${scene.id}-${b.id}`),
         ],
         run: async (ctx) => {
           const recording = p.recordings.find(
             (r) => r.id === scene.camera.recordingId,
           )!;
-          const graphic = graphics.get(scene.id);
+          const graphic = graphics.get(scene.id) ?? null;
+          const perScene = brollClips.get(scene.id);
+          const fullframe =
+            sceneBroll.find((b) => b.placement === "fullframe") ?? null;
+          const fullframeClip = fullframe ? perScene!.get(fullframe.id)! : null;
+          // Full-frame B-roll replaces the frame exactly like a Remotion graphic.
+          const replace = graphic ?? fullframeClip;
+          const insets = sceneBroll.filter((b) => b.placement === "inset");
+          const overlaySpecs = insets.map((b) => {
+            const clip = perScene!.get(b.id)!;
+            const duration = b.durationFrames / plan.frameRate;
+            const fade = Math.min(0.35, duration / 4);
+            const box = brollBox(b, plan);
+            return {
+              asset: clip,
+              x: Math.round(b.inset!.x * plan.resolution.width),
+              y: Math.round(b.inset!.y * plan.resolution.height),
+              width: box.width,
+              height: box.height,
+              startSec: b.startFrame / plan.frameRate,
+              endSec: b.startFrame / plan.frameRate + duration,
+              fadeInSec: fade,
+              fadeOutSec: fade,
+            };
+          });
           const key = hash({
             source: recording.hash,
             sourceInFrame: scene.sourceInFrame,
             durationFrames: scene.durationFrames,
-            punchIn: graphic ? 1 : scene.camera.punchIn,
+            punchIn: replace ? 1 : scene.camera.punchIn,
             audio: scene.audio,
-            graphic: graphic?.outputHash || null,
-            renderer: `preview-v2-${PREVIEW.frameRate}fps-${PREVIEW.height}p`,
+            graphic: replace?.outputHash || null,
+            ...(overlaySpecs.length
+              ? {
+                  overlays: overlaySpecs.map((o) => ({
+                    asset: o.asset.outputHash,
+                    x: o.x,
+                    y: o.y,
+                    width: o.width,
+                    height: o.height,
+                    startSec: o.startSec,
+                    endSec: o.endSec,
+                    fades: [o.fadeInSec, o.fadeOutSec],
+                  })),
+                }
+              : {}),
+            renderer: `preview-v2-${PREVIEW.frameRate}fps-${PREVIEW.height}p${overlaySpecs.length ? "-overlay" : ""}`,
           });
           const c = await cachedFile(
             dir,
             key,
             `cache/segment-${key}.mp4`,
             async (temp) => {
+              const overlays: SegmentOverlay[] = [];
+              for (const o of overlaySpecs)
+                overlays.push({
+                  clip: await safePath(dir, o.asset.path),
+                  x: o.x,
+                  y: o.y,
+                  width: o.width,
+                  height: o.height,
+                  startSec: o.startSec,
+                  endSec: o.endSec,
+                  fadeInSec: o.fadeInSec,
+                  fadeOutSec: o.fadeOutSec,
+                });
               await renderSegment({
                 source: await safePath(dir, recording.proxyPath!),
-                graphic: graphic ? await safePath(dir, graphic.path) : null,
+                graphic: replace ? await safePath(dir, replace.path) : null,
                 sourceStart: scene.sourceInFrame / plan.frameRate,
                 duration: scene.durationFrames / plan.frameRate,
                 punchIn: scene.camera.punchIn,
@@ -319,6 +565,7 @@ export async function buildProject(
                 output: temp,
                 signal: ctx.signal,
                 progress: ctx.progress,
+                overlays,
               });
               await verifyOutput(
                 temp,
@@ -333,6 +580,8 @@ export async function buildProject(
               sourceAssets: [
                 recording.id,
                 ...(graphic ? [graphic.assetId] : []),
+                ...(fullframeClip ? [fullframeClip.assetId] : []),
+                ...insets.map((b) => perScene!.get(b.id)!.assetId),
               ],
             }),
           );
@@ -349,6 +598,9 @@ export async function buildProject(
       timelinePath = `renders/timeline-v${plan.version}-${signature}.json`,
       exportPath = `renders/resolve-v${plan.version}-${signature}.fcpxml`,
       qaPath = `renders/qa-v${plan.version}-${signature}.json`;
+    const hasAudioDesign = !!(design.music || design.sfx.length);
+    /** Set by the assembly task; the mix task reads it after its dependency. */
+    const concatOutput = { key: "", relative: previewPath };
     tasks.push({
       id: "assembly",
       type: "assembly",
@@ -359,7 +611,66 @@ export async function buildProject(
           if (x.status === "GENERATING_ASSETS")
             x.status = transition(x.status, "ASSEMBLING");
         });
-        const timeline = makeTimeline(plan, p.recordings, graphics);
+        const concatKey = hash({
+          segments: plan.scenes.map((s) => segments.get(s.id)!.outputHash),
+          operation: "concat-v1",
+        });
+        concatOutput.key = concatKey;
+        concatOutput.relative = hasAudioDesign
+          ? `cache/concat-${concatKey}.mp4`
+          : previewPath;
+        // Copy referenced library tracks into the project so every timeline
+        // path stays project-relative (and survives library reorganization).
+        const audio: TimelineAudio = { design, music: null, sfx: [] };
+        if (musicTrack && design.music) {
+          const ext = path.extname(musicTrack.file) || ".m4a";
+          const c = await cachedFile(
+            dir,
+            `library-${musicTrack.hash}`,
+            `cache/library-${musicTrack.hash}${ext}`,
+            (temp) => copyFile(musicTrack.file, temp),
+          );
+          audio.music = {
+            path: c.path,
+            sourceDurationFrames: Math.floor(
+              musicTrack.duration * plan.frameRate,
+            ),
+          };
+        }
+        for (const s of sfxTracks) {
+          const ext = path.extname(s.resolved.file) || ".m4a";
+          const c = await cachedFile(
+            dir,
+            `library-${s.resolved.hash}`,
+            `cache/library-${s.resolved.hash}${ext}`,
+            (temp) => copyFile(s.resolved.file, temp),
+          );
+          audio.sfx.push({
+            event: s.event,
+            path: c.path,
+            sourceDurationFrames: Math.floor(
+              s.resolved.duration * plan.frameRate,
+            ),
+          });
+        }
+        const timelineBroll: Map<string, TimelineBrollClip[]> = new Map();
+        for (const [sceneId, perScene] of brollClips)
+          timelineBroll.set(
+            sceneId,
+            [...perScene.entries()].map(([brollId, a]) => ({
+              sceneId,
+              brollId,
+              assetId: a.assetId,
+              path: a.path,
+            })),
+          );
+        const timeline = makeTimeline(
+          plan,
+          p.recordings,
+          graphics,
+          timelineBroll,
+          audio,
+        );
         await store.artifact(p, timelinePath, timeline);
         await store.artifact(
           p,
@@ -378,28 +689,93 @@ export async function buildProject(
             note: "YouTube-ready chapter list; paste into the description.",
           },
         );
-        const key = hash({
-          segments: plan.scenes.map((s) => segments.get(s.id)!.outputHash),
-          operation: "concat-v1",
-        });
-        const c = await cachedFile(dir, key, previewPath, async (temp) =>
-          concatenateSegments(
-            dir,
-            plan.scenes.map((s) => segments.get(s.id)!.path),
-            temp,
-            ctx.signal,
-          ),
+        const c = await cachedFile(
+          dir,
+          concatKey,
+          concatOutput.relative,
+          async (temp) =>
+            concatenateSegments(
+              dir,
+              plan.scenes.map((s) => segments.get(s.id)!.path),
+              temp,
+              ctx.signal,
+            ),
         );
         ctx.log(
           `${c.reused ? "Reused" : "Assembled"} local rough cut and editable Resolve timelines.`,
         );
       },
     });
+    if (hasAudioDesign) {
+      tasks.push({
+        id: "mix",
+        type: "mix",
+        label: "Mix music bed and SFX under narration",
+        dependencies: ["assembly"],
+        run: async (ctx) => {
+          const mixKey = hash({
+            concat: concatOutput.key,
+            music: musicTrack
+              ? {
+                  hash: musicTrack.hash,
+                  ...design.music,
+                  durationSeconds: plan.durationFrames / plan.frameRate,
+                }
+              : null,
+            sfx: sfxTracks.map((s) => ({
+              hash: s.resolved.hash,
+              atFrame: s.event.atFrame,
+              gainDb: s.event.gainDb,
+            })),
+            renderer: "mix-v1-sidechain",
+          });
+          const c = await cachedFile(dir, mixKey, previewPath, async (temp) => {
+            await mixAudio({
+              video: await safePath(dir, concatOutput.relative),
+              output: temp,
+              duration: plan.durationFrames / plan.frameRate,
+              music:
+                musicTrack && design.music
+                  ? {
+                      file: musicTrack.file,
+                      gainDb: design.music.gainDb,
+                      duckToDb: design.music.duckToDb,
+                      fadeInSec: design.music.fadeInSec,
+                      fadeOutSec: design.music.fadeOutSec,
+                      loopable: library.tracks.find(
+                        (t) => t.trackId === design.music!.trackId,
+                      )!.loopable,
+                    }
+                  : null,
+              sfx: sfxTracks.map((s) => ({
+                file: s.resolved.file,
+                atSec: s.event.atFrame / plan.frameRate,
+                gainDb: s.event.gainDb,
+              })),
+              signal: ctx.signal,
+              progress: ctx.progress,
+            });
+            await verifyOutput(
+              temp,
+              plan.durationFrames / plan.frameRate,
+              ctx.signal,
+            );
+          });
+          persistAsset(ctx, "audio-mix", mixKey, c, null, {
+            generator: "ffmpeg-sidechain",
+            parameters: { music: design.music, sfxCount: design.sfx.length },
+          });
+          ctx.log(
+            `${c.reused ? "Reused" : "Mixed"} music/SFX bed into the rough cut.`,
+          );
+        },
+      });
+    }
     tasks.push({
       id: "qa",
       type: "qa",
       label: "QA • decode, duration and asset completeness",
-      dependencies: ["assembly"],
+      dependencies: [hasAudioDesign ? "mix" : "assembly"],
       run: async (ctx) => {
         const meta = await verifyOutput(
           await safePath(dir, previewPath),
@@ -454,8 +830,104 @@ export async function buildProject(
           warnings.push(
             `${droppedTakes.length} imported recording(s) unused by this cut: ${droppedTakes.map((c) => c.name).join(", ")}.`,
           );
+        // Automated visual QA: technical anomaly filters plus vision review
+        // of sampled mid-scene frames against each scene's intent.
+        const attention: string[] = [];
+        let visual:
+          | {
+              anomalies: Awaited<ReturnType<typeof detectAnomalies>>;
+              framesDir: string | null;
+              reviewedBy: string | null;
+              summaries: string[];
+              scenes: VisualReview["scenes"];
+              stills: ({ sceneId: string; brollId: string } & StillReview)[];
+            }
+          | undefined;
+        try {
+          const previewFile = await safePath(dir, previewPath);
+          const anomalies = await detectAnomalies(previewFile, ctx.signal);
+          if (anomalies.black.length)
+            warnings.push(
+              `${anomalies.black.length} black interval(s) detected; verify they are intentional.`,
+            );
+          if (anomalies.frozen.length)
+            warnings.push(
+              `${anomalies.frozen.length} frozen interval(s) detected; verify motion where expected.`,
+            );
+          let framesDir: string | null = null;
+          const reviewScenes: VisualReview["scenes"] = [];
+          const summaries: string[] = [];
+          let reviewedBy: string | null = null;
+          if (context.provider && visualQAEnabled()) {
+            framesDir = qaPath.replace(/\.json$/, "-frames");
+            const framesAbs = await safePath(dir, framesDir);
+            const batch: SceneReviewInput[] = [];
+            const flush = async () => {
+              if (!batch.length) return;
+              const result = await new VisualQAAgent(context.provider!).review(
+                batch,
+                ctx.signal,
+              );
+              store.update(p.id, (x) => x.usage.push(result.usage));
+              reviewScenes.push(...result.output.scenes);
+              summaries.push(result.output.summary);
+              reviewedBy = `${result.usage.provider}/${result.usage.model}`;
+              batch.length = 0;
+            };
+            for (const scene of plan.scenes) {
+              if (!scene.enabled) continue;
+              const midpoint =
+                (scene.startFrame + scene.durationFrames / 2) / plan.frameRate;
+              const [frame] = await sampleFrames(
+                previewFile,
+                [midpoint],
+                framesAbs,
+                `scene-${scene.id}`,
+                ctx.signal,
+              );
+              if (!frame) continue;
+              batch.push({
+                sceneId: scene.id,
+                framePath: frame,
+                intent: {
+                  description: scene.visual.description,
+                  graphicTemplate: scene.visual.graphic?.template ?? null,
+                  broll: scene.broll.map((b) => ({
+                    brief: b.asset.parameters.brief,
+                    placement: b.placement,
+                    motion: b.motion,
+                  })),
+                  narrationExcerpt: scene.narration.slice(0, 600),
+                  chapterTitle: scene.chapterTitle,
+                },
+              });
+              if (batch.length >= 4) await flush();
+            }
+            await flush();
+          }
+          const stills = [...stillReviews.entries()].map(([key, review]) => {
+            const [sceneId, brollId] = key.split("/");
+            return { sceneId, brollId, ...review };
+          });
+          for (const s of stills)
+            if (s.verdict !== "pass") attention.push(s.sceneId);
+          for (const s of reviewScenes)
+            if (s.verdict !== "pass") attention.push(s.sceneId);
+          visual = {
+            anomalies,
+            framesDir,
+            reviewedBy,
+            summaries,
+            scenes: reviewScenes,
+            stills,
+          };
+        } catch (e) {
+          warnings.push(
+            `Automated visual QA unavailable: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
         await store.artifact(p, qaPath, {
-          status: "PASS",
+          status: attention.length ? "ATTENTION" : "PASS",
           checkedAt: now(),
           checks: [
             "All expected scene assets present",
@@ -463,21 +935,24 @@ export async function buildProject(
             "Full preview decoded without FFmpeg errors",
             "Duration within 120 ms",
             "Original source content hashes verified",
+            "Black/freeze frame filters ran over the assembled cut",
           ],
           metadata: meta,
           audio,
           coverage: coverageSummary(plan, p.recordings),
           warnings,
+          visual,
+          attention: [...new Set(attention)],
           humanChecks: [
             "Factual accuracy and narration/graphic agreement",
             "Speech pacing, dead air and mix",
-            "Text fit and brand consistency",
+            "Visual QA verdicts — confirm flagged scenes and stills",
           ],
           coverageNote:
-            "Technical QA only; not factual or perceptual approval.",
+            "Technical and sampled-frame QA; final editorial judgment stays human.",
         });
         ctx.log(
-          `QA passed: ${meta.duration.toFixed(2)}s, ${meta.width}×${meta.height}.`,
+          `QA ${attention.length ? "flagged" : "passed"}: ${meta.duration.toFixed(2)}s, ${meta.width}×${meta.height}${attention.length ? `, ${new Set(attention).size} scene(s) need attention` : ""}.`,
         );
       },
     });

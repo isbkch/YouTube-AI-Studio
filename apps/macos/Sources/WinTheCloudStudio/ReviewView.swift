@@ -9,6 +9,8 @@ struct ReviewView: View {
   @State private var request = ""
   @State private var sceneID = ""
   @State private var range = ""
+  @State private var preset = "H.264 Master"
+  @State private var macro = ""
   var previewURL: URL? { p.latestBuild.flatMap { p.url($0.previewPath) } }
   var body: some View {
     HSplitView {
@@ -57,12 +59,14 @@ struct ReviewView: View {
           }
           if let a = p.roughCutApproval {
             Label(
-              "Rough cut v\(a.version) approved. Continue final finishing in Resolve.",
+              "Rough cut v\(a.version) approved. Continue final finishing below or in Resolve.",
               systemImage: "checkmark.seal"
             ).foregroundStyle(Color.studioSuccess).font(.caption)
           }
+          QAReportView(p: p)
+          if p.roughCutApproval != nil { FinalRenderView(p: p, preset: $preset, macro: $macro) }
           Text(
-            "Review pacing, factual accuracy, audio, and text fit. Technical QA checks decode, timing and asset completeness; it does not approve creative choices."
+            "Review pacing, factual accuracy, audio, and flagged visuals. Automated QA checks decode, timing, sampled frames and generated stills; it does not approve creative choices."
           ).font(.caption).foregroundStyle(.secondary)
           if let plan = p.plan {
             Text("Jump to scene").font(.headline)
@@ -186,7 +190,110 @@ struct ReviewView: View {
     }.task(id: previewURL) {
       if let url = previewURL { player = AVPlayer(url: url) }
       if sceneID.isEmpty { sceneID = p.plan?.scenes.first?.id ?? "" }
+      await m.loadQA()
+      await m.loadFinalOptions()
     }.onDisappear { player?.pause() }
+  }
+}
+
+/// Automated visual QA: status, attention list, per-scene verdicts, still gates.
+struct QAReportView: View {
+  @EnvironmentObject var m: StudioModel
+  let p: Project
+  var body: some View {
+    if let qa = m.qa {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack {
+          Image(systemName: qa.status == "PASS" ? "checkmark.shield" : "exclamationmark.shield")
+            .foregroundStyle(qa.status == "PASS" ? Color.studioSuccess : .orange)
+          Text("Automated QA • \(qa.status)").font(.headline)
+          Spacer()
+          if let by = qa.visual?.reviewedBy {
+            Text(by).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+          }
+        }
+        if let attention = qa.attention, !attention.isEmpty {
+          Text("Scenes needing attention: \(attention.joined(separator: ", "))")
+            .font(.caption).foregroundStyle(.orange)
+        }
+        ForEach(qa.warnings ?? [], id: \.self) { w in
+          Label(w, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(
+            .secondary)
+        }
+        let verdicts = (qa.visual?.scenes ?? []).filter { $0.verdict != "pass" }
+        if !verdicts.isEmpty {
+          DisclosureGroup("Scene verdicts • \(verdicts.count) flagged") {
+            ForEach(verdicts) { v in
+              VStack(alignment: .leading, spacing: 3) {
+                Text("\(v.sceneId) — \(v.verdict)").font(.system(size: 11, weight: .semibold))
+                ForEach(Array(v.findings.enumerated()), id: \.offset) { _, f in
+                  Text("• [\(f.severity)] \(f.kind): \(f.evidence)").font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+              }.padding(.vertical, 2)
+            }
+          }
+        }
+        let stills = (qa.visual?.stills ?? []).filter { $0.verdict != "pass" }
+        if !stills.isEmpty {
+          DisclosureGroup("Generated stills • \(stills.count) flagged") {
+            ForEach(stills) { s in
+              VStack(alignment: .leading, spacing: 3) {
+                Text("\(s.sceneId)/\(s.brollId) — \(s.verdict)").font(
+                  .system(size: 11, weight: .semibold))
+                ForEach(Array(s.findings.enumerated()), id: \.offset) { _, f in
+                  Text("• [\(f.severity)] \(f.kind): \(f.evidence)").font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+              }.padding(.vertical, 2)
+            }
+          }
+        }
+        if let frames = qa.visual?.framesDir, let url = p.url(frames) {
+          Button("Reveal Sampled Frames") { m.reveal(url) }.buttonStyle(QuietButtonStyle())
+        }
+      }.padding(16).studioCard(cornerRadius: 11)
+    }
+  }
+}
+
+/// Headless finishing: preset + optional checked-in Fusion macro, through Resolve.
+struct FinalRenderView: View {
+  @EnvironmentObject var m: StudioModel
+  let p: Project
+  @Binding var preset: String
+  @Binding var macro: String
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Image(systemName: "film").foregroundStyle(Color.studioAccent)
+        Text("Finishing").font(.headline)
+        Spacer()
+      }
+      Text(
+        "Render the approved cut headlessly through Resolve, optionally with a checked-in Fusion macro. Requires Resolve with external scripting enabled."
+      ).font(.caption).foregroundStyle(.secondary)
+      HStack {
+        Picker("Preset", selection: $preset) {
+          ForEach(m.finalPresets, id: \.self) { Text($0).tag($0) }
+        }
+        Picker("Macro", selection: $macro) {
+          Text("None").tag("")
+          ForEach(m.finalMacros, id: \.self) { Text($0).tag($0) }
+        }
+      }
+      HStack {
+        Button("Start Final Render") {
+          Task { await m.renderFinal(preset: preset, macro: macro) }
+        }.buttonStyle(PrimaryActionButtonStyle()).disabled(
+          m.busy || !["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].contains(p.status))
+        if let f = p.finalRender, let url = p.url(f) {
+          Label(URL(fileURLWithPath: f).lastPathComponent, systemImage: "checkmark.seal")
+            .font(.caption).foregroundStyle(Color.studioSuccess)
+          Button("Reveal") { m.reveal(url) }.buttonStyle(QuietButtonStyle())
+        }
+      }
+    }.padding(16).studioCard(cornerRadius: 11)
   }
 }
 

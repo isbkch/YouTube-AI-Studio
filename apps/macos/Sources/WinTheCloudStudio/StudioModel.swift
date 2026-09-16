@@ -15,6 +15,11 @@ import UniformTypeIdentifiers
   @Published var notice: String?
   @Published var report: DoctorReport?
   @Published var aroll: ArollDraft?
+  @Published var qa: QAReport?
+  @Published var finalMacros: [String] = []
+  @Published var finalPresets: [String] = [
+    "H.264 Master", "H.264 Narrative", "ProRes 422 HQ", "ProRes 422",
+  ]
   @Published var provider = UserDefaults.standard.string(forKey: "provider") ?? "mock"
   @Published var transcriptionProvider =
     UserDefaults.standard.string(forKey: "transcriptionProvider") ?? "mock"
@@ -182,6 +187,25 @@ import UniformTypeIdentifiers
     await perform(
       "revision.range", label: "Range revision proposal",
       params: ["range": range, "request": request])
+  }
+  /** The decision layer: propose generated B-roll, music and SFX as a patch. */
+  func proposeVisualPass() async {
+    await perform("visuals.propose", label: "Visual direction pass")
+  }
+  func loadQA() async {
+    guard let id = selectedID else { return }
+    qa = try? await runtime.call("qa.get", ["projectId": id])
+  }
+  func loadFinalOptions() async {
+    if let options: FinalOptions = try? await runtime.call("final.macros") {
+      finalMacros = options.macros
+      finalPresets = options.presets
+    }
+  }
+  func renderFinal(preset: String, macro: String) async {
+    var params: [String: Any] = ["preset": preset]
+    if !macro.isEmpty { params["macroId"] = macro }
+    await perform("final.render", label: "Resolve final render", params: params)
   }
   func openResolve() async {
     busy = true

@@ -398,6 +398,73 @@ export async function thumbnail(input: string, output: string, seconds = 0) {
   ]);
 }
 
+/** Black/freeze frame detection over the assembled cut; evidence, not verdicts. */
+export async function detectAnomalies(file: string, signal?: AbortSignal) {
+  const { stderr } = await runTool(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostdin",
+      "-i",
+      path.resolve(file),
+      "-vf",
+      "blackdetect=d=0.4:pix_th=0.08,freezedetect=n=-60dB:d=0.5",
+      "-an",
+      "-f",
+      "null",
+      "-",
+    ],
+    { signal },
+  );
+  return {
+    black: [
+      ...stderr.matchAll(/black_start:([\d.]+)\s+black_end:([\d.]+)/g),
+    ].map((m) => ({ start: Number(m[1]), end: Number(m[2]) })),
+    frozen: [...stderr.matchAll(/freeze_start:([\d.]+)/g)].map((m) => ({
+      start: Number(m[1]),
+    })),
+    note: "Filters report technical evidence; review decides whether it is intentional.",
+  };
+}
+
+/** Sample downscaled JPEG frames at the given seconds for vision review. */
+export async function sampleFrames(
+  file: string,
+  times: number[],
+  outputDir: string,
+  prefix = "frame",
+  signal?: AbortSignal,
+) {
+  await mkdir(outputDir, { recursive: true });
+  const frames: string[] = [];
+  let index = 0;
+  for (const seconds of times) {
+    signal?.throwIfAborted();
+    if (!Number.isFinite(seconds) || seconds < 0) continue;
+    const output = path.join(
+      outputDir,
+      `${prefix}-${String(++index).padStart(4, "0")}.jpg`,
+    );
+    await ffmpeg([
+      "-ss",
+      String(seconds),
+      "-protocol_whitelist",
+      "file,pipe",
+      "-i",
+      path.resolve(file),
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale=768:-2",
+      "-q:v",
+      "7",
+      output,
+    ]);
+    frames.push(output);
+  }
+  return frames;
+}
+
 /** Technical audio diagnostics; silence can be intentional and is a review warning. */
 export async function analyzeAudio(file: string, signal?: AbortSignal) {
   const { stderr } = await runTool(
@@ -430,4 +497,100 @@ export async function analyzeAudio(file: string, signal?: AbortSignal) {
     maxVolumeDb: number(/max_volume: (-?[\d.]+) dB/),
     note: "Silence and peaks are technical observations, not automatic editorial decisions.",
   };
+}
+
+export interface MusicMix {
+  file: string;
+  gainDb: number;
+  duckToDb: number;
+  fadeInSec: number;
+  fadeOutSec: number;
+  loopable: boolean;
+}
+export interface SfxMix {
+  file: string;
+  atSec: number;
+  gainDb: number;
+}
+/**
+ * Mix the music bed and SFX under the narration already present in the video.
+ * Ducking uses sidechain compression keyed on narration; the duckToDb target
+ * maps to a compression ratio (an approximation, measured afterwards by QA).
+ */
+export async function mixAudio(options: {
+  video: string;
+  output: string;
+  duration: number;
+  music: MusicMix | null;
+  sfx: SfxMix[];
+  signal?: AbortSignal;
+  progress?: (fraction: number) => void;
+}) {
+  const o = options;
+  if (path.resolve(o.video) === path.resolve(o.output))
+    throw new StudioError("INVALID_INPUT", "Cannot overwrite the concat cut.");
+  const inputs: string[] = ["-i", path.resolve(o.video)];
+  let inputCount = 1;
+  const chains: string[] = [];
+  const mixLabels: string[] = [];
+  if (o.music) {
+    if (o.music.loopable) inputs.push("-stream_loop", "-1");
+    inputs.push("-i", path.resolve(o.music.file));
+    const musicIn = inputCount++;
+    const fadeOutStart = Math.max(0, o.duration - o.music.fadeOutSec);
+    const ratio = Math.min(
+      20,
+      Math.max(2, Math.round((-6 - o.music.duckToDb) / 1.5)),
+    );
+    chains.push(
+      `[${musicIn}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:${o.duration.toFixed(3)},asetpts=N/SR/TB,apad,volume=${o.music.gainDb}dB,afade=t=in:st=0:d=${o.music.fadeInSec},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${o.music.fadeOutSec}[m0]`,
+      `[0:a]asplit=2[duckkey][narration]`,
+      `[m0][duckkey]sidechaincompress=threshold=0.02:ratio=${ratio}:attack=10:release=350[music]`,
+    );
+    mixLabels.push("[narration]", "[music]");
+  } else {
+    chains.push(`[0:a]anull[narration]`);
+    mixLabels.push("[narration]");
+  }
+  o.sfx.forEach((s, i) => {
+    inputs.push("-i", path.resolve(s.file));
+    const index = inputCount++;
+    const ms = Math.round(s.atSec * 1000);
+    chains.push(
+      `[${index}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume=${s.gainDb}dB,adelay=${ms}|${ms}[sfx${i}]`,
+    );
+    mixLabels.push(`[sfx${i}]`);
+  });
+  chains.push(
+    `${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=longest:normalize=0,alimiter=limit=0.95[aout]`,
+  );
+  await ffmpeg(
+    [
+      ...inputs,
+      "-filter_complex",
+      chains.join(";"),
+      "-map",
+      "0:v",
+      "-map",
+      "[aout]",
+      "-t",
+      String(o.duration),
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-ar",
+      "48000",
+      "-ac",
+      "2",
+      "-movflags",
+      "+faststart",
+      path.resolve(o.output),
+    ],
+    o.signal,
+    o.progress,
+    o.duration,
+  );
 }

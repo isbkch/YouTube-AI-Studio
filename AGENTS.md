@@ -1,0 +1,63 @@
+# WinTheCloud Studio
+
+Native macOS production dashboard for technical YouTube videos. SwiftUI controls a local TypeScript production runtime; the CLI uses the same domain service. There is no web frontend, HTTP server, cloud backend, or implemented publishing command.
+
+## Commands
+
+Run from the repository root. Use Bun for dependency management and scripts, and Node.js 24+ for execution (`node:sqlite` is required). `package.json` pins Bun 1.4.2. Native work requires macOS 14+ and the Swift 6+ toolchain. Media work requires FFmpeg/ffprobe with `libx264` and `libmp3lame`; Resolve is optional.
+
+| Command                                                                                                             | Purpose                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `bun install`                                                                                                       | Install the workspace dependencies using `bun.lock`.                                               |
+| `bun run check`                                                                                                     | Typecheck, lint, then run `tests/*.test.ts`.                                                       |
+| `bun run typecheck` / `bun run lint`                                                                                | Run either static check independently.                                                             |
+| `bun run test`                                                                                                      | Node test runner through `tsx`; includes domain, IPC, jobs, and mocked provider tests.             |
+| `node --import tsx --test tests/domain.test.ts`                                                                     | Run one test file.                                                                                 |
+| `node --import tsx --test --test-name-pattern='state transitions enforce all human gates' tests/foundation.test.ts` | Run one named test; put runner options before the file.                                            |
+| `bun run test:integration`                                                                                          | Real FFmpeg and Remotion renders, catalog coverage, and a multi-recording build.                   |
+| `bun run demo`                                                                                                      | End-to-end synthetic production plus selective rebuild assertions; `bun run test:e2e` is an alias. |
+| `bun run format:check` / `bun run format`                                                                           | Check/apply Prettier formatting; Swift is excluded.                                                |
+| `bun run swift:format`                                                                                              | Format the native Swift sources.                                                                   |
+| `bun run schema`                                                                                                    | Regenerate both checked-in production-plan JSON Schemas from Zod.                                  |
+| `swift build --package-path apps/macos -c release`                                                                  | Compile the native executable without installing the app.                                          |
+| `bun run macos:build`                                                                                               | Compile, bundle, ad-hoc sign, and install the development app.                                     |
+| `bun run macos` / `bun run macos:demo`                                                                              | Build/install and launch with the normal/demo library.                                             |
+| `bun run wts --help` / `bun run wts doctor`                                                                         | Inspect CLI commands or local tool readiness.                                                      |
+
+`macos:build` creates `dist/WinTheCloud Studio.app` and synchronizes it into `/Applications/WinTheCloud Studio.app` with `rsync --delete`. The launcher prefers the installed copy. The bundle references this checkout and its `node_modules`; it is not a standalone or notarized distribution. `WTS_RUNTIME_ROOT` overrides that checkout path. Restart the app after runtime changes; there is no hot reload.
+
+The normal test suite uses temporary libraries and mocked providers without paid API calls. Integration tests require media tools and can download Remotion's browser on first use. The demo also needs macOS `say`; it creates a new project under `.demo/projects/` and writes `.demo/demo-result.json`, unless `WTS_HOME` overrides its library. `macos:demo` selects the repository's `.demo` library but does not generate demo media itself. `check` does not include formatting, integration/demo rendering, or Swift compilation. There is currently no Swift test target.
+
+## Architecture and change boundaries
+
+- **Native client:** `apps/macos/Sources/WinTheCloudStudio/Runtime.swift` launches one Node child running `packages/orchestrator/src/ipc.ts` through the `tsx` loader. Requests/responses are private JSON lines with IDs; progress uses events. Stdout belongs exclusively to IPC; diagnostics go to stderr. `StudioModel.swift` maps UI actions to methods, and `Models.swift` decodes snapshots. IPC shape changes must remain compatible with these Swift consumers.
+- **Domain service:** `packages/orchestrator/src/studio.ts` owns script/transcript workflows, approvals, plan generation/import, revisions, and recovery. Both `cli.ts` and `ipc.ts` call it; keep domain rules here so the app and CLI enforce the same gates. `model.ts` defines persisted project types and state transitions; `store.ts` owns SQLite and artifact persistence.
+- **Planning:** `alignment.ts` matches approved script sentences to transcript timings across takes; `aroll.ts` builds deterministic edit decisions from that alignment. `fcp.ts` imports Final Cut speech analysis. `packages/agents` supplies the mock/OpenAI Director and separate transcription providers, including local whisper.cpp. Models return structured plans or patches, never executable worker code.
+- **Execution:** `build.ts` expands an approved plan into a persisted job graph (`jobs.ts`): proxies/audio, graphics, preview segments, assembly, QA, and exports. `packages/media` owns tool discovery, safe subprocess execution, media inspection/conforming, and output verification. `timeline.ts` builds the engine-neutral timeline and FCPXML, OTIO, and chapter exports.
+- **Graphics and finishing:** `packages/remotion-engine` renders the checked-in compositions in `templates/remotion/index.tsx`. `packages/resolve-engine` uses a trusted Python bridge for explicit probe/import operations. Local rough cuts and exports work without Resolve; final finishing/rendering is performed there separately.
+
+TypeScript is strict ESM with NodeNext resolution and direct `.ts` imports. Workspace packages export their TypeScript source; there is no separate JavaScript compilation/bundling command for the runtime.
+
+## Production-plan contract
+
+`packages/production-plan/src/index.ts` is authoritative for Zod schemas, inferred types, JSON Schema, template catalog, semantic validation, migration, and typed patch operations. Plan schema version is `2.0.0`; `validatePlan` migrates legacy v1 plans. Schema acceptance is broader than executable media support: `PREVIEW` in `packages/media/src/index.ts` and `buildProject` currently require **1920×1080 at 30 fps**.
+
+- Times are integer frames in the plan timebase. `startFrame` is output placement; `sourceInFrame` is the selected recording offset. Scenes cover the output contiguously. Validate both plan structure and recording/transcript references (`validatePlan` and `validateSources`).
+- `enabled: false` disables a scene's visual treatment while preserving its A-roll/audio and duration. It does not remove footage. Only hard cuts are implemented; numeric `punchIn` controls the actual transform, while framing labels are editorial metadata.
+- Script approval binds to a saved version/hash and precedes media import. The script locks after import. Every recording needs a transcript before planning. Storyboard approval binds to the exact plan version/hash before build; rough-cut approval binds to a completed preview's bytes.
+- Patches are persisted proposals before being applied/rejected. Applying or undoing creates a new plan version and invalidates downstream approvals. Preserve previous plans and outputs; an approved rough cut requires a plan revision before rebuilding.
+- When adding a graphic template, update `graphicSchema`, `TEMPLATE_CATALOG`, the trusted Remotion component/dispatch, and any affected Swift display/edit support. Regenerate the JSON Schemas and extend the catalog assertions/render cases in `tests/m2.test.ts` and `tests/media.integration.ts`. Keep Remotion dependency versions aligned with the renderer identity in `graphicKey`.
+
+## Persistence, cache, and providers
+
+The library defaults to `~/Movies/WinTheCloud Studio`; `WTS_HOME` or native Settings selects another location. Use an explicit disposable library for exploratory CLI mutations. `studio.sqlite` in WAL mode is authoritative for project documents, jobs, assets, settings, locks, and events. `projects/<slug>/project.json` is a generated snapshot, not an editable source of truth. Scripts, transcripts, plans, and large media artifacts also live in project directories. Project creation snapshots the creator profile, so changing defaults does not retroactively change existing projects.
+
+Mutations use per-project SQLite locks with PID/token ownership. Dead-owner recovery marks interrupted jobs failed; retries reconstruct the graph and reuse verified files. Jobs do not automatically resume after a crash. `wts project recover <project>` is the explicit recovery entry point; do not bypass a live owner's lock.
+
+Cache keys describe media/pixel inputs, not plan version. Graphic keys include template source, parameters, timing, resolution, brand, and renderer identity; segment keys include source ranges and effective transforms. Cached bytes are hash-verified, outputs are promoted from unique partial files only on success, and reuse gets fresh provenance for the current plan/job. Keep selective rebuild behavior intact. Original recordings are copied on import; all transformations write derived outputs. Managed paths go through `inside`/`safePath` in `packages/shared`; external tools use argument arrays without a shell.
+
+Mock is the default provider. OpenAI planning/revisions and transcription are billed; local whisper.cpp transcription uses `WTS_WHISPER_MODEL`. CLI entry points load `.env`, and credential lookup falls back to the `com.winthecloud.studio` / `openai` Keychain item. The native client can pass a session key through private IPC. `WTS_MODEL`/`--model` select the CLI Director model. Tool paths such as `WTS_FFMPEG_PATH` and `WTS_FFPROBE_PATH` override executable discovery. Provider transport tests live in `tests/provider.test.ts`.
+
+## Supporting documentation
+
+Use `README.md` for the creator workflow, `docs/development.md` for tooling, `docs/architecture.md` and `docs/adr/` for design rationale, and `docs/resolve.md` for finishing/export constraints. `PROGRESS.md` and `docs/verification.md` record prior evidence, not fresh verification. Some older docs still describe 720p, a three-template catalog, and earlier test counts; use current source and tests for executable capabilities. A passing build/test suite does not establish native playback, live provider behavior, or Resolve import success.

@@ -1,0 +1,35 @@
+{
+	Tools = ordered() {
+		WTS_CinematicGrade = MacroOperator {
+			CtrlWZoom = false,
+			NameSet = true,
+			Inputs = ordered() {
+				Input = InstanceInput {
+					SourceOp = "WTSGradeCC",
+					Source = "Input",
+				},
+			},
+			Outputs = {
+				MainOutput1 = InstanceOutput {
+					SourceOp = "WTSGradeCC",
+					Source = "Output",
+				},
+			},
+			ViewInfo = GroupInfo { Pos = { 0, 0 } },
+			Tools = ordered() {
+				WTSGradeCC = ColorCorrector {
+					CtrlWZoom = false,
+					NameSet = true,
+					Inputs = {
+						MasterRGBContrast = Input { Value = 1.12, },
+						MasterRGBGamma = Input { Value = 0.97, },
+						MasterRGBGainRed = Input { Value = 1.03, },
+						MasterRGBGainBlue = Input { Value = 1.05, },
+					},
+					ViewInfo = OperatorInfo { Pos = { 275, 115.5 } },
+				},
+			},
+		},
+	},
+	ActiveTool = "WTS_CinematicGrade",
+}
