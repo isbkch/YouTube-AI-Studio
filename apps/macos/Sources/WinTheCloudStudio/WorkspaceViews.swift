@@ -42,10 +42,14 @@ struct OverviewView: View {
         }
         VStack(alignment: .leading, spacing: 16) {
           Text("Production path").font(.headline)
-          Text("Approved script → A-roll → Transcript → Storyboard → Assets → Rough cut").font(
+          Text(
+            "Research → Narrative → Script → Pre-visualization → Approved script → A-roll → Transcript → Storyboard → Assets → Rough cut"
+          ).font(
             .callout
           ).foregroundStyle(.secondary)
           HStack {
+            Button("Open Pre-Production") { m.tab = "Pre-Production" }.buttonStyle(
+              QuietButtonStyle())
             Button("Open Script") { m.tab = "Script" }.buttonStyle(QuietButtonStyle())
             Button("Review Storyboard") { m.tab = "Storyboard" }.buttonStyle(QuietButtonStyle())
               .disabled(p.plan == nil)
@@ -104,6 +108,173 @@ struct CostView: View {
       Text(
         "Each generated asset records its scene, instruction, template, hashes, and job. Preferences change only when you edit them."
       ).font(.caption).foregroundStyle(.secondary)
+    }
+  }
+}
+/// Milestone 4 — idea → research → narrative → script draft → pre-visualization → teleprompter.
+struct PreproductionView: View {
+  @EnvironmentObject var m: StudioModel
+  let p: Project
+  private var canResearch: Bool {
+    ["IDEA", "RESEARCHING"].contains(p.status)
+  }
+  private var canNarrate: Bool {
+    ["RESEARCHING", "SCRIPTING", "AWAITING_SCRIPT_APPROVAL", "READY_TO_RECORD"]
+      .contains(p.status) && p.preproduction?.researchVersion != nil
+  }
+  private var canDraft: Bool {
+    ["SCRIPTING", "AWAITING_SCRIPT_APPROVAL", "READY_TO_RECORD"].contains(p.status)
+      && p.preproduction?.narrativeVersion != nil
+  }
+  private var canPrevisualize: Bool {
+    ["AWAITING_SCRIPT_APPROVAL", "READY_TO_RECORD"].contains(p.status)
+      && p.scripts.last != nil
+  }
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("From idea to recording brief.").studioHeading(20)
+          Text(
+            "Research, narrative and the script draft run agent by agent. You approve the script; the Director plans the edit before you record."
+          ).font(.caption).foregroundStyle(.secondary)
+        }
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            Text("The idea").font(.headline)
+            Spacer()
+            if p.preproduction?.researchVersion != nil {
+              Text("Research v\(p.preproduction!.researchVersion!)").font(.caption)
+                .foregroundStyle(Color.studioSuccess)
+            }
+          }
+          Text(
+            p.description.isEmpty
+              ? "Describe the idea when creating the project; research builds on it."
+              : p.description
+          ).font(.callout).foregroundStyle(.secondary)
+          Button(m.provider == "mock" ? "Run Research (mock)" : "Run Research") {
+            Task { await m.perform("research.run", label: "Research agent") }
+          }.buttonStyle(QuietButtonStyle()).disabled(!canResearch || m.busy)
+        }.padding(20).studioCard(cornerRadius: 12)
+        if let research = p.research, !research.notes.isEmpty {
+          VStack(alignment: .leading, spacing: 12) {
+            Text("Evidence brief").font(.headline)
+            Text(research.notes).font(.callout).lineSpacing(5)
+            if !research.sources.isEmpty {
+              Text("Sources").font(.caption).foregroundStyle(.secondary)
+              ForEach(research.sources) { s in
+                HStack(alignment: .top, spacing: 8) {
+                  Image(systemName: "link").font(.caption2).foregroundStyle(Color.studioAccent)
+                  Text("\(s.title) — \(s.url)").font(.caption).foregroundStyle(.secondary)
+                    .textSelection(.enabled).lineLimit(2)
+                }
+              }
+            }
+            Button(canNarrate ? "Continue → Narrative" : "Narrative runs before scripting") {
+              Task {
+                await m.perform("narrative.run", label: "Narrative agent")
+              }
+            }.buttonStyle(QuietButtonStyle()).disabled(!canNarrate || m.busy)
+          }.padding(20).studioCard(cornerRadius: 12)
+        }
+        if let outline = p.outline, !outline.isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            HStack {
+              Text("Narrative outline").font(.headline)
+              Spacer()
+              if let v = p.preproduction?.narrativeVersion {
+                Text("v\(v)").font(.caption).foregroundStyle(Color.studioSuccess)
+              }
+            }
+            ForEach(Array(outline.enumerated()), id: \.offset) { i, heading in
+              HStack(alignment: .top, spacing: 12) {
+                Text(String(format: "%02d", i + 1))
+                  .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                Text(heading).font(.callout)
+              }
+            }
+            HStack {
+              Button(canDraft ? "Draft Full Script →" : "Script draft needs the outline") {
+                Task {
+                  await m.perform("script.draft", label: "Script agent draft")
+                  m.tab = "Script"
+                }
+              }.buttonStyle(PrimaryActionButtonStyle()).disabled(!canDraft || m.busy)
+              if p.scripts.last != nil {
+                Button("Open Script") { m.tab = "Script" }.buttonStyle(QuietButtonStyle())
+              }
+              Spacer()
+            }
+          }.padding(20).studioCard(cornerRadius: 12)
+        }
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            Text("Director pre-visualization").font(.headline)
+            Spacer()
+            if let ref = p.preproduction?.previsualization {
+              Text("v\(ref.version) for script v\(ref.scriptVersion)").font(.caption)
+                .foregroundStyle(
+                  ref.scriptVersion == p.scripts.last?.version
+                    ? Color.studioSuccess : Color.orange)
+            }
+          }
+          Text(
+            "The planned edit before you record: when you are on camera, when B-roll or a demo carries the frame."
+          ).font(.caption).foregroundStyle(.secondary)
+          if let pv = m.previsualization {
+            Text(pv.summary).font(.callout).foregroundStyle(.secondary)
+            ForEach(pv.shots) { shot in
+              HStack(alignment: .top, spacing: 14) {
+                Text(timestamp(Double(shot.startSeconds))).font(
+                  .system(size: 11, design: .monospaced)
+                ).foregroundStyle(Color.studioAccent).frame(width: 52, alignment: .leading)
+                Text(shot.direction).font(.caption).lineLimit(2).frame(
+                  maxWidth: .infinity, alignment: .leading)
+                Text(shot.setup).font(.caption2).foregroundStyle(.secondary)
+              }
+            }
+            ForEach(Array(pv.recordingPlan.enumerated()), id: \.offset) { i, group in
+              Text(
+                "\(i + 1). \(group.setup) — \(group.shotIds.count) shot(s)"
+                  + (group.prep.isEmpty ? "" : " · \(group.prep.joined(separator: " "))")
+              ).font(.caption2).foregroundStyle(.secondary)
+            }
+          } else if p.preproduction?.previsualization != nil {
+            Text("A pre-visualization exists — run it again to view the run sheet.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
+          Button(canPrevisualize ? "Run Pre-Visualization" : "Needs a saved script") {
+            Task { await m.previsualize() }
+          }.buttonStyle(QuietButtonStyle()).disabled(!canPrevisualize || m.busy)
+        }.padding(20).studioCard(cornerRadius: 12)
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            Text("Teleprompter").font(.headline)
+            Spacer()
+            if let t = m.teleprompter {
+              Text("script v\(t.scriptVersion)").font(.caption).foregroundStyle(Color.studioSuccess)
+            }
+          }
+          Text(
+            p.scriptApproval == nil
+              ? "Available once the script is approved."
+              : "Reading document with crew cues; the run sheet rides along."
+          ).font(.caption).foregroundStyle(.secondary)
+          if let t = m.teleprompter {
+            ScrollView {
+              Text(t.text).font(.system(size: 15)).lineSpacing(6).frame(
+                maxWidth: .infinity, alignment: .leading
+              ).textSelection(.enabled).padding(16)
+            }.frame(maxHeight: 360).studioCard(cornerRadius: 12)
+          }
+          Button(
+            p.scriptApproval == nil ? "Approve the script first" : "Generate Teleprompter"
+          ) {
+            Task { await m.loadTeleprompter() }
+          }.buttonStyle(QuietButtonStyle()).disabled(p.scriptApproval == nil || m.busy)
+        }.padding(20).studioCard(cornerRadius: 12)
+      }.padding(30)
     }
   }
 }

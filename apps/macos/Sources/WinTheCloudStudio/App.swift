@@ -154,7 +154,10 @@ struct StudioView: View {
           }.padding(28)
           HStack(spacing: 4) {
             ForEach(
-              ["Overview", "Script", "Media", "Transcript", "Storyboard", "Production", "Review"],
+              [
+                "Overview", "Pre-Production", "Script", "Media", "Transcript", "Storyboard",
+                "Production", "Review",
+              ],
               id: \.self
             ) { tab in
               Button {
@@ -183,6 +186,7 @@ struct StudioView: View {
           if let notice = m.notice { Banner(text: notice, isError: false) { m.notice = nil } }
           Group {
             switch m.tab {
+            case "Pre-Production": PreproductionView(p: p)
             case "Script": ScriptView(p: p)
             case "Media": MediaView(p: p)
             case "Transcript": TranscriptView(p: p)

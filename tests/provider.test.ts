@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { OpenAIProvider } from "../packages/agents/src/index.ts";
+import { OpenAIProvider, ResearchAgent } from "../packages/agents/src/index.ts";
 import { OpenAIImageProvider } from "../packages/image-engine/src/index.ts";
+import { defaultCreator } from "../packages/shared/src/index.ts";
 
 test("OpenAI adapter uses Responses strict structured output and records usage without a network call", async () => {
   let body: Record<string, unknown> = {};
@@ -215,4 +216,71 @@ test("vision review attaches labeled frames as multimodal input", async () => {
     /^data:image\/jpeg;base64,/,
   );
   assert.equal(result.output.scenes[0].verdict, "pass");
+});
+
+test("pre-production research agent rides the strict structured transport", async () => {
+  let body: Record<string, unknown> = {};
+  const provider = new OpenAIProvider("test-key", "gpt-5.4", {
+    fetch: async (_url, options) => {
+      body = JSON.parse(String(options?.body));
+      const output = {
+        schemaVersion: "1.0.0",
+        summary: "Brief from model knowledge.",
+        keyPoints: [
+          { text: "Point one.", sourceUrls: ["https://sre.google/books/"] },
+        ],
+        claims: [],
+        counterpoints: [],
+        openQuestions: [],
+        sources: [
+          {
+            url: "https://sre.google/books/",
+            title: "Site Reliability Engineering",
+          },
+        ],
+      };
+      return new Response(
+        JSON.stringify({
+          id: "resp_research",
+          object: "response",
+          created_at: 1,
+          status: "completed",
+          model: "gpt-5.4",
+          output: [
+            {
+              id: "msg_research",
+              type: "message",
+              role: "assistant",
+              status: "completed",
+              content: [
+                {
+                  type: "output_text",
+                  text: JSON.stringify(output),
+                  annotations: [],
+                },
+              ],
+            },
+          ],
+          usage: { input_tokens: 210, output_tokens: 60, total_tokens: 270 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+  const result = await new ResearchAgent(provider).research({
+    projectId: "project-test",
+    idea: "Why multi-region failover still fails",
+    creator: defaultCreator,
+    targetDuration: 600,
+  });
+  assert.equal(
+    (body.text as { format: { name: string } }).format.name,
+    "research_notes",
+  );
+  const input = JSON.parse(String(body.input)) as { idea: string };
+  assert.equal(input.idea, "Why multi-region failover still fails");
+  assert.equal(result.output.schemaVersion, "1.0.0");
+  assert.equal(result.output.keyPoints.length, 1);
+  assert.equal(result.usage.agent, "research_notes");
+  assert.equal(result.usage.inputTokens, 210);
 });

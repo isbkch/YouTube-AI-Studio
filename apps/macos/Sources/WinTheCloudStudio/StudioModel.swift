@@ -16,6 +16,8 @@ import UniformTypeIdentifiers
   @Published var report: DoctorReport?
   @Published var aroll: ArollDraft?
   @Published var qa: QAReport?
+  @Published var previsualization: Previsualization?
+  @Published var teleprompter: TeleprompterDocument?
   @Published var finalMacros: [String] = []
   @Published var finalPresets: [String] = [
     "H.264 Master", "H.264 Narrative", "ProRes 422 HQ", "ProRes 422",
@@ -76,7 +78,7 @@ import UniformTypeIdentifiers
         "project.create",
         ["title": title, "description": description, "targetDuration": minutes * 60])
       await select(p.id)
-      tab = "Script"
+      tab = "Pre-Production"
     } catch { self.error = error.localizedDescription }
   }
   func cancel() async {
@@ -169,6 +171,27 @@ import UniformTypeIdentifiers
       notice = "A-roll draft ready."
     } catch { self.error = error.localizedDescription }
     await refresh()
+  }
+  /** Milestone 4 — Director pre-visualization returns the run sheet directly. */
+  func previsualize() async {
+    guard !busy, let id = selectedID else { return }
+    busy = true
+    busyLabel = "Director pre-visualization"
+    error = nil
+    defer { busy = false }
+    do {
+      let r: PrevisualizationResult = try await runtime.call(
+        "previsualization.run", ["projectId": id])
+      previsualization = r.previsualization
+      notice = "Run sheet ready for script v\(r.previsualization.scriptVersion)."
+    } catch { self.error = error.localizedDescription }
+    await refresh()
+  }
+  func loadTeleprompter() async {
+    guard let id = selectedID else { return }
+    do {
+      teleprompter = try await runtime.call("teleprompter.get", ["projectId": id])
+    } catch { self.error = error.localizedDescription }
   }
   func importPlan() async {
     guard let url = chooseFile(types: [.json]) else { return }
