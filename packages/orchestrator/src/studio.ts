@@ -26,7 +26,12 @@ import {
 } from "../../shared/src/index.ts";
 import { importRecording, extractAudio } from "../../media/src/index.ts";
 import { Store } from "./store.ts";
-import { transition, type Project, type Job } from "./model.ts";
+import {
+  transition,
+  type Project,
+  type Job,
+  type Transcript,
+} from "./model.ts";
 import { buildProject } from "./build.ts";
 import { JobGraph } from "./jobs.ts";
 
@@ -180,10 +185,13 @@ export class Studio {
   }
   async importMedia(projectId: string, file: string, signal?: AbortSignal) {
     return this.locked(projectId, async (p) => {
-      if (p.status !== "READY_TO_RECORD" || !p.scriptApproval)
+      if (
+        !["READY_TO_RECORD", "MEDIA_IMPORTED"].includes(p.status) ||
+        !p.scriptApproval
+      )
         throw new StudioError(
           "CONFLICT",
-          "Approve the script before importing A-roll.",
+          "Import A-roll after script approval and before planning.",
         );
       await this.operation(
         p,
@@ -201,19 +209,44 @@ export class Studio {
       return this.snapshot(p.id);
     });
   }
-  async loadTranscript(projectId: string, input: unknown) {
+  async loadTranscript(
+    projectId: string,
+    input: unknown,
+    recordingId?: string,
+  ) {
     return this.locked(projectId, async (p) => {
       if (p.status !== "MEDIA_IMPORTED")
         throw new StudioError(
           "CONFLICT",
           "Load the transcript after importing media and before planning.",
         );
-      const r = p.recordings.at(-1)!;
       const raw = z
-        .object({ segments: z.array(z.unknown()) })
+        .object({
+          segments: z.array(z.unknown()),
+          recordingId: z.string().optional(),
+        })
         .passthrough()
         .parse(input);
-      const transcript = validateTranscript({ ...raw, recordingId: r.id }, r);
+      const requested = recordingId ?? raw.recordingId;
+      const target = requested
+        ? p.recordings.find((r) => r.id === requested)
+        : p.recordings.find(
+            (r) => !p.transcripts.some((t) => t.recordingId === r.id),
+          );
+      if (!target)
+        throw new StudioError(
+          requested ? "INVALID_INPUT" : "CONFLICT",
+          requested
+            ? "No imported recording matches that transcript."
+            : "Every recording already has a transcript.",
+          requested
+            ? "Import that recording first, or load the transcript without an explicit target."
+            : "Generate the storyboard, or transcribe with the active provider.",
+        );
+      const transcript = validateTranscript(
+        { ...raw, recordingId: target.id },
+        target,
+      );
       await this.store.artifact(
         p,
         `transcripts/transcript-${hash(transcript).slice(0, 16)}.json`,
@@ -228,7 +261,15 @@ export class Studio {
     return this.locked(projectId, async (p) => {
       if (p.status !== "MEDIA_IMPORTED")
         throw new StudioError("CONFLICT", "Transcribe after media import.");
-      const r = p.recordings.at(-1)!;
+      const pending = p.recordings.filter(
+        (r) => !p.transcripts.some((t) => t.recordingId === r.id),
+      );
+      if (!pending.length)
+        throw new StudioError(
+          "CONFLICT",
+          "Every recording already has a transcript.",
+          "Generate the storyboard, or import another recording first.",
+        );
       this.store.update(p.id, (x) => {
         x.status = transition(x.status, "TRANSCRIBING");
       });
@@ -236,32 +277,33 @@ export class Studio {
         await this.operation(
           p,
           "transcription",
-          "Extract and transcribe A-roll",
+          `Extract and transcribe ${pending.length} recording${pending.length === 1 ? "" : "s"}`,
           async (signal) => {
-            const audio = await safePath(
-              this.store.dir(p),
-              `cache/transcription-${r.hash}.mp3`,
-            );
-            await extractAudio(
-              await safePath(this.store.dir(p), r.path),
-              audio,
-              signal,
-            );
-            const result = await this.provider.transcribe({
-              file: audio,
-              recording: r,
-              signal,
-              fixture: p.transcripts.at(-1),
-            });
-            await this.store.artifact(
-              p,
-              `transcripts/transcript-${hash(result.output).slice(0, 16)}.json`,
-              result.output,
-            );
-            this.store.update(p.id, (x) => {
-              x.transcripts.push(result.output);
-              x.usage.push(result.usage);
-            });
+            for (const r of pending) {
+              const audio = await safePath(
+                this.store.dir(p),
+                `cache/transcription-${r.hash}.mp3`,
+              );
+              await extractAudio(
+                await safePath(this.store.dir(p), r.path),
+                audio,
+                signal,
+              );
+              const result = await this.provider.transcribe({
+                file: audio,
+                recording: r,
+                signal,
+              });
+              await this.store.artifact(
+                p,
+                `transcripts/transcript-${hash(result.output).slice(0, 16)}.json`,
+                result.output,
+              );
+              this.store.update(p.id, (x) => {
+                x.transcripts.push(result.output);
+                x.usage.push(result.usage);
+              });
+            }
           },
           signal,
         );
@@ -275,16 +317,21 @@ export class Studio {
   }
   async generatePlan(projectId: string, signal?: AbortSignal) {
     return this.locked(projectId, async (p) => {
+      const transcripts = p.recordings
+        .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
+        .filter((t): t is Transcript => !!t);
       if (
         !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].includes(
           p.status,
         ) ||
-        !p.transcripts.length ||
+        !p.recordings.length ||
+        transcripts.length !== p.recordings.length ||
         !p.scriptApproval
       )
         throw new StudioError(
           "CONFLICT",
-          "Planning requires an approved script, recording and transcript.",
+          "Planning requires an approved script and a transcript for every recording.",
+          "Import or transcribe a transcript for each recording, then retry.",
         );
       this.store.update(p.id, (x) => {
         x.status = transition(x.status, "PLANNING");
@@ -301,8 +348,8 @@ export class Studio {
               {
                 projectId: p.id,
                 script: p.scripts.at(-1)!,
-                transcript: p.transcripts.at(-1)!,
-                recording: p.recordings.at(-1)!,
+                transcripts,
+                recordings: p.recordings,
                 creator: p.creator,
                 version: p.plans.length + 1,
               },
@@ -455,11 +502,7 @@ export class Studio {
   private validateProposal(p: Project, input: unknown) {
     const patch = patchSchema.parse(input);
     const next = applyPatch(p.plans.at(-1)!, patch);
-    validateSources(
-      next,
-      p.recordings,
-      p.transcripts.at(-1)!.segments.map((s) => s.id),
-    );
+    validateSources(next, p.recordings, p.transcripts);
     return patch;
   }
   async decidePatch(projectId: string, patchId: string, apply: boolean) {

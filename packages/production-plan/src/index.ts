@@ -108,23 +108,48 @@ export function validatePlan(input: unknown): ProductionPlan {
 export function validateSources(
   plan: ProductionPlan,
   recordings: { id: string; duration: number }[],
-  segmentIds: string[],
+  transcripts: { recordingId: string; segments: { id: string }[] }[],
 ) {
+  const expectedOrder = recordings.map((r) => r.id);
+  const sceneOrder = [...new Set(plan.scenes.map((s) => s.camera.recordingId))];
+  if (
+    !expectedOrder.length ||
+    sceneOrder.length !== expectedOrder.length ||
+    sceneOrder.some((id, i) => id !== expectedOrder[i])
+  )
+    throw new StudioError(
+      "INVALID_PLAN",
+      "Scenes must cover every imported recording exactly once, in import order, without interleaving recordings.",
+    );
+  // Later transcripts win, so retried or superseded imports stay valid.
+  const latestByRecording = new Map<string, { segments: { id: string }[] }>();
+  for (const t of transcripts) latestByRecording.set(t.recordingId, t);
   for (const scene of plan.scenes) {
-    const recording = recordings.find((r) => r.id === scene.camera.recordingId);
+    const recording = recordings.find(
+      (r) => r.id === scene.camera.recordingId,
+    )!;
     if (
-      !recording ||
       scene.sourceInFrame + scene.durationFrames >
-        Math.floor(recording.duration * plan.frameRate) + 1
+      Math.floor(recording.duration * plan.frameRate) + 1
     )
       throw new StudioError(
         "INVALID_PLAN",
         `${scene.id}: source range exceeds its recording.`,
       );
-    if (scene.transcriptSegmentIds.some((id) => !segmentIds.includes(id)))
+    const transcript = latestByRecording.get(recording.id);
+    if (!transcript)
       throw new StudioError(
         "INVALID_PLAN",
-        `${scene.id}: unknown transcript reference.`,
+        `Recording ${recording.id} has no transcript.`,
+      );
+    if (
+      scene.transcriptSegmentIds.some(
+        (id) => !transcript.segments.some((s) => s.id === id),
+      )
+    )
+      throw new StudioError(
+        "INVALID_PLAN",
+        `${scene.id}: transcript segments must come from this scene's recording.`,
       );
   }
 }

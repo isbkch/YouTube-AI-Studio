@@ -162,6 +162,9 @@ struct MediaView: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
   @State private var targeted = false
+  private var canImport: Bool {
+    ["READY_TO_RECORD", "MEDIA_IMPORTED"].contains(p.status) && p.scriptApproval != nil
+  }
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
@@ -171,14 +174,15 @@ struct MediaView: View {
             .foregroundStyle(Color.studioAccent)
           Text(
             p.recordings.isEmpty
-              ? "Drop your talking-head recording here" : "Your original import is preserved"
+              ? "Drop your talking-head recordings here"
+              : "Drop additional clips any time before planning"
           ).font(.headline)
           Text(
             p.scriptApproval == nil
-              ? "Approve the script first." : "MOV, MP4, MKV, WebM and other supported video files."
+              ? "Approve the script first."
+              : "Select or drop several clips at once; each is imported in order. Originals are preserved."
           ).font(.caption).foregroundStyle(.secondary)
-          Button("Choose A-roll…") { Task { await m.importVideo() } }.disabled(
-            p.status != "READY_TO_RECORD" || m.busy)
+          Button("Choose A-roll…") { Task { await m.importVideo() } }.disabled(!canImport || m.busy)
         }.frame(maxWidth: .infinity).padding(45).background(
           targeted ? Color.studioAccent.opacity(0.08) : Color.studioSurface,
           in: RoundedRectangle(cornerRadius: 14)
@@ -187,8 +191,8 @@ struct MediaView: View {
             Color.studioAccent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
         )
         .dropDestination(for: URL.self) { urls, _ in
-          guard !m.busy, p.status == "READY_TO_RECORD", let url = urls.first else { return false }
-          Task { await m.importVideo(url) }
+          guard !m.busy, canImport, !urls.isEmpty else { return false }
+          Task { await m.importVideo(urls) }
           return true
         } isTargeted: {
           targeted = $0
@@ -227,11 +231,11 @@ struct TranscriptView: View {
     VStack(alignment: .leading, spacing: 20) {
       HStack {
         VStack(alignment: .leading, spacing: 6) {
-          Text("Words, anchored to the recording.").font(.title2)
+          Text("Words, anchored to each clip.").font(.title2)
           Text(
-            p.transcripts.last.map {
-              "\($0.provider) / \($0.model) · timestamps are relative to imported A-roll"
-            } ?? "Load timestamped JSON or transcribe with OpenAI."
+            p.recordings.isEmpty
+              ? "Import A-roll first."
+              : "\(p.recordings.count) clip(s) • \(p.pendingRecordings.count) still need a transcript • timestamps are relative to each clip"
           ).font(.caption).foregroundStyle(.secondary)
         }
         Spacer()
@@ -240,25 +244,28 @@ struct TranscriptView: View {
         Button(m.provider == "mock" ? "Mock Transcribe" : "Transcribe with OpenAI") {
           Task { await m.perform("transcript.generate", label: "Transcription") }
         }.disabled(
-          p.status != "MEDIA_IMPORTED" || m.busy || (m.provider == "mock" && p.transcripts.isEmpty))
+          p.status != "MEDIA_IMPORTED" || m.busy || p.pendingRecordings.isEmpty)
       }
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
-          ForEach(p.transcripts.last?.segments ?? []) { s in
-            HStack(alignment: .top, spacing: 22) {
-              Text(timestamp(s.start) + "–" + timestamp(s.end)).font(
-                .system(size: 11, design: .monospaced)
-              ).foregroundStyle(Color.studioAccent).frame(width: 104, alignment: .leading)
-              Text(s.text).font(.system(size: 15)).lineSpacing(5).frame(
-                maxWidth: .infinity, alignment: .leading)
-            }.padding(.vertical, 20)
+          ForEach(p.recordings) { r in
+            if let t = p.transcript(for: r) {
+              TranscriptSectionHeader(
+                recording: r, detail: "\(t.provider) / \(t.model)")
+              ForEach(t.segments) { s in segmentRow(s) }
+            } else {
+              TranscriptSectionHeader(recording: r, detail: "Awaiting transcript")
+              Text(
+                "Load a timestamped JSON for this clip, or transcribe all pending clips."
+              ).font(.caption).foregroundStyle(.secondary).padding(.vertical, 14)
+            }
             Divider().opacity(0.4)
           }
         }
       }
       if p.transcripts.isEmpty {
         Text(
-          "A transcript must contain ordered, non-overlapping segments with start/end seconds and text. See examples/redundancy/transcript.json."
+          "A transcript must contain ordered, non-overlapping segments with start/end seconds and text, and may name its recordingId. See examples/redundancy/transcript.json."
         ).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
       }
       HStack {
@@ -269,8 +276,29 @@ struct TranscriptView: View {
             m.tab = "Storyboard"
           }
         }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
-          p.transcripts.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
+          !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
       }
     }.padding(28)
+  }
+  private func segmentRow(_ s: Segment) -> some View {
+    HStack(alignment: .top, spacing: 22) {
+      Text(timestamp(s.start) + "–" + timestamp(s.end)).font(
+        .system(size: 11, design: .monospaced)
+      ).foregroundStyle(Color.studioAccent).frame(width: 104, alignment: .leading)
+      Text(s.text).font(.system(size: 15)).lineSpacing(5).frame(
+        maxWidth: .infinity, alignment: .leading)
+    }.padding(.vertical, 20)
+  }
+}
+struct TranscriptSectionHeader: View {
+  let recording: Recording
+  let detail: String
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: "film").foregroundStyle(.secondary)
+      Text(recording.name).font(.headline)
+      Text(detail).font(.caption).foregroundStyle(.secondary)
+      Spacer()
+    }.padding(.top, 22).padding(.bottom, 6)
   }
 }

@@ -168,7 +168,7 @@ export async function demo(
       projectId: "demo-project",
       id: "demo-plan",
       createdAt: "2026-09-16T00:00:00.000Z",
-      transcriptHash: hash({ ...transcript, recordingId: "demo-recording" }),
+      transcriptHash: hash([{ ...transcript, recordingId: "demo-recording" }]),
       scenes: plan.scenes.map((s) => ({
         ...s,
         camera: { ...s.camera, recordingId: "demo-recording" },

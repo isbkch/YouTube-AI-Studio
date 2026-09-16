@@ -22,6 +22,7 @@ struct Recording: Decodable, Identifiable {
   let proxyStatus: String
 }
 struct Transcript: Decodable {
+  let recordingId: String
   let provider: String
   let model: String
   let segments: [Segment]
@@ -160,6 +161,12 @@ struct Project: Decodable, Identifiable {
   var plan: Plan? { plans.last }
   var currentBuild: Build? { builds.last { $0.planVersion == plan?.version } }
   var latestBuild: Build? { builds.last }
+  func transcript(for recording: Recording) -> Transcript? {
+    transcripts.last { $0.recordingId == recording.id }
+  }
+  var pendingRecordings: [Recording] {
+    recordings.filter { transcript(for: $0) == nil }
+  }
   func url(_ relative: String) -> URL? {
     directory.map { URL(fileURLWithPath: $0).appendingPathComponent(relative) }
   }

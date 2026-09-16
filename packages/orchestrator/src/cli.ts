@@ -17,6 +17,7 @@ const { positionals: a, values: v } = parseArgs({
     description: { type: "string", default: "" },
     duration: { type: "string", default: "900" },
     version: { type: "string" },
+    recording: { type: "string" },
     apply: { type: "boolean" },
     help: { type: "boolean" },
   },
@@ -92,7 +93,11 @@ try {
     else if (a[0] === "media" && a[1] === "import")
       result = await studio.importMedia(a[2], a[3], abort.signal);
     else if (a[0] === "transcript" && a[1] === "load")
-      result = await studio.loadTranscript(a[2], await readJSONFile(a[3]));
+      result = await studio.loadTranscript(
+        a[2],
+        await readJSONFile(a[3]),
+        v.recording,
+      );
     else if (a[0] === "transcribe")
       result = await studio.transcribe(a[1], abort.signal);
     else if (a[0] === "plan" && a[1] === "validate")

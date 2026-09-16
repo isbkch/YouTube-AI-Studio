@@ -100,10 +100,22 @@ import UniformTypeIdentifiers
     panel.canChooseDirectories = false
     return panel.runModal() == .OK ? panel.url : nil
   }
-  func importVideo(_ url: URL? = nil) async {
-    guard let file = url ?? chooseFile(types: [.movie, .video]) else { return }
+  func chooseFiles(types: [UTType]) -> [URL] {
+    let panel = NSOpenPanel()
+    panel.allowedContentTypes = types
+    panel.allowsMultipleSelection = true
+    panel.canChooseDirectories = false
+    return panel.runModal() == .OK ? panel.urls : []
+  }
+  func importVideo(_ urls: [URL] = []) async {
+    let files = urls.isEmpty ? chooseFiles(types: [.movie, .video]) : urls
+    guard !files.isEmpty else { return }
     tab = "Production"
-    await perform("media.import", label: "Media import", params: ["path": file.path])
+    for file in files {
+      await perform(
+        "media.import", label: "Media import • \(file.lastPathComponent)",
+        params: ["path": file.path])
+    }
     tab = "Media"
   }
   func loadTranscript() async {

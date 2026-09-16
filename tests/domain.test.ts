@@ -12,6 +12,7 @@ import {
   MockAIProvider,
   DirectorAgent,
 } from "../packages/agents/src/index.ts";
+import { validateSources } from "../packages/production-plan/src/index.ts";
 import { fixture } from "./fixtures.ts";
 import {
   makeTimeline,
@@ -63,7 +64,7 @@ test("saved scripts require exact-version approvals; production cannot bypass ga
     const p = store.create("Approval test");
     await assert.rejects(
       studio.importMedia(p.id, "/not/opened.mp4"),
-      /Approve/,
+      /script approval/,
     );
     await studio.saveScript(p.id, "First script");
     await assert.rejects(studio.approveScript(p.id, 2), /version changed/);
@@ -102,14 +103,154 @@ test("mock Director validates structured input/output and binds source provenanc
     const result = await new DirectorAgent(new MockAIProvider()).plan({
       projectId: p.id,
       script: { version: 1, text: "A useful explanation." },
-      recording,
-      transcript,
+      recordings: [recording],
+      transcripts: [transcript],
       creator: p.creator,
       version: 1,
     });
-    assert.equal(result.output.transcriptHash, hash(transcript));
+    assert.equal(result.output.transcriptHash, hash([transcript]));
     assert.equal(result.output.durationFrames, 90);
     assert.equal(result.usage.costUSD, 0);
+  }));
+test("mock Director plans multiple recordings in import order with per-clip sources", async () =>
+  temporary(async (_, store) => {
+    const p = store.create("Multi-clip director");
+    const second: Recording = {
+      ...recording,
+      id: "recording-2",
+      name: "take-2.mp4",
+      path: "recordings/take-2.mp4",
+      duration: 12,
+      hash: hash("take-2"),
+    };
+    const secondTranscript = {
+      ...transcript,
+      recordingId: second.id,
+      segments: [
+        { id: "t-2", start: 0, end: 12, text: "The closing thought." },
+      ],
+    };
+    const result = await new DirectorAgent(new MockAIProvider()).plan({
+      projectId: p.id,
+      script: { version: 1, text: "A useful explanation." },
+      recordings: [recording, second],
+      transcripts: [transcript, secondTranscript],
+      creator: p.creator,
+      version: 1,
+    });
+    const plan = result.output;
+    assert.equal(plan.transcriptHash, hash([transcript, secondTranscript]));
+    assert.equal(plan.durationFrames, 90 + 360);
+    assert.deepEqual(
+      [...new Set(plan.scenes.map((s) => s.camera.recordingId))],
+      [recording.id, second.id],
+    );
+    const firstOfSecond = plan.scenes.find(
+      (s) => s.camera.recordingId === second.id,
+    )!;
+    assert.equal(firstOfSecond.startFrame, 90);
+    assert.equal(firstOfSecond.sourceInFrame, 0);
+    for (const s of plan.scenes.filter(
+      (x) => x.camera.recordingId === second.id,
+    ))
+      assert.deepEqual(s.transcriptSegmentIds, ["t-2"]);
+    for (const s of plan.scenes.filter(
+      (x) => x.camera.recordingId === recording.id,
+    ))
+      assert.deepEqual(s.transcriptSegmentIds, ["s-1"]);
+    validateSources(plan, [recording, second], [transcript, secondTranscript]);
+  }));
+test("source validation rejects skipped, interleaved and mis-scoped recordings", async () =>
+  temporary(async (_, store) => {
+    const p = store.create("Source validation");
+    const first: Recording = { ...recording, duration: 30 };
+    const second: Recording = {
+      ...recording,
+      id: "recording-2",
+      duration: 12,
+      hash: hash("take-2"),
+    };
+    const secondTranscript = {
+      ...transcript,
+      recordingId: second.id,
+      segments: [
+        { id: "t-2", start: 0, end: 12, text: "The closing thought." },
+      ],
+    };
+    const base = await new DirectorAgent(new MockAIProvider()).plan({
+      projectId: p.id,
+      script: { version: 1, text: "A useful explanation." },
+      recordings: [first, second],
+      transcripts: [transcript, secondTranscript],
+      creator: p.creator,
+      version: 1,
+    });
+    const sources = [first, second];
+    validateSources(base.output, sources, [transcript, secondTranscript]);
+    const skipped = structuredClone(base.output);
+    skipped.scenes = skipped.scenes.filter(
+      (s) => s.camera.recordingId === first.id,
+    );
+    assert.throws(
+      () => validateSources(skipped, sources, [transcript, secondTranscript]),
+      /import order/,
+    );
+    const interleaved = structuredClone(base.output);
+    interleaved.scenes = interleaved.scenes.slice().reverse();
+    assert.throws(
+      () =>
+        validateSources(interleaved, sources, [transcript, secondTranscript]),
+      /import order/,
+    );
+    const misScoped = structuredClone(base.output);
+    const secondScene = misScoped.scenes.find(
+      (s) => s.camera.recordingId === second.id,
+    )!;
+    secondScene.transcriptSegmentIds = ["s-1"];
+    assert.throws(
+      () => validateSources(misScoped, sources, [transcript, secondTranscript]),
+      /scene's recording/,
+    );
+  }));
+test("transcript loading targets each recording once and accepts explicit IDs", async () =>
+  temporary(async (_, store) => {
+    const studio = new Studio(store);
+    const p = store.create("Transcript targeting");
+    const second: Recording = {
+      ...recording,
+      id: "recording-2",
+      name: "take-2.mp4",
+      path: "recordings/take-2.mp4",
+      duration: 3,
+      hash: hash("take-2"),
+    };
+    store.update(p.id, (x) => {
+      x.status = "MEDIA_IMPORTED";
+      x.recordings = [recording, second];
+    });
+    const payload = (id: string) => ({
+      schemaVersion: "1.0.0",
+      language: "en",
+      provider: "mock",
+      model: "fixture",
+      segments: [{ id, start: 0, end: 3, text: "A useful explanation." }],
+    });
+    await studio.loadTranscript(p.id, payload("a-1"));
+    await studio.loadTranscript(p.id, payload("b-1"));
+    const saved = store.get(p.id).transcripts;
+    assert.deepEqual(
+      saved.map((t) => t.recordingId),
+      [recording.id, second.id],
+    );
+    await assert.rejects(
+      studio.loadTranscript(p.id, payload("c-1")),
+      /already has a transcript/,
+    );
+    await assert.rejects(
+      studio.loadTranscript(p.id, payload("d-1"), "recording-9"),
+      /No imported recording matches/,
+    );
+    assert.equal(store.get(p.id).transcripts.length, 2);
   }));
 test("scoped edits preserve history, invalidate approvals, reject stale proposals and support undo", async () =>
   temporary(async (_, store) => {
@@ -257,7 +398,7 @@ test("committed demo plan and Director output share valid transcript provenance"
       await readFile("examples/redundancy/director-response.json", "utf8"),
     ),
   );
-  assert.equal(plan.transcriptHash, hash(t));
+  assert.equal(plan.transcriptHash, hash([t]));
   assert.deepEqual(plan, director);
   assert.equal(plan.scenes.length, 6);
 });

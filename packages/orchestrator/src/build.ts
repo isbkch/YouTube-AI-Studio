@@ -128,11 +128,7 @@ export async function buildProject(
       hash(p.scripts.find((s) => s.version === plan.scriptVersion))
     )
       throw new StudioError("CONFLICT", "Approved script content changed.");
-    validateSources(
-      plan,
-      p.recordings,
-      p.transcripts.at(-1)!.segments.map((s) => s.id),
-    );
+    validateSources(plan, p.recordings, p.transcripts);
     const templateSourceHash = await templateHash();
     const tasks: Task[] = [];
     const persistAsset = (
@@ -412,11 +408,15 @@ export async function buildProject(
           warnings.push(
             "Audio peaks exceed -1 dBFS: review gain and potential clipping.",
           );
-        if (!p.recordings[0]?.hasAudio)
+        const silentSources = p.recordings.filter((r) => !r.hasAudio);
+        if (silentSources.length)
           warnings.push(
-            "Source has no narration audio. Preview contains silence.",
+            `${silentSources.length} recording(s) have no narration audio; their preview segments contain silence.`,
           );
-        if (p.transcripts.at(-1)!.provider === "mock")
+        const latestTranscripts = p.recordings.map((r) =>
+          p.transcripts.findLast((t) => t.recordingId === r.id),
+        );
+        if (latestTranscripts.some((t) => t?.provider === "mock"))
           warnings.push(
             "Synthetic or imported mock transcript; factual and spoken-word alignment requires human review.",
           );

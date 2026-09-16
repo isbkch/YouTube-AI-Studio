@@ -29,15 +29,15 @@ The normal library is `~/Movies/WinTheCloud Studio`. `WTS_HOME` or the app's Set
 
 1. Create a project with a title, description, and duration.
 2. Paste a script or import plain text. **Save a version**, then **Approve Script**.
-3. Drop a video into **Media**, or choose it from the file picker. The app copies it and inspects its duration, codec, resolution, frame rate and audio.
-4. In **Transcript**, load timestamped JSON (see the example), or select OpenAI in Settings and transcribe. OpenAI requests are billed to your account; mock mode uses no credits.
+3. Drop videos into **Media**, or choose several from the file picker. The app copies each clip and inspects its duration, codec, resolution, frame rate and audio. Import more clips any time before planning.
+4. In **Transcript**, load timestamped JSON per clip (see the example; sequential loads bind to the next clip without a transcript), or select OpenAI in Settings and transcribe all pending clips. OpenAI requests are billed to your account; mock mode uses no credits.
 5. **Generate Storyboard**. Inspect its scenes, timing, graphics, rationale and provenance. Mock direction is explicitly labelled and uses the demo's deterministic visual pattern; choose OpenAI for real editorial interpretation.
 6. **Approve Storyboard**, then **Build Rough Cut**. Watch dependencies, progress, logs and failures in **Production**.
 7. Watch the local MP4 in **Review**, jump to a scene, and review the technical QA report. **Open in Resolve** uses the scripting adapter when available. **Resolve Export…** reveals the FCPXML for manual import.
 8. Edit a scene through **Inspect / Edit**, or ask the Director for a revision. Inspect the proposed operations and **Apply** or **Reject**. Applying creates a new immutable plan version. Approve that storyboard and rebuild; unchanged assets are reused.
 9. Approve the rough cut after reviewing it. Finish and render in Resolve. Publishing is not implemented, and no application command can publish a video.
 
-The MVP supports one A-roll recording per project, 720p/30fps rough cuts, hard cuts, full-frame graphics, modest presenter punch-ins and audio gain. Sources may have another frame rate or resolution; conformed proxies provide a stable edit timebase. Original files are never overwritten. Changing an approved script after media import requires a new project; scene revisions remain available.
+The MVP supports multiple A-roll recordings per project — imported in order before planning, each with its own transcript — plus 720p/30fps rough cuts, hard cuts, full-frame graphics, modest presenter punch-ins and audio gain. Sources may have another frame rate or resolution, such as 4K/24fps camera files; conformed proxies provide a stable edit timebase and originals are never overwritten. Scenes must cover every imported recording exactly once, in import order, without interleaving. Changing an approved script after media import requires a new project; scene revisions remain available.
 
 ## Demo and verification
 

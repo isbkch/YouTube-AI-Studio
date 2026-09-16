@@ -61,8 +61,10 @@ async function dispatch(
       return studio.importMedia(p.projectId, p.path, signal);
     }
     case "transcript.load": {
-      const p = project.extend({ transcript: z.unknown() }).parse(params);
-      return studio.loadTranscript(p.projectId, p.transcript);
+      const p = project
+        .extend({ transcript: z.unknown(), recordingId: z.string().optional() })
+        .parse(params);
+      return studio.loadTranscript(p.projectId, p.transcript, p.recordingId);
     }
     case "transcript.generate":
       return studio.transcribe(project.parse(params).projectId, signal);
