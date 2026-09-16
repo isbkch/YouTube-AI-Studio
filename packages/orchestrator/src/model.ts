@@ -71,6 +71,8 @@ export interface MediaInfo {
   hasAudio: boolean;
   audioCodec: string | null;
   bytes: number;
+  /** Video frame count from the container index (estimated when absent). */
+  frames: number;
 }
 export interface Recording extends MediaInfo {
   id: string;
@@ -80,6 +82,12 @@ export interface Recording extends MediaInfo {
   importedAt: string;
   proxyPath: string | null;
   proxyStatus: "PENDING" | "AVAILABLE" | "NOT_REQUIRED";
+  /**
+   * Frame count of the conformed plan-rate proxy once built. The deterministic
+   * proxy encode caps at floor(duration × plan frame rate), which is also the
+   * bound source ranges are validated against.
+   */
+  proxyFrames: number | null;
 }
 export interface Transcript {
   schemaVersion: "1.0.0";

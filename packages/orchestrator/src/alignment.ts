@@ -93,6 +93,8 @@ export interface SpanMatch {
   end: number;
   score: number;
   segmentIds: string[];
+  /** Token count of the transcript segment the span lands in (context size). */
+  contextTokens: number;
 }
 
 /** Smith-Waterman local alignment of sentence tokens inside a token stream. */
@@ -169,8 +171,16 @@ function bestSpan(
   return { start: spanStart, end: spanEnd - 1, score: best / (2 * n) };
 }
 
+/**
+ * Identity of the matching algorithm that produced an alignment. Stored
+ * alongside the artifact so a library can detect alignments computed by an
+ * older algorithm and recompute instead of silently reusing them.
+ */
+export const ALIGNMENT_ALGORITHM = "smith-waterman-v2";
+
 export const alignmentSchema = z.strictObject({
-  schemaVersion: z.literal("1.0.0"),
+  schemaVersion: z.literal("2.0.0"),
+  algorithm: z.string().min(1),
   createdAt: z.iso.datetime(),
   scriptVersion: z.number().int().positive(),
   transcriptHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -273,26 +283,46 @@ export function alignScript(input: AlignInput): Alignment {
       start = Math.max(0, start);
       end = Math.min(end, recording.duration);
       if (end <= start) continue;
-      const segmentIds = transcript.segments
+      const overlapping = transcript.segments
         .filter((seg) => seg.start < end && seg.end > start)
-        .map((seg) => seg.id);
+        .sort(
+          (a, b) =>
+            Math.min(b.end, end) -
+            Math.max(b.start, start) -
+            (Math.min(a.end, end) - Math.max(a.start, start)),
+        );
       candidates.push({
         recordingId: recording.id,
         start,
         end,
         score: Math.min(1, span.score),
-        segmentIds,
+        segmentIds: overlapping.map((seg) => seg.id),
+        contextTokens: overlapping.length
+          ? Math.max(1, tokenize(overlapping[0].text).length)
+          : sentence.tokens.length,
       });
     }
     const short = sentence.tokens.length <= 2;
     const bonus = short ? SHORT_CONTINUITY_BONUS : CONTINUITY_BONUS;
-    // Rhetorical beats belong to the current take; cross-take one-word
-    // matches are almost always spurious.
+    // Rhetorical beats belong to the current take; the same-take pool only
+    // counts when its candidate is actually plausible.
     const sameTake = candidates.filter(
-      (c) => c.recordingId === previousRecording,
+      (c) =>
+        c.recordingId === previousRecording &&
+        c.score >= (short ? SHORT_THRESHOLD : MATCH_THRESHOLD),
     );
     const pool: SpanMatch[] =
       short && previousRecording && sameTake.length ? sameTake : candidates;
+    // A short sentence may switch takes only when the other take recorded it
+    // as a complete beat: the segment it lands in is mostly that sentence,
+    // not an unrelated mention inside longer speech.
+    const completeBeat = (c: SpanMatch) =>
+      !short ||
+      !previousRecording ||
+      c.recordingId === previousRecording ||
+      sentence.tokens.length /
+        Math.max(sentence.tokens.length, c.contextTokens) >=
+        0.6;
     const ranked = [...pool].sort(
       (a, b) =>
         b.score +
@@ -311,10 +341,17 @@ export function alignScript(input: AlignInput): Alignment {
     const viable = ranked.find(
       (c) =>
         c.score >= (short ? SHORT_THRESHOLD : MATCH_THRESHOLD) &&
+        completeBeat(c) &&
         c.start >= (lastEnd.get(c.recordingId) ?? 0) - MONOTONIC_TOLERANCE,
     );
     if (viable) {
-      row.match = viable;
+      row.match = {
+        recordingId: viable.recordingId,
+        start: viable.start,
+        end: viable.end,
+        score: viable.score,
+        segmentIds: viable.segmentIds,
+      };
       lastEnd.set(viable.recordingId, viable.end);
       previousRecording = viable.recordingId;
     }
@@ -331,6 +368,23 @@ export function alignScript(input: AlignInput): Alignment {
   for (const row of used) {
     if (row.match) continue;
     const sentence = sentences[row.index];
+    const short = sentence.tokens.length <= 2;
+    // Rhetorical beats belong to a take already in use around them; a
+    // cross-take rescue of a one-word match is almost always spurious.
+    let preferredRecording: string | null = null;
+    for (let a = row.index - 1; a >= 0 && preferredRecording === null; a--) {
+      const m = used[a].match;
+      if (m) preferredRecording = m.recordingId;
+    }
+    if (preferredRecording === null)
+      for (
+        let b = row.index + 1;
+        b < used.length && preferredRecording === null;
+        b++
+      ) {
+        const m = used[b].match;
+        if (m) preferredRecording = m.recordingId;
+      }
     const fillIns: SpanMatch[] = [];
     for (const { recording, transcript, stream } of streams) {
       const span = bestSpan(sentence.tokens, stream);
@@ -342,24 +396,47 @@ export function alignScript(input: AlignInput): Alignment {
         (c) => start < c.end - 0.4 && end > c.start + 0.4,
       );
       if (overlaps) continue;
+      const overlapping = transcript.segments
+        .filter((seg) => seg.start < end && seg.end > start)
+        .sort(
+          (a, b) =>
+            Math.min(b.end, end) -
+            Math.max(b.start, start) -
+            (Math.min(a.end, end) - Math.max(a.start, start)),
+        );
       fillIns.push({
         recordingId: recording.id,
         start,
         end,
         score: Math.min(1, span.score),
-        segmentIds: transcript.segments
-          .filter((seg) => seg.start < end && seg.end > start)
-          .map((seg) => seg.id),
+        segmentIds: overlapping.map((seg) => seg.id),
+        contextTokens: overlapping.length
+          ? Math.max(1, tokenize(overlapping[0].text).length)
+          : sentence.tokens.length,
       });
     }
     fillIns.sort((a, b) => b.score - a.score);
+    // Rhetorical beats belong to a take already in use around them; another
+    // take may supply one only as a complete beat, not an unrelated mention.
     const rescue = fillIns.find(
       (c) =>
+        (!short ||
+          (preferredRecording !== null &&
+            c.recordingId === preferredRecording) ||
+          sentence.tokens.length /
+            Math.max(sentence.tokens.length, c.contextTokens) >=
+            0.6) &&
         c.score >=
-        (sentence.tokens.length <= 2 ? SHORT_THRESHOLD : MATCH_THRESHOLD),
+          (sentence.tokens.length <= 2 ? SHORT_THRESHOLD : MATCH_THRESHOLD),
     );
     if (rescue) {
-      row.match = rescue;
+      row.match = {
+        recordingId: rescue.recordingId,
+        start: rescue.start,
+        end: rescue.end,
+        score: rescue.score,
+        segmentIds: rescue.segmentIds,
+      };
       row.alternates = [
         ...fillIns.slice(0, 3).map(({ recordingId, start, end, score }) => ({
           recordingId,
@@ -411,7 +488,8 @@ export function alignScript(input: AlignInput): Alignment {
     };
   });
   return alignmentSchema.parse({
-    schemaVersion: "1.0.0",
+    schemaVersion: "2.0.0",
+    algorithm: ALIGNMENT_ALGORITHM,
     createdAt: now(),
     scriptVersion: input.scriptVersion,
     transcriptHash: hash(input.transcripts),

@@ -73,7 +73,7 @@ export function validateTimeline(input: unknown): Timeline {
         ids.has(c.id) ||
         c.startFrame < end ||
         c.startFrame + c.durationFrames > t.durationFrames ||
-        c.sourceInFrame + c.durationFrames > c.sourceDurationFrames + 1
+        c.sourceInFrame + c.durationFrames > c.sourceDurationFrames
       )
         throw new StudioError("INVALID_PLAN", `Invalid timeline clip ${c.id}.`);
       inside("/project", c.path);
@@ -150,7 +150,10 @@ export function makeTimeline(
       startFrame: s.startFrame,
       sourceInFrame: s.sourceInFrame,
       durationFrames: s.durationFrames,
-      sourceDurationFrames: Math.floor(r.duration * plan.frameRate),
+      // The proxy's real frame count once conformed; otherwise the
+      // deterministic floor(duration × fps) the proxy encode is capped to.
+      sourceDurationFrames:
+        r.proxyFrames ?? Math.floor(r.duration * plan.frameRate),
       punchIn: s.camera.punchIn,
       gainDb: s.audio.gainDb,
       inset: null,
@@ -499,14 +502,14 @@ export function toFCPXML(t: Timeline, projectDir: string) {
       );
       const hasAudio = narration.clips.some((a) => a.sceneId === c.sceneId);
       const end = c.startFrame + c.durationFrames;
-      return `<asset-clip name="${xml(c.sceneId)}" ref="${resources.get(c.path)!.id}" offset="${seconds(c.startFrame)}" start="${seconds(c.sourceInFrame)}" duration="${seconds(c.durationFrames)}"${hasAudio ? ' audioRole="dialogue"' : ' srcEnable="video"'}><adjust-transform position="0 0" scale="${c.punchIn} ${c.punchIn}" anchor="0 0"/>${hasAudio ? `<adjust-volume amount="${c.gainDb}dB"/>` : ""}${g ? `<asset-clip lane="1" name="${xml(g.sceneId + " graphic")}" ref="${resources.get(g.path)!.id}" offset="${seconds(c.sourceInFrame)}" start="0s" duration="${seconds(g.durationFrames)}" srcEnable="video"/>` : ""}${sceneInsets
+      return `<asset-clip name="${xml(c.sceneId)}" ref="${resources.get(c.path)!.id}" offset="${seconds(c.startFrame)}" start="${seconds(c.sourceInFrame)}" duration="${seconds(c.durationFrames)}"${hasAudio ? ' audioRole="dialogue"' : ' srcEnable="video"'}><adjust-transform position="0 0" scale="${c.punchIn} ${c.punchIn}" anchor="0 0"/>${hasAudio ? `<adjust-volume amount="${c.gainDb}dB"/>` : ""}${g ? `<asset-clip lane="1" name="${xml(g.sceneId + " graphic")}" ref="${resources.get(g.path)!.id}" offset="0s" start="0s" duration="${seconds(g.durationFrames)}" srcEnable="video"/>` : ""}${sceneInsets
         .map(
           (i) =>
             `<asset-clip lane="2" name="${xml(i.id)}" ref="${resources.get(i.path)!.id}" offset="${seconds(i.startFrame - sceneStart(i.sceneId))}" start="0s" duration="${seconds(i.durationFrames)}" srcEnable="video">${insetTransform(i)}</asset-clip>`,
         )
         .join(
           "",
-        )}${audioChildren(c.startFrame, end)}<marker start="${seconds(c.sourceInFrame)}" duration="${seconds(1)}" value="${xml(t.markers.find((m) => m.sceneId === c.sceneId)?.label || c.sceneId)}"/></asset-clip>`;
+        )}${audioChildren(c.startFrame, end)}<marker start="0s" duration="${seconds(1)}" value="${xml(t.markers.find((m) => m.sceneId === c.sceneId)?.label || c.sceneId)}"/></asset-clip>`;
     })
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n<fcpxml version="1.8"><resources><format id="r1" name="WinTheCloud${t.resolution.height}p${fps}" frameDuration="1/${fps}s" width="${t.resolution.width}" height="${t.resolution.height}" colorSpace="1-1-1 (Rec. 709)"/>${assets}</resources><library><event name="WinTheCloud Studio"><project name="${xml(t.name + " v" + t.planVersion)}"><sequence format="r1" duration="${seconds(t.durationFrames)}" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k"><spine>${clips}</spine></sequence></project></event></library></fcpxml>\n`;
@@ -524,7 +527,7 @@ export interface SegmentOverlay {
   fadeInSec: number;
   fadeOutSec: number;
 }
-export async function renderSegment(options: {
+export interface SegmentRenderOptions {
   source: string;
   graphic: string | null;
   sourceStart: number;
@@ -537,9 +540,18 @@ export async function renderSegment(options: {
   progress?: (f: number) => void;
   target?: { width: number; height: number; frameRate: number };
   overlays?: SegmentOverlay[];
-}) {
-  const o = options;
+}
+/**
+ * Pure FFmpeg argument builder for one preview segment. Video is frame-exact:
+ * `-frames:v` pins the output count (float `-t` truncation can silently drop
+ * the final frame), while `-t` — padded by half a frame — only bounds the
+ * padded audio stream.
+ */
+export function segmentArgs(
+  o: Omit<SegmentRenderOptions, "signal" | "progress">,
+): string[] {
   const { width, height, frameRate } = o.target ?? PREVIEW;
+  const frames = Math.round(o.duration * frameRate);
   const inputs = [
     "-ss",
     String(o.sourceStart),
@@ -555,49 +567,47 @@ export async function renderSegment(options: {
   if (!o.hasAudio)
     inputs.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   const audioIndex = o.hasAudio ? 0 : o.graphic ? 2 : 1;
+  const encode = [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "24",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "160k",
+    "-ar",
+    "48000",
+    "-ac",
+    "2",
+    "-video_track_timescale",
+    "15360",
+    "-movflags",
+    "+faststart",
+    o.output,
+  ];
   const overlays = o.overlays ?? [];
-  if (!overlays.length) {
-    await ffmpeg(
-      [
-        ...inputs,
-        "-map",
-        `${visualIndex}:v:0`,
-        "-map",
-        `${audioIndex}:a:0`,
-        "-t",
-        String(o.duration),
-        "-vf",
-        filters,
-        "-af",
-        `volume=${o.gainDb}dB,apad`,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "24",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "160k",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-        "-video_track_timescale",
-        "15360",
-        "-movflags",
-        "+faststart",
-        o.output,
-      ],
-      o.signal,
-      o.progress,
-      o.duration,
-    );
-    return;
-  }
+  if (!overlays.length)
+    return [
+      ...inputs,
+      "-map",
+      `${visualIndex}:v:0`,
+      "-map",
+      `${audioIndex}:a:0`,
+      "-frames:v",
+      String(frames),
+      "-t",
+      String(o.duration + 0.5 / frameRate),
+      "-vf",
+      filters,
+      "-af",
+      `volume=${o.gainDb}dB,apad`,
+      ...encode,
+    ];
   // Overlay path: build one filter graph so presenter, punch-in, insets and
   // audio stay in a single deterministic encode.
   for (const ov of overlays)
@@ -622,43 +632,24 @@ export async function renderSegment(options: {
     );
   });
   chains.push(audioPad);
-  await ffmpeg(
-    [
-      ...inputs,
-      "-filter_complex",
-      chains.join(";"),
-      "-map",
-      `[base${overlays.length}]`,
-      "-map",
-      "[aout]",
-      "-t",
-      String(o.duration),
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-crf",
-      "24",
-      "-pix_fmt",
-      "yuv420p",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "160k",
-      "-ar",
-      "48000",
-      "-ac",
-      "2",
-      "-video_track_timescale",
-      "15360",
-      "-movflags",
-      "+faststart",
-      o.output,
-    ],
-    o.signal,
-    o.progress,
-    o.duration,
-  );
+  return [
+    ...inputs,
+    "-filter_complex",
+    chains.join(";"),
+    "-map",
+    `[base${overlays.length}]`,
+    "-map",
+    "[aout]",
+    "-frames:v",
+    String(frames),
+    "-t",
+    String(o.duration + 0.5 / frameRate),
+    ...encode,
+  ];
+}
+export async function renderSegment(options: SegmentRenderOptions) {
+  const { signal, progress, ...rest } = options;
+  await ffmpeg(segmentArgs(rest), signal, progress, rest.duration);
 }
 export async function concatenateSegments(
   projectDir: string,

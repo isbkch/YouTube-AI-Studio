@@ -182,6 +182,49 @@ const packagingInput = (p: { id: string; title: string }): PackagingInput => ({
   },
 });
 
+test("final render accepts persisted v2 chapter omissions and reports Resolve failures", async () =>
+  temporary(async (root, store) => {
+    const p = await finishedProject(store);
+    const legacy = JSON.parse(JSON.stringify(p.plans[0]));
+    legacy.schemaVersion = "2.0.0";
+    delete legacy.scenes[1].chapterTitle;
+    store.update(p.id, (x) => {
+      x.plans = [legacy];
+      x.finalRender = null;
+    });
+    const before = store.get(p.id);
+    const app = path.join(root, "Resolve.app");
+    const interpreter = path.join(app, "Contents/Applications/ResolvePython");
+    await mkdir(path.dirname(interpreter), { recursive: true });
+    await writeFile(
+      interpreter,
+      `#!${process.execPath}
+import assert from "node:assert/strict";
+assert.equal(process.argv[3], "render");
+console.log('WTS_RESULT:' + JSON.stringify({available: false, reason: 'Render preset not found: H.264 Master'}));
+`,
+      { mode: 0o755 },
+    );
+    const oldApp = process.env.WTS_RESOLVE_APP;
+    process.env.WTS_RESOLVE_APP = app;
+    try {
+      await assert.rejects(
+        new Studio(store).renderFinal(p.id),
+        /Render preset not found: H.264 Master/,
+      );
+      const after = store.get(p.id);
+      assert.deepEqual(after.plans, before.plans);
+      assert.deepEqual(after.planApproval, before.planApproval);
+      assert.deepEqual(after.roughCutApproval, before.roughCutApproval);
+      assert.equal(after.finalRender, null);
+      assert.equal(after.status, "READY_TO_RENDER");
+      assert.equal(store.jobs(p.id).at(-1)!.status, "FAILED");
+    } finally {
+      if (oldApp === undefined) delete process.env.WTS_RESOLVE_APP;
+      else process.env.WTS_RESOLVE_APP = oldApp;
+    }
+  }));
+
 test("packaging walks a final render to YouTube publication through the local CLI", async () =>
   temporary(async (root, store) => {
     const { cli, argsFile } = await stubCLI(root);

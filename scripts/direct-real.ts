@@ -11,7 +11,10 @@
 import { writeFile } from "node:fs/promises";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
-import { buildEditDecision } from "../packages/orchestrator/src/aroll.ts";
+import {
+  buildEditDecision,
+  quantizeEditFrames,
+} from "../packages/orchestrator/src/aroll.ts";
 import {
   validatePlan,
   type Graphic,
@@ -119,12 +122,13 @@ const rules: {
           "export async function processDocument(docId, idemKey) {",
           "  const existing = await jobs.findUnique({ idemKey });",
           "  if (existing) return existing.result; // idempotent",
+          "  await jobs.create({ idemKey, status: 'running' }); // claim first",
           "  const result = await model.analyze(docId);",
           "  await jobs.complete({ idemKey, result });",
           "  return result;",
           "}",
         ],
-        highlight: 2,
+        highlight: 3,
       }),
   },
   {
@@ -276,11 +280,12 @@ const rules: {
     build: () =>
       graphic("MetricChart", {
         title: "One person, team-scale complexity",
-        subtitle: "Software a single engineer can now create.",
+        subtitle: "Hypothetical compounding, not measured data.",
         unit: "x",
         series: [1, 2, 4, 8, 16, 32],
         threshold: null,
         goodDirection: "up",
+        basis: "illustrative",
       }),
   },
   {
@@ -301,18 +306,16 @@ try {
   const studio = new Studio(store);
   const p = store.get(projectId);
   const alignment = await studio.computeAlignment(projectId);
-  const edit = buildEditDecision(alignment);
+  const transcripts = p.recordings.map((r) =>
+    p.transcripts.findLast((t) => t.recordingId === r.id)!,
+  );
+  const edit = buildEditDecision(alignment, transcripts);
   const fps = 30;
-  const byId = new Map(p.recordings.map((r) => [r.id, r]));
+  const quantized = quantizeEditFrames(edit.scenes, p.recordings, fps);
   let cursor = 0;
   const scenes: Scene[] = edit.scenes.map((s, i) => {
-    const recording = byId.get(s.recordingId)!;
-    const maxFrames = Math.floor(recording.duration * fps) + 1;
     const start = cursor;
-    let durationFrames = Math.max(12, Math.round((s.end - s.start) * fps));
-    const sourceInFrame = Math.round(s.start * fps);
-    if (sourceInFrame + durationFrames > maxFrames)
-      durationFrames = Math.max(12, maxFrames - sourceInFrame);
+    const { sourceInFrame, durationFrames } = quantized.get(s.id)!;
     cursor += durationFrames;
     let graphicForScene: Graphic | null = null;
     let punchIn = s.punchIn;
@@ -368,20 +371,21 @@ try {
           ? "Narration names concrete artifacts; visualise them."
           : "Aligned take; kept in script order.",
       chapterTitle: s.heading ? s.heading.slice(0, 120) : null,
+      selection: s.selection,
     };
   });
+  const droppedIdx = new Set(edit.dropped.map((d) => d.index));
+  const sceneIdBySentence = new Map<number, string>();
+  for (const s of edit.scenes)
+    for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
   const plan = validatePlan({
-    schemaVersion: "3.0.0",
+    schemaVersion: "4.0.0",
     id: id("plan"),
     projectId,
     version: p.plans.length + 1,
     createdAt: now(),
     scriptVersion: p.scripts.at(-1)!.version,
-    transcriptHash: hash(
-      p.recordings.map((r) =>
-        p.transcripts.findLast((t) => t.recordingId === r.id)!,
-      ),
-    ),
+    transcriptHash: hash(transcripts),
     frameRate: fps,
     resolution: { width: 1920, height: 1080 },
     durationFrames: cursor,
@@ -391,6 +395,24 @@ try {
       summary: `Human-curated direction over the deterministic A-roll edit: ${edit.stats.groups} scenes from ${edit.stats.recordingsUsed.length} take(s), ${edit.stats.droppedSentences} sentence(s) dropped as retakes/dead space, ${scenes.filter((s) => s.visual.graphic && s.visual.graphic!.template !== "ChapterTitle").length} content graphics + ${scenes.filter((s) => s.chapterTitle).length} chapters. Roughly ${Math.round(cursor / fps / 60)} minutes.`,
     },
     scenes,
+    scriptCoverage: {
+      sentences: alignment.sentences.map((row) =>
+        row.match && !droppedIdx.has(row.index)
+          ? {
+              text: row.text.slice(0, 2000),
+              status: "included" as const,
+              sceneId: sceneIdBySentence.get(row.index) ?? null,
+              reason: null,
+            }
+          : {
+              text: row.text.slice(0, 2000),
+              status: "omitted" as const,
+              sceneId: null,
+              reason:
+                edit.dropped.find((d) => d.index === row.index)?.reason ?? null,
+            },
+      ),
+    },
   });
   await writeFile(outputFile, JSON.stringify(plan, null, 2) + "\n");
   console.log(

@@ -35,6 +35,7 @@ import {
   proxy,
   sampleFrames,
   verifyOutput,
+  inspect,
 } from "../../media/src/index.ts";
 import {
   VisualQAAgent,
@@ -265,15 +266,20 @@ export async function buildProject(
               await verifyOutput(temp, recording.duration, ctx.signal);
             },
           );
+          // The real proxy frame count drives the timeline's declared media
+          // duration, so FCPXML and Resolve agree with the actual file.
+          const proxyInfo = await inspect(await safePath(dir, c.path));
           persistAsset(ctx, "proxy", key, c, null, {
             sourceAssets: [recording.id],
           });
           recording.proxyPath = c.path;
           recording.proxyStatus = "AVAILABLE";
+          recording.proxyFrames = proxyInfo.frames;
           store.update(p.id, (x) => {
             const r = x.recordings.find((r) => r.id === recording.id)!;
             r.proxyPath = c.path;
             r.proxyStatus = "AVAILABLE";
+            r.proxyFrames = proxyInfo.frames;
           });
         },
       });
@@ -571,6 +577,7 @@ export async function buildProject(
                 temp,
                 scene.durationFrames / plan.frameRate,
                 ctx.signal,
+                scene.durationFrames,
               );
             },
           );
@@ -781,6 +788,7 @@ export async function buildProject(
           await safePath(dir, previewPath),
           plan.durationFrames / plan.frameRate,
           ctx.signal,
+          plan.durationFrames,
         );
         const audio = await analyzeAudio(
           await safePath(dir, previewPath),

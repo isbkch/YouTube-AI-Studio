@@ -124,6 +124,8 @@ export const graphicSchema = z.discriminatedUnion("template", [
       series: z.array(z.number().min(-1e9).max(1e9)).min(3).max(24),
       threshold: z.number().min(-1e9).max(1e9).nullable(),
       goodDirection: z.enum(["up", "down"]),
+      /** Whether the series is spoken in the narration or a labeled hypothesis. */
+      basis: z.enum(["narration", "illustrative"]).default("narration"),
     }),
   }),
   z.strictObject({
@@ -193,7 +195,7 @@ export const TEMPLATE_CATALOG = [
     template: "MetricChart",
     when: "A number changing over time (latency, uptime, cost, users).",
     parameters:
-      "title, subtitle, unit, series[3–24], threshold|null, goodDirection.",
+      "title, subtitle, unit, series[3–24], threshold|null, goodDirection, basis narration|illustrative. Series values must be spoken in the narration; a chart of hypothetical values must set basis to illustrative and say so in the subtitle.",
   },
   {
     template: "FailureAnimation",
@@ -318,6 +320,45 @@ export const visualPassSchema = z.strictObject({
 });
 export type VisualPass = z.infer<typeof visualPassSchema>;
 
+/**
+ * How a scene's source was selected, carried from the alignment for review:
+ * match confidence, whether the span was bridged without direct evidence, and
+ * the alternative takes that were considered.
+ */
+export const selectionSchema = z.strictObject({
+  score: z.number().min(0).max(1),
+  bridged: z.boolean(),
+  alternates: z
+    .array(
+      z.strictObject({
+        recordingId: identifier,
+        start: z.number().nonnegative(),
+        end: z.number().positive(),
+        score: z.number().min(0).max(1),
+      }),
+    )
+    .max(6)
+    .default([]),
+});
+export type SceneSelection = z.infer<typeof selectionSchema>;
+/**
+ * Script-level coverage of the plan: which approved sentences made the cut and
+ * why any omission is intentional. Plans authored without an alignment
+ * (imported or curated) legitimately carry null.
+ */
+export const scriptCoverageSchema = z.strictObject({
+  sentences: z
+    .array(
+      z.strictObject({
+        text: z.string().min(1).max(2000),
+        status: z.enum(["included", "omitted"]),
+        sceneId: identifier.nullable().default(null),
+        reason: z.string().max(500).nullable().default(null),
+      }),
+    )
+    .max(2000),
+});
+export type ScriptCoverage = z.infer<typeof scriptCoverageSchema>;
 export const sceneSchema = z.strictObject({
   id: identifier,
   startFrame: frame,
@@ -342,9 +383,10 @@ export const sceneSchema = z.strictObject({
   enabled: z.boolean(),
   rationale: z.string().max(1000),
   chapterTitle: z.string().min(1).max(120).nullable(),
+  selection: selectionSchema.nullable().default(null),
 });
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("3.0.0"),
+  schemaVersion: z.literal("4.0.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -364,6 +406,7 @@ export const planSchema = z.strictObject({
   }),
   scenes: z.array(sceneSchema).min(1).max(500),
   audioDesign: audioDesignSchema.default({ music: null, sfx: [] }),
+  scriptCoverage: scriptCoverageSchema.nullable().default(null),
 });
 export type ProductionPlan = z.infer<typeof planSchema>;
 export type Scene = z.infer<typeof sceneSchema>;
@@ -421,8 +464,24 @@ export function migratePlan(input: unknown): unknown {
     return migratePlan({ ...plan, schemaVersion: "2.0.0", scenes });
   }
   if (plan.schemaVersion === "2.0.0")
+    // Older v2 libraries omitted chapterTitle on non-chapter scenes. Normalize
+    // a copy so reading an approved plan never rewrites its persisted content.
     // Scene broll and plan audioDesign are filled by schema defaults on parse.
-    return { ...plan, schemaVersion: "3.0.0" };
+    return migratePlan({
+      ...plan,
+      schemaVersion: "3.0.0",
+      scenes: plan.scenes.map((scene) =>
+        typeof scene === "object" &&
+        scene !== null &&
+        !("chapterTitle" in scene)
+          ? { ...scene, chapterTitle: null }
+          : scene,
+      ),
+    });
+  if (plan.schemaVersion === "3.0.0")
+    // v4 adds review metadata only; per-scene selection and plan
+    // scriptCoverage are filled by schema defaults on parse.
+    return { ...plan, schemaVersion: "4.0.0" };
   return input;
 }
 
@@ -637,16 +696,38 @@ export function validateAudioDesign(
 /**
  * Scenes select sub-ranges of recordings: takes may be skipped, reused out of
  * import order, or trimmed. Every referenced range must stay inside its
- * recording and use that recording's own transcript.
+ * recording, use that recording's own transcript, actually contain the speech
+ * the narration claims, and never present the same source frames twice.
  */
+export interface SourceTranscript {
+  recordingId: string;
+  segments: { id: string; start: number; end: number; text: string }[];
+}
+// Alignment pads matched spans by a fraction of a second; segments may
+// legitimately straddle the selected range by that much.
+const SEGMENT_RANGE_TOLERANCE_SEC = 0.5;
+const NARRATION_PAD_SEC = 0.35;
+// Share of narration words that must be spoken inside the selected range.
+// Paraphrase stays valid; claiming absent sentences does not.
+const NARRATION_CONTAINMENT = 0.4;
+const wordTokens = (text: string) =>
+  text
+    .toLowerCase()
+    .split(/[^a-z0-9']+/)
+    .filter((t) => t.length > 0);
+
 export function validateSources(
   plan: ProductionPlan,
   recordings: { id: string; duration: number }[],
-  transcripts: { recordingId: string; segments: { id: string }[] }[],
+  transcripts: SourceTranscript[],
 ) {
   // Later transcripts win, so retried or superseded imports stay valid.
-  const latestByRecording = new Map<string, { segments: { id: string }[] }>();
+  const latestByRecording = new Map<string, SourceTranscript>();
   for (const t of transcripts) latestByRecording.set(t.recordingId, t);
+  const selected = new Map<
+    string,
+    { sceneId: string; start: number; end: number }[]
+  >();
   for (const scene of plan.scenes) {
     const recording = recordings.find((r) => r.id === scene.camera.recordingId);
     if (!recording)
@@ -654,9 +735,16 @@ export function validateSources(
         "INVALID_PLAN",
         `${scene.id}: references an unknown recording.`,
       );
+    const range = selected.get(recording.id) ?? [];
+    range.push({
+      sceneId: scene.id,
+      start: scene.sourceInFrame,
+      end: scene.sourceInFrame + scene.durationFrames,
+    });
+    selected.set(recording.id, range);
     if (
       scene.sourceInFrame + scene.durationFrames >
-      Math.floor(recording.duration * plan.frameRate) + 1
+      Math.floor(recording.duration * plan.frameRate)
     )
       throw new StudioError(
         "INVALID_PLAN",
@@ -668,15 +756,62 @@ export function validateSources(
         "INVALID_PLAN",
         `Recording ${recording.id} has no transcript.`,
       );
-    if (
-      scene.transcriptSegmentIds.some(
-        (id) => !transcript.segments.some((s) => s.id === id),
-      )
-    )
+    const byId = new Map(transcript.segments.map((s) => [s.id, s]));
+    if (scene.transcriptSegmentIds.some((id) => !byId.has(id)))
       throw new StudioError(
         "INVALID_PLAN",
         `${scene.id}: transcript segments must come from this scene's recording.`,
       );
+    const startSec = scene.sourceInFrame / plan.frameRate;
+    const endSec =
+      (scene.sourceInFrame + scene.durationFrames) / plan.frameRate;
+    for (const id of scene.transcriptSegmentIds) {
+      const seg = byId.get(id)!;
+      if (
+        seg.end < startSec - SEGMENT_RANGE_TOLERANCE_SEC ||
+        seg.start > endSec + SEGMENT_RANGE_TOLERANCE_SEC
+      )
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}: transcript segment ${id} lies outside the selected source range.`,
+        );
+    }
+    // The narration describes speech, so prove the selected audio contains it.
+    const narrationTokens = wordTokens(scene.narration);
+    if (narrationTokens.length >= 8) {
+      const spoken = new Map<string, number>();
+      for (const seg of transcript.segments)
+        if (
+          seg.start < endSec + NARRATION_PAD_SEC &&
+          seg.end > startSec - NARRATION_PAD_SEC
+        )
+          for (const token of wordTokens(seg.text))
+            spoken.set(token, (spoken.get(token) ?? 0) + 1);
+      let found = 0;
+      for (const token of narrationTokens) {
+        const count = spoken.get(token) ?? 0;
+        if (count > 0) {
+          found++;
+          spoken.set(token, count - 1);
+        }
+      }
+      if (found / narrationTokens.length < NARRATION_CONTAINMENT)
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}: narration is not spoken inside the selected source range (${Math.round((found / narrationTokens.length) * 100)}% of words found).`,
+          "Re-plan the scene, or edit its narration to match the selected take.",
+        );
+    }
+  }
+  for (const [recordingId, ranges] of selected) {
+    ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+    for (let i = 1; i < ranges.length; i++)
+      if (ranges[i].start < ranges[i - 1].end)
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${ranges[i - 1].sceneId} and ${ranges[i].sceneId} replay the same source frames of recording ${recordingId}.`,
+          "Trim one of the ranges or pick a different take before building.",
+        );
   }
 }
 

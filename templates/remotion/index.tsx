@@ -1119,6 +1119,24 @@ const MetricChartPrimitive: React.FC<PrimitiveProps> = ({
           ...fade(enter),
         }}
       >
+        {"basis" in p && p.basis === "illustrative" && (
+          <span
+            style={{
+              display: "inline-block",
+              fontSize: 13,
+              fontWeight: 640,
+              letterSpacing: 2,
+              color: b.foreground,
+              border: `1px solid ${b.foreground}55`,
+              borderRadius: 6,
+              padding: "3px 10px",
+              marginRight: 14,
+              verticalAlign: 4,
+            }}
+          >
+            ILLUSTRATIVE
+          </span>
+        )}
         {p.subtitle}
       </div>
     </>
