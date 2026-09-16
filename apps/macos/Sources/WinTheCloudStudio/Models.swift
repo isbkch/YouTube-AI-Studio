@@ -54,6 +54,51 @@ struct Visual: Decodable {
   let description: String
   let graphic: Graphic?
 }
+struct InsetRect: Decodable {
+  let x: Double
+  let y: Double
+  let width: Double
+}
+struct BRollParameters: Decodable {
+  let brief: String
+  let style: String
+  let palette: String?
+  let avoid: String?
+  let quality: String
+  let expectsText: Bool
+}
+struct BRollAsset: Decodable {
+  let engine: String
+  let template: String
+  let parameters: BRollParameters
+}
+struct BRollEntry: Decodable, Identifiable {
+  let id: String
+  let startFrame: Int
+  let durationFrames: Int
+  let placement: String
+  let inset: InsetRect?
+  let motion: String
+  let asset: BRollAsset
+  let narrationHook: String
+}
+struct MusicBed: Decodable {
+  let trackId: String
+  let gainDb: Double
+  let duckToDb: Double
+  let fadeInSec: Double
+  let fadeOutSec: Double
+}
+struct SfxEvent: Decodable, Identifiable {
+  let id: String
+  let atFrame: Int
+  let trackId: String
+  let gainDb: Double
+}
+struct AudioDesign: Decodable {
+  let music: MusicBed?
+  let sfx: [SfxEvent]
+}
 struct Camera: Decodable {
   let recordingId: String
   let framing: String
@@ -66,6 +111,7 @@ struct ProductionScene: Decodable, Identifiable {
   let narration: String
   let camera: Camera
   let visual: Visual
+  let broll: [BRollEntry]?
   let enabled: Bool
   let rationale: String
   let chapterTitle: String?
@@ -81,6 +127,8 @@ struct Plan: Decodable {
   let durationFrames: Int
   let scenes: [ProductionScene]
   let director: Director
+  let audioDesign: AudioDesign?
+  var brollCount: Int { scenes.reduce(0) { $0 + ($1.broll?.count ?? 0) } }
 }
 struct Asset: Decodable, Identifiable {
   var id: String { assetId }
@@ -127,6 +175,7 @@ struct Usage: Decodable {
   let inputTokens: Int
   let outputTokens: Int
   let audioSeconds: Double
+  let imageCount: Int
   let costUSD: Double?
 }
 struct Patch: Decodable, Identifiable {
@@ -159,6 +208,7 @@ struct Project: Decodable, Identifiable {
   let roughCutApproval: Approval?
   let revisions: [Revision]
   let builds: [Build]
+  let finalRender: String?
   let usage: [Usage]
   let directory: String?
   let assets: [Asset]?
@@ -195,6 +245,55 @@ struct ResolveReport: Decodable {
   let reason: String?
   let project: String?
   let timeline: String?
+}
+struct QAFinding: Decodable {
+  let kind: String
+  let evidence: String
+  let severity: String
+}
+struct QASceneVerdict: Decodable, Identifiable {
+  var id: String { sceneId }
+  let sceneId: String
+  let verdict: String
+  let findings: [QAFinding]
+}
+struct QAStillVerdict: Decodable, Identifiable {
+  var id: String { sceneId + "/" + brollId }
+  let sceneId: String
+  let brollId: String
+  let verdict: String
+  let findings: [QAFinding]
+  let note: String?
+}
+struct QAAnomalies: Decodable {
+  let black: [QABlackInterval]?
+  let frozen: [QAFreezeInterval]?
+}
+struct QABlackInterval: Decodable {
+  let start: Double
+  let end: Double
+}
+struct QAFreezeInterval: Decodable {
+  let start: Double
+}
+struct QAVisual: Decodable {
+  let framesDir: String?
+  let reviewedBy: String?
+  let summaries: [String]?
+  let scenes: [QASceneVerdict]?
+  let stills: [QAStillVerdict]?
+  let anomalies: QAAnomalies?
+}
+struct QAReport: Decodable {
+  let status: String
+  let warnings: [String]?
+  let attention: [String]?
+  let humanChecks: [String]?
+  let visual: QAVisual?
+}
+struct FinalOptions: Decodable {
+  let macros: [String]
+  let presets: [String]
 }
 struct DraftGraphic: Decodable {
   let template: String

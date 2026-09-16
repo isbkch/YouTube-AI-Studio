@@ -4,7 +4,10 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { ffmpeg, PREVIEW } from "../../media/src/index.ts";
 import { StudioError, inside } from "../../shared/src/index.ts";
-import type { ProductionPlan } from "../../production-plan/src/index.ts";
+import type {
+  AudioDesign,
+  ProductionPlan,
+} from "../../production-plan/src/index.ts";
 import type { Asset, Recording } from "./model.ts";
 const clipSchema = z.strictObject({
   id: z.string(),
@@ -16,10 +19,24 @@ const clipSchema = z.strictObject({
   durationFrames: z.number().int().positive(),
   sourceDurationFrames: z.number().int().positive(),
   punchIn: z.number().min(1).max(1.35),
-  gainDb: z.number().min(-24).max(12),
+  // Narration gains sit in -24..12; music beds may reach the audio-design floor.
+  gainDb: z.number().min(-48).max(12),
+  /** Normalized inset rectangle for B-roll overlay clips. */
+  inset: z
+    .strictObject({
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      width: z.number().min(0.2).max(1),
+    })
+    .nullable()
+    .default(null),
+  /** Timeline clip kind; drives FCPXML lane/role decisions. */
+  kind: z
+    .enum(["presenter", "graphic", "broll-inset", "music", "sfx", "narration"])
+    .default("presenter"),
 });
 export const timelineSchema = z.strictObject({
-  schemaVersion: z.literal("1.0.0"),
+  schemaVersion: z.literal("1.1.0"),
   name: z.string(),
   planVersion: z.number().int().positive(),
   frameRate: z.number().int().positive(),
@@ -66,10 +83,33 @@ export function validateTimeline(input: unknown): Timeline {
   }
   return t;
 }
+/** B-roll clips produced by the build, keyed by scene then entry ID. */
+export interface TimelineBrollClip {
+  sceneId: string;
+  brollId: string;
+  assetId: string;
+  path: string;
+}
+export interface TimelineAudio {
+  design: AudioDesign;
+  /** Project-relative copied track and its true frame count. */
+  music: { path: string; sourceDurationFrames: number } | null;
+  sfx: {
+    event: AudioDesign["sfx"][number];
+    path: string;
+    sourceDurationFrames: number;
+  }[];
+}
 export function makeTimeline(
   plan: ProductionPlan,
   recordings: Recording[],
   graphics: Map<string, Asset>,
+  broll: Map<string, TimelineBrollClip[]> = new Map(),
+  audio: TimelineAudio = {
+    design: { music: null, sfx: [] },
+    music: null,
+    sfx: [],
+  },
 ): Timeline {
   const video: Timeline["tracks"][number] = {
     id: "v1",
@@ -83,7 +123,13 @@ export function makeTimeline(
     name: "WinTheCloud graphics",
     clips: [],
   };
-  const audio: Timeline["tracks"][number] = {
+  const insets: Timeline["tracks"][number] = {
+    id: "v3",
+    kind: "video",
+    name: "B-roll insets",
+    clips: [],
+  };
+  const audioTrack: Timeline["tracks"][number] = {
     id: "a1",
     kind: "audio",
     name: "A-roll narration",
@@ -107,9 +153,17 @@ export function makeTimeline(
       sourceDurationFrames: Math.floor(r.duration * plan.frameRate),
       punchIn: s.camera.punchIn,
       gainDb: s.audio.gainDb,
-    };
+      inset: null,
+      kind: "presenter",
+    } as const;
     video.clips.push(c);
-    if (r.hasAudio) audio.clips.push({ ...c, id: `${s.id}-audio`, punchIn: 1 });
+    if (r.hasAudio)
+      audioTrack.clips.push({
+        ...c,
+        id: `${s.id}-audio`,
+        punchIn: 1,
+        kind: "narration",
+      });
     const a = graphics.get(s.id);
     if (s.enabled && s.visual.graphic) {
       if (!a)
@@ -122,17 +176,128 @@ export function makeTimeline(
         sourceInFrame: 0,
         sourceDurationFrames: s.durationFrames,
         punchIn: 1,
+        kind: "graphic",
       });
     }
+    if (!s.enabled) continue;
+    for (const entry of [...s.broll].sort(
+      (x, y) => x.startFrame - y.startFrame,
+    )) {
+      const clip = (broll.get(s.id) || []).find((x) => x.brollId === entry.id);
+      if (!clip)
+        throw new StudioError(
+          "INVALID_PLAN",
+          `Missing B-roll clip for ${s.id}/${entry.id}`,
+        );
+      if (entry.placement === "fullframe") {
+        // Full-frame B-roll replaces the presenter exactly like a graphic.
+        overlays.clips.push({
+          ...c,
+          id: `${s.id}-${entry.id}-broll`,
+          assetId: clip.assetId,
+          path: clip.path,
+          sourceInFrame: 0,
+          sourceDurationFrames: entry.durationFrames,
+          punchIn: 1,
+          kind: "graphic",
+        });
+      } else {
+        insets.clips.push({
+          ...c,
+          id: `${s.id}-${entry.id}-inset`,
+          assetId: clip.assetId,
+          path: clip.path,
+          startFrame: s.startFrame + entry.startFrame,
+          sourceInFrame: 0,
+          durationFrames: entry.durationFrames,
+          sourceDurationFrames: entry.durationFrames,
+          punchIn: 1,
+          inset: entry.inset,
+          kind: "broll-inset",
+        });
+      }
+    }
   }
+  const tracks: Timeline["tracks"] = [video, overlays, insets, audioTrack];
+  if (audio.music && audio.design.music) {
+    const m = audio.design.music;
+    tracks.push({
+      id: "a2",
+      kind: "audio",
+      name: "Music bed",
+      clips: [
+        {
+          id: "music-bed",
+          sceneId: plan.scenes[0].id,
+          assetId: "music",
+          path: audio.music.path,
+          startFrame: 0,
+          sourceInFrame: 0,
+          durationFrames: plan.durationFrames,
+          // A looped bed is as long as the timeline it was mixed into.
+          sourceDurationFrames: Math.max(
+            audio.music.sourceDurationFrames,
+            plan.durationFrames,
+          ),
+          punchIn: 1,
+          gainDb: m.gainDb,
+          inset: null,
+          kind: "music",
+        },
+      ],
+    });
+  }
+  // SFX one-shots never share a lane; pack greedily into ordered lanes.
+  const lanes: { end: number; clips: Timeline["tracks"][number]["clips"] }[] =
+    [];
+  for (const event of audio.sfx) {
+    const frames = Math.min(
+      event.sourceDurationFrames,
+      plan.durationFrames - event.event.atFrame,
+    );
+    if (frames <= 0) continue;
+    let lane = lanes.find((l) => l.end <= event.event.atFrame);
+    if (!lane) {
+      lane = { end: 0, clips: [] };
+      lanes.push(lane);
+    }
+    lane.end = event.event.atFrame + frames;
+    lane.clips.push({
+      id: `sfx-${event.event.id}`,
+      sceneId:
+        plan.scenes.find(
+          (s) =>
+            s.startFrame <= event.event.atFrame &&
+            event.event.atFrame < s.startFrame + s.durationFrames,
+        )?.id ?? plan.scenes[0].id,
+      assetId: `sfx:${event.event.trackId}`,
+      path: event.path,
+      startFrame: event.event.atFrame,
+      sourceInFrame: 0,
+      durationFrames: frames,
+      sourceDurationFrames: event.sourceDurationFrames,
+      punchIn: 1,
+      gainDb: event.event.gainDb,
+      inset: null,
+      kind: "sfx",
+    });
+  }
+  lanes.forEach((lane, i) =>
+    tracks.push({
+      id: `a3${i ? `-${i + 1}` : ""}`,
+      kind: "audio",
+      name: `SFX${i ? ` ${i + 1}` : ""}`,
+      clips: lane.clips,
+    }),
+  );
   return validateTimeline({
-    schemaVersion: "1.0.0",
+    schemaVersion: "1.1.0",
     name: "WinTheCloud rough cut",
     planVersion: plan.version,
     frameRate: plan.frameRate,
     resolution: plan.resolution,
     durationFrames: plan.durationFrames,
-    tracks: [video, overlays, audio],
+    tracks,
     markers: plan.scenes.map((s) => ({
       frame: s.startFrame,
       durationFrames: s.durationFrames,
@@ -275,7 +440,10 @@ export function toFCPXML(t: Timeline, projectDir: string) {
   const seconds = (n: number) => `${n}/${fps}s`;
   const base = t.tracks.find((x) => x.id === "v1")!;
   const overlays = t.tracks.find((x) => x.id === "v2")!;
-  const audio = t.tracks.find((x) => x.id === "a1")!;
+  const insets = t.tracks.find((x) => x.id === "v3");
+  const narration = t.tracks.find((x) => x.id === "a1")!;
+  const music = t.tracks.find((x) => x.id === "a2");
+  const sfxLanes = t.tracks.filter((x) => /^a3/.test(x.id));
   const resources = new Map<
     string,
     { id: string; duration: number; audio: boolean }
@@ -295,14 +463,66 @@ export function toFCPXML(t: Timeline, projectDir: string) {
         `<asset id="${r.id}" name="${xml(path.basename(file))}" start="0s" duration="${seconds(r.duration)}" hasVideo="1" format="r1"${r.audio ? ' hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000"' : ""} src="${xml(pathToFileURL(inside(projectDir, file)).href)}"/>`,
     )
     .join("\n");
+  const sceneStart = (sceneId: string) =>
+    base.clips.find((c) => c.sceneId === sceneId)?.startFrame ?? 0;
+  /** Connected inset: rendered at box size; position offsets from frame centre. */
+  const insetTransform = (c: Timeline["tracks"][number]["clips"][number]) => {
+    const W = t.resolution.width,
+      H = t.resolution.height;
+    const boxW = (c.inset?.width ?? 1) * W;
+    const boxH = boxW * (2 / 3);
+    const cx = (c.inset?.x ?? 0) * W + boxW / 2;
+    const cy = (c.inset?.y ?? 0) * H + boxH / 2;
+    return `<adjust-transform position="${(cx - W / 2).toFixed(1)} ${(H / 2 - cy).toFixed(1)}" scale="1 1" anchor="0 0"/>`;
+  };
+  const audioChildren = (parentStart: number, parentEnd: number) => {
+    const parts: string[] = [];
+    for (const c of music?.clips ?? [])
+      if (c.startFrame >= parentStart && c.startFrame < parentEnd)
+        parts.push(
+          `<asset-clip lane="-1" name="Music bed" ref="${resources.get(c.path)!.id}" offset="${seconds(Math.max(0, c.startFrame - parentStart))}" start="0s" duration="${seconds(Math.min(c.durationFrames, t.durationFrames - c.startFrame))}" audioRole="music" srcEnable="audio"><adjust-volume amount="${c.gainDb}dB"/></asset-clip>`,
+        );
+    sfxLanes.forEach((lane, i) => {
+      for (const c of lane.clips)
+        if (c.startFrame >= parentStart && c.startFrame < parentEnd)
+          parts.push(
+            `<asset-clip lane="${-2 - i}" name="${xml(c.id)}" ref="${resources.get(c.path)!.id}" offset="${seconds(c.startFrame - parentStart)}" start="0s" duration="${seconds(c.durationFrames)}" audioRole="effects" srcEnable="audio"><adjust-volume amount="${c.gainDb}dB"/></asset-clip>`,
+          );
+    });
+    return parts.join("");
+  };
   const clips = base.clips
     .map((c) => {
       const g = overlays.clips.find((g) => g.sceneId === c.sceneId);
-      const hasAudio = audio.clips.some((a) => a.sceneId === c.sceneId);
-      return `<asset-clip name="${xml(c.sceneId)}" ref="${resources.get(c.path)!.id}" offset="${seconds(c.startFrame)}" start="${seconds(c.sourceInFrame)}" duration="${seconds(c.durationFrames)}"${hasAudio ? ' audioRole="dialogue"' : ' srcEnable="video"'}><adjust-transform position="0 0" scale="${c.punchIn} ${c.punchIn}" anchor="0 0"/>${hasAudio ? `<adjust-volume amount="${c.gainDb}dB"/>` : ""}${g ? `<asset-clip lane="1" name="${xml(g.sceneId + " graphic")}" ref="${resources.get(g.path)!.id}" offset="${seconds(c.sourceInFrame)}" start="0s" duration="${seconds(g.durationFrames)}" srcEnable="video"/>` : ""}<marker start="${seconds(c.sourceInFrame)}" duration="${seconds(1)}" value="${xml(t.markers.find((m) => m.sceneId === c.sceneId)?.label || c.sceneId)}"/></asset-clip>`;
+      const sceneInsets = (insets?.clips ?? []).filter(
+        (i) => i.sceneId === c.sceneId,
+      );
+      const hasAudio = narration.clips.some((a) => a.sceneId === c.sceneId);
+      const end = c.startFrame + c.durationFrames;
+      return `<asset-clip name="${xml(c.sceneId)}" ref="${resources.get(c.path)!.id}" offset="${seconds(c.startFrame)}" start="${seconds(c.sourceInFrame)}" duration="${seconds(c.durationFrames)}"${hasAudio ? ' audioRole="dialogue"' : ' srcEnable="video"'}><adjust-transform position="0 0" scale="${c.punchIn} ${c.punchIn}" anchor="0 0"/>${hasAudio ? `<adjust-volume amount="${c.gainDb}dB"/>` : ""}${g ? `<asset-clip lane="1" name="${xml(g.sceneId + " graphic")}" ref="${resources.get(g.path)!.id}" offset="${seconds(c.sourceInFrame)}" start="0s" duration="${seconds(g.durationFrames)}" srcEnable="video"/>` : ""}${sceneInsets
+        .map(
+          (i) =>
+            `<asset-clip lane="2" name="${xml(i.id)}" ref="${resources.get(i.path)!.id}" offset="${seconds(i.startFrame - sceneStart(i.sceneId))}" start="0s" duration="${seconds(i.durationFrames)}" srcEnable="video">${insetTransform(i)}</asset-clip>`,
+        )
+        .join(
+          "",
+        )}${audioChildren(c.startFrame, end)}<marker start="${seconds(c.sourceInFrame)}" duration="${seconds(1)}" value="${xml(t.markers.find((m) => m.sceneId === c.sceneId)?.label || c.sceneId)}"/></asset-clip>`;
     })
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n<fcpxml version="1.8"><resources><format id="r1" name="WinTheCloud${t.resolution.height}p${fps}" frameDuration="1/${fps}s" width="${t.resolution.width}" height="${t.resolution.height}" colorSpace="1-1-1 (Rec. 709)"/>${assets}</resources><library><event name="WinTheCloud Studio"><project name="${xml(t.name + " v" + t.planVersion)}"><sequence format="r1" duration="${seconds(t.durationFrames)}" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k"><spine>${clips}</spine></sequence></project></event></library></fcpxml>\n`;
+}
+export interface SegmentOverlay {
+  /** Rendered B-roll clip (already at box size, plan fps). */
+  clip: string;
+  /** Pixel rectangle at output resolution. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  startSec: number;
+  endSec: number;
+  fadeInSec: number;
+  fadeOutSec: number;
 }
 export async function renderSegment(options: {
   source: string;
@@ -316,6 +536,7 @@ export async function renderSegment(options: {
   signal?: AbortSignal;
   progress?: (f: number) => void;
   target?: { width: number; height: number; frameRate: number };
+  overlays?: SegmentOverlay[];
 }) {
   const o = options;
   const { width, height, frameRate } = o.target ?? PREVIEW;
@@ -334,19 +555,84 @@ export async function renderSegment(options: {
   if (!o.hasAudio)
     inputs.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   const audioIndex = o.hasAudio ? 0 : o.graphic ? 2 : 1;
+  const overlays = o.overlays ?? [];
+  if (!overlays.length) {
+    await ffmpeg(
+      [
+        ...inputs,
+        "-map",
+        `${visualIndex}:v:0`,
+        "-map",
+        `${audioIndex}:a:0`,
+        "-t",
+        String(o.duration),
+        "-vf",
+        filters,
+        "-af",
+        `volume=${o.gainDb}dB,apad`,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "24",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-video_track_timescale",
+        "15360",
+        "-movflags",
+        "+faststart",
+        o.output,
+      ],
+      o.signal,
+      o.progress,
+      o.duration,
+    );
+    return;
+  }
+  // Overlay path: build one filter graph so presenter, punch-in, insets and
+  // audio stay in a single deterministic encode.
+  for (const ov of overlays)
+    inputs.push("-protocol_whitelist", "file,pipe", "-i", ov.clip);
+  const chains: string[] = [`[${visualIndex}:v]${filters}[base0]`];
+  const audioPad = `[${audioIndex}:a]volume=${o.gainDb}dB,apad[aout]`;
+  overlays.forEach((ov, i) => {
+    const inputIndex = (o.graphic ? 2 : 1) + (o.hasAudio ? 0 : 1) + i;
+    const fadeIn =
+      ov.fadeInSec > 0
+        ? `fade=t=in:st=0:d=${ov.fadeInSec.toFixed(3)}:alpha=1,`
+        : "";
+    const fadeOut =
+      ov.fadeOutSec > 0
+        ? `,fade=t=out:st=${Math.max(0, ov.endSec - ov.startSec - ov.fadeOutSec).toFixed(3)}:d=${ov.fadeOutSec.toFixed(3)}:alpha=1`
+        : "";
+    chains.push(
+      `[${inputIndex}:v]scale=${Math.round(ov.width)}:${Math.round(ov.height)},setsar=1,format=yuva420p,${fadeIn}format=yuva420p${fadeOut}[ov${i}]`,
+    );
+    chains.push(
+      `[base${i}][ov${i}]overlay=x=${Math.round(ov.x)}:y=${Math.round(ov.y)}:enable='between(t,${ov.startSec.toFixed(3)},${ov.endSec.toFixed(3)})'[base${i + 1}]`,
+    );
+  });
+  chains.push(audioPad);
   await ffmpeg(
     [
       ...inputs,
+      "-filter_complex",
+      chains.join(";"),
       "-map",
-      `${visualIndex}:v:0`,
+      `[base${overlays.length}]`,
       "-map",
-      `${audioIndex}:a:0`,
+      "[aout]",
       "-t",
       String(o.duration),
-      "-vf",
-      filters,
-      "-af",
-      `volume=${o.gainDb}dB,apad`,
       "-c:v",
       "libx264",
       "-preset",

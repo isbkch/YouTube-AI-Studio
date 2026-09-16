@@ -7,13 +7,20 @@ import { doctor, openAICredential } from "./doctor.ts";
 import { MockAIProvider, OpenAIProvider } from "../../agents/src/index.ts";
 import { WhisperCLIProvider } from "../../agents/src/whisper.ts";
 import {
+  MockImageProvider,
+  OpenAIImageProvider,
+} from "../../image-engine/src/index.ts";
+import {
   errorInfo,
   loadDotEnv,
   safePath,
   StudioError,
   type CreatorProfile,
 } from "../../shared/src/index.ts";
-import { resolveCommand } from "../../resolve-engine/src/index.ts";
+import {
+  resolveCommand,
+  fusionMacros,
+} from "../../resolve-engine/src/index.ts";
 loadDotEnv();
 // stdout is exclusively the IPC transport. Third-party diagnostics go to stderr.
 const send = (value: unknown) =>
@@ -111,6 +118,23 @@ async function dispatch(
         .parse(params);
       return studio.proposeOperations(p.projectId, p.operations, p.request);
     }
+    case "visuals.propose":
+      return studio.proposeVisualPass(project.parse(params).projectId, signal);
+    case "final.render": {
+      const p = project
+        .extend({
+          preset: z.string().max(60).optional(),
+          macroId: z.string().max(60).optional(),
+        })
+        .parse(params);
+      return studio.renderFinal(p.projectId, {
+        preset: p.preset as "H.264 Master" | undefined,
+        macroId: p.macroId,
+        signal,
+      });
+    }
+    case "final.macros":
+      return fusionMacros();
     case "revision.decide": {
       const p = project
         .extend({ patchId: z.string(), apply: z.boolean() })
@@ -150,9 +174,17 @@ async function dispatch(
       if (p.apiKey) credentialSource = "session";
       else if (process.env.OPENAI_API_KEY?.trim()) credentialSource = "env";
       else if (key) credentialSource = "keychain";
-      if (p.provider === "openai")
+      if (p.provider === "openai") {
         studio.provider = new OpenAIProvider(key || "", p.model);
-      else studio.provider = new MockAIProvider();
+        try {
+          studio.images = new OpenAIImageProvider(key || "");
+        } catch {
+          studio.images = null; // Key exists but was rejected; plans fail closed.
+        }
+      } else {
+        studio.provider = new MockAIProvider();
+        studio.images = new MockImageProvider();
+      }
       studio.transcription =
         p.transcriptionProvider === "whisper"
           ? new WhisperCLIProvider(p.whisperModel)

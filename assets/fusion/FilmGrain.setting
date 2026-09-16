@@ -1,0 +1,34 @@
+{
+	Tools = ordered() {
+		WTS_FilmGrain = MacroOperator {
+			CtrlWZoom = false,
+			NameSet = true,
+			Inputs = ordered() {
+				Input = InstanceInput {
+					SourceOp = "WTSGrain",
+					Source = "Input",
+				},
+			},
+			Outputs = {
+				MainOutput1 = InstanceOutput {
+					SourceOp = "WTSGrain",
+					Source = "Output",
+				},
+			},
+			ViewInfo = GroupInfo { Pos = { 0, 0 } },
+			Tools = ordered() {
+				WTSGrain = Grain {
+					CtrlWZoom = false,
+					NameSet = true,
+					Inputs = {
+						GrainSize = Input { Value = 1.4, },
+						Gain = Input { Value = 0.35, },
+						Color = Input { Value = 0.15, },
+					},
+					ViewInfo = OperatorInfo { Pos = { 275, 115.5 } },
+				},
+			},
+		},
+	},
+	ActiveTool = "WTS_FilmGrain",
+}

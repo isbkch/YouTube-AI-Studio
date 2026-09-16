@@ -202,6 +202,122 @@ export const TEMPLATE_CATALOG = [
   },
 ] as const;
 
+/**
+ * B-roll assets are produced by non-Remotion engines. Each variant is a typed,
+ * validated instruction — never executable content (ADR 007). New engines
+ * (e.g. Blender) join this union alongside their trusted adapter.
+ */
+export const brollAssetSchema = z.discriminatedUnion("engine", [
+  z.strictObject({
+    engine: z.literal("gpt-image"),
+    template: z.literal("GeneratedStill"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      /** What the image must communicate; tied to the narration span it covers. */
+      brief: z.string().min(10).max(600),
+      style: z.enum([
+        "photoreal",
+        "technical-illustration",
+        "isometric-diagram",
+        "cinematic",
+        "clean-3d",
+        "minimal-lineart",
+      ]),
+      palette: z.string().max(120).nullable(),
+      avoid: z.string().max(200).nullable(),
+      quality: z.enum(["low", "medium", "high"]),
+      /** Whether the brief legitimately requires text inside the image. */
+      expectsText: z.boolean(),
+    }),
+  }),
+]);
+export type BRollAsset = z.infer<typeof brollAssetSchema>;
+/** Inset height = width × this fraction (landscape 3:2 source), in pixels. */
+export const BROLL_INSET_HEIGHT_RATIO = 2 / 3;
+/** Style guidance surfaced to the visual-direction pass. */
+export const BROLL_CATALOG = [
+  {
+    engine: "gpt-image",
+    template: "GeneratedStill",
+    when: "Narration references something a diagram or presenter cannot show: a place, a physical machine, a historical moment, an abstract atmosphere.",
+    parameters:
+      "brief (10–600 chars, what it must communicate), style, palette|null, avoid|null, quality low|medium|high, expectsText.",
+    styles: {
+      photoreal:
+        "Photographic realism: hardware, datacenter floors, control rooms.",
+      "technical-illustration":
+        "Clean editorial illustration of a technical concept.",
+      "isometric-diagram":
+        "Isometric cutaway of a system or facility with no labels.",
+      cinematic: "Moody, filmic scene-setting imagery.",
+      "clean-3d": "Simple 3D render of an object or structure.",
+      "minimal-lineart": "Minimal line drawing, generous negative space.",
+    },
+    note: "Generated images must not carry text unless expectsText is true; text fidelity in generated imagery is unreliable and checked by visual QA.",
+  },
+] as const;
+
+export const brollEntrySchema = z.strictObject({
+  id: identifier,
+  /** Relative to the scene start; the entry may end before the scene does. */
+  startFrame: frame,
+  durationFrames: z.number().int().min(12),
+  placement: z.enum(["inset", "fullframe"]),
+  /** Normalized frame rectangle; required exactly when placement is inset. */
+  inset: z
+    .strictObject({
+      x: z.number().min(0).max(1),
+      y: z.number().min(0).max(1),
+      width: z.number().min(0.2).max(1),
+    })
+    .nullable(),
+  motion: z.enum(["none", "zoom-in", "zoom-out", "pan-left", "pan-right"]),
+  asset: brollAssetSchema,
+  /** The narration span this entry illustrates, quoted from the scene. */
+  narrationHook: z.string().min(3).max(300),
+});
+export type BRollEntry = z.infer<typeof brollEntrySchema>;
+export const sfxEventSchema = z.strictObject({
+  id: identifier,
+  atFrame: frame,
+  trackId: z.string().min(1).max(120),
+  gainDb: z.number().min(-24).max(0),
+});
+export const audioDesignSchema = z.strictObject({
+  music: z
+    .strictObject({
+      trackId: z.string().min(1).max(120),
+      gainDb: z.number().min(-42).max(-6),
+      duckToDb: z.number().min(-48).max(-6),
+      fadeInSec: z.number().min(0).max(5),
+      fadeOutSec: z.number().min(0).max(5),
+    })
+    .nullable(),
+  sfx: z.array(sfxEventSchema).max(50),
+});
+export type AudioDesign = z.infer<typeof audioDesignSchema>;
+
+/**
+ * The visual-direction pass: a decision about what the video needs, where it
+ * belongs, how long it lasts and which narration span it illustrates — emitted
+ * as data, then converted into setBroll/setAudioDesign patch operations.
+ */
+export const visualPassSchema = z.strictObject({
+  summary: z.string().max(2000),
+  music: audioDesignSchema.shape.music,
+  sfx: z.array(sfxEventSchema).max(50),
+  treatments: z
+    .array(
+      z.strictObject({
+        sceneId: identifier,
+        broll: z.array(brollEntrySchema).max(2),
+        rationale: z.string().max(600),
+      }),
+    )
+    .max(200),
+});
+export type VisualPass = z.infer<typeof visualPassSchema>;
+
 export const sceneSchema = z.strictObject({
   id: identifier,
   startFrame: frame,
@@ -219,6 +335,8 @@ export const sceneSchema = z.strictObject({
     description: z.string().max(1000),
     graphic: graphicSchema.nullable(),
   }),
+  /** Generated-asset overlays; presenter footage keeps playing underneath. */
+  broll: z.array(brollEntrySchema).max(2).default([]),
   audio: z.strictObject({ gainDb: z.number().min(-24).max(12) }),
   transition: z.literal("cut"),
   enabled: z.boolean(),
@@ -226,7 +344,7 @@ export const sceneSchema = z.strictObject({
   chapterTitle: z.string().min(1).max(120).nullable(),
 });
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("2.0.0"),
+  schemaVersion: z.literal("3.0.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -245,6 +363,7 @@ export const planSchema = z.strictObject({
     summary: z.string().max(2000),
   }),
   scenes: z.array(sceneSchema).min(1).max(500),
+  audioDesign: audioDesignSchema.default({ music: null, sfx: [] }),
 });
 export type ProductionPlan = z.infer<typeof planSchema>;
 export type Scene = z.infer<typeof sceneSchema>;
@@ -252,54 +371,59 @@ export type Graphic = z.infer<typeof graphicSchema>;
 export type TemplateName = Graphic["template"];
 export const planJSONSchema = z.toJSONSchema(planSchema, { target: "draft-7" });
 
-/** Upgrade MVP v1 plans to the catalog schema so older libraries keep opening. */
+/** Upgrade older plan schemas so existing libraries keep opening. */
 export function migratePlan(input: unknown): unknown {
   const plan = input as {
     schemaVersion?: unknown;
     scenes?: unknown;
   };
-  if (plan?.schemaVersion !== "1.0.0" || !Array.isArray(plan.scenes))
-    return input;
-  const scenes = plan.scenes.map((scene) => {
-    if (
-      typeof scene === "object" &&
-      scene !== null &&
-      !("chapterTitle" in scene)
-    )
-      (scene as { chapterTitle?: unknown }).chapterTitle = null;
-    if (
-      typeof scene !== "object" ||
-      scene === null ||
-      (scene as { visual?: { graphic?: unknown } }).visual?.graphic == null ||
-      typeof (scene as { visual: { graphic: unknown } }).visual.graphic !==
-        "object"
-    )
-      return scene;
-    const s = scene as {
-      visual: {
-        graphic: {
-          template: string;
-          parameters: Record<string, unknown>;
-        } & Record<string, unknown>;
+  if (!Array.isArray(plan.scenes)) return input;
+  if (plan.schemaVersion === "1.0.0") {
+    const scenes = plan.scenes.map((scene) => {
+      if (
+        typeof scene === "object" &&
+        scene !== null &&
+        !("chapterTitle" in scene)
+      )
+        (scene as { chapterTitle?: unknown }).chapterTitle = null;
+      if (
+        typeof scene !== "object" ||
+        scene === null ||
+        (scene as { visual?: { graphic?: unknown } }).visual?.graphic == null ||
+        typeof (scene as { visual: { graphic: unknown } }).visual.graphic !==
+          "object"
+      )
+        return scene;
+      const s = scene as {
+        visual: {
+          graphic: {
+            template: string;
+            parameters: Record<string, unknown>;
+          } & Record<string, unknown>;
+        };
       };
-    };
-    const p = s.visual.graphic.parameters ?? {};
-    if (s.visual.graphic.template === "ArchitectureFlow") {
-      s.visual.graphic.parameters = {
-        title: p.title ?? "",
-        subtitle: p.subtitle ?? "",
-        nodes: Array.isArray(p.nodes) ? p.nodes.slice(0, 6) : [],
-        emphasis: typeof p.emphasis === "number" ? p.emphasis : -1,
-      };
-    } else {
-      s.visual.graphic.parameters = {
-        title: p.title ?? "",
-        subtitle: p.subtitle ?? "",
-      };
-    }
-    return s;
-  });
-  return { ...plan, schemaVersion: "2.0.0", scenes };
+      const p = s.visual.graphic.parameters ?? {};
+      if (s.visual.graphic.template === "ArchitectureFlow") {
+        s.visual.graphic.parameters = {
+          title: p.title ?? "",
+          subtitle: p.subtitle ?? "",
+          nodes: Array.isArray(p.nodes) ? p.nodes.slice(0, 6) : [],
+          emphasis: typeof p.emphasis === "number" ? p.emphasis : -1,
+        };
+      } else {
+        s.visual.graphic.parameters = {
+          title: p.title ?? "",
+          subtitle: p.subtitle ?? "",
+        };
+      }
+      return s;
+    });
+    return migratePlan({ ...plan, schemaVersion: "2.0.0", scenes });
+  }
+  if (plan.schemaVersion === "2.0.0")
+    // Scene broll and plan audioDesign are filled by schema defaults on parse.
+    return { ...plan, schemaVersion: "3.0.0" };
+  return input;
 }
 
 /**
@@ -400,6 +524,58 @@ export function validatePlan(input: unknown): ProductionPlan {
         "INVALID_PLAN",
         `${scene.id}: failedNode points outside nodes.`,
       );
+    if (scene.broll.some((b) => b.placement === "fullframe")) {
+      // Full-frame B-roll replaces the presenter; it cannot stack on a
+      // full-frame graphic or share the scene with another entry.
+      if (scene.visual.type === "graphic" || scene.broll.length !== 1)
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}: full-frame B-roll must be the scene's only visual.`,
+        );
+    }
+    const brollIds = new Set<string>();
+    let brollEnd = 0;
+    for (const b of [...scene.broll].sort(
+      (x, y) => x.startFrame - y.startFrame,
+    )) {
+      if (brollIds.has(b.id))
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}: duplicate B-roll ID ${b.id}.`,
+        );
+      brollIds.add(b.id);
+      if (b.startFrame + b.durationFrames > scene.durationFrames)
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}/${b.id}: B-roll escapes its scene.`,
+        );
+      if (b.startFrame < brollEnd)
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}/${b.id}: B-roll entries overlap.`,
+        );
+      brollEnd = b.startFrame + b.durationFrames;
+      if ((b.placement === "inset") !== (b.inset !== null))
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}/${b.id}: insets need a rectangle; full-frame must not have one.`,
+        );
+      if (b.inset && b.inset.x + b.inset.width > 1.001)
+        throw new StudioError(
+          "INVALID_PLAN",
+          `${scene.id}/${b.id}: inset rectangle escapes the frame.`,
+        );
+      if (b.inset) {
+        const heightRatio =
+          (b.inset.width * plan.resolution.width * BROLL_INSET_HEIGHT_RATIO) /
+          plan.resolution.height;
+        if (b.inset.y + heightRatio > 1.001)
+          throw new StudioError(
+            "INVALID_PLAN",
+            `${scene.id}/${b.id}: inset rectangle escapes the bottom of the frame.`,
+          );
+      }
+    }
     cursor += scene.durationFrames;
   }
   if (cursor !== plan.durationFrames)
@@ -407,9 +583,55 @@ export function validatePlan(input: unknown): ProductionPlan {
       "INVALID_PLAN",
       "Scene durations must equal plan duration.",
     );
+  const sfxIds = new Set<string>();
+  for (const s of plan.audioDesign.sfx) {
+    if (sfxIds.has(s.id))
+      throw new StudioError("INVALID_PLAN", `Duplicate SFX ID: ${s.id}.`);
+    sfxIds.add(s.id);
+    if (s.atFrame > plan.durationFrames - 12)
+      throw new StudioError(
+        "INVALID_PLAN",
+        `${s.id}: SFX lands too close to the end of the timeline.`,
+      );
+  }
   if (plan.resolution.width % 2 || plan.resolution.height % 2)
     throw new StudioError("INVALID_PLAN", "H.264 dimensions must be even.");
   return plan;
+}
+
+/**
+ * Audio design references the creator-managed media library. Every track must
+ * exist with the right kind before a plan can build (ADR 007 capability rule).
+ */
+export function validateAudioDesign(
+  plan: ProductionPlan,
+  tracks: { trackId: string; kind: "music" | "sfx"; duration: number }[],
+) {
+  const byId = new Map(tracks.map((t) => [t.trackId, t]));
+  const music = plan.audioDesign.music;
+  if (music) {
+    const track = byId.get(music.trackId);
+    if (!track || track.kind !== "music")
+      throw new StudioError(
+        "INVALID_PLAN",
+        `Music track ${music.trackId} is not in the library.`,
+        "Add the track to the library manifest or remove the music bed.",
+      );
+    if (music.fadeInSec + music.fadeOutSec >= track.duration)
+      throw new StudioError(
+        "INVALID_PLAN",
+        "Music fades are longer than the track.",
+      );
+  }
+  for (const s of plan.audioDesign.sfx) {
+    const track = byId.get(s.trackId);
+    if (!track || track.kind !== "sfx")
+      throw new StudioError(
+        "INVALID_PLAN",
+        `SFX track ${s.trackId} is not in the library.`,
+        "Add the track to the library manifest or remove the event.",
+      );
+  }
 }
 
 /**
@@ -528,13 +750,23 @@ export const operationSchema = z.discriminatedUnion("type", [
     ...opScene,
     nextSceneId: identifier,
   }),
+  z.strictObject({
+    type: z.literal("setBroll"),
+    ...opScene,
+    broll: z.array(brollEntrySchema).max(2),
+  }),
+  z.strictObject({
+    type: z.literal("setAudioDesign"),
+    audioDesign: audioDesignSchema,
+  }),
 ]);
 export const patchSchema = z.strictObject({
   id: identifier,
   createdAt: z.iso.datetime(),
   originatingRequest: z.string().min(1).max(10000),
   rationale: z.string().min(1).max(2000),
-  affectedScenes: z.array(identifier).min(1),
+  /** Empty exactly when every operation is plan-level (e.g. setAudioDesign). */
+  affectedScenes: z.array(identifier).max(500),
   previousVersion: z.number().int().positive(),
   resultingVersion: z.number().int().positive(),
   operations: z.array(operationSchema).min(1).max(100),
@@ -556,7 +788,11 @@ export function applyPatch(
     );
   const expected = new Set(
     patch.operations.flatMap((op) =>
-      op.type === "mergeScenes" ? [op.sceneId, op.nextSceneId] : [op.sceneId],
+      op.type === "mergeScenes"
+        ? [op.sceneId, op.nextSceneId]
+        : op.type === "setAudioDesign"
+          ? []
+          : [op.sceneId],
     ),
   );
   if (
@@ -571,6 +807,10 @@ export function applyPatch(
   next.version = patch.resultingVersion;
   next.createdAt = patch.createdAt;
   for (const op of patch.operations) {
+    if (op.type === "setAudioDesign") {
+      next.audioDesign = structuredClone(op.audioDesign);
+      continue;
+    }
     const index = next.scenes.findIndex((s) => s.id === op.sceneId);
     if (index === -1)
       throw new StudioError("INVALID_PLAN", `Unknown scene ${op.sceneId}`);
@@ -630,6 +870,22 @@ export function applyPatch(
         tail.sourceInFrame = s.sourceInFrame + op.atFrame;
         tail.durationFrames = s.durationFrames - op.atFrame;
         tail.chapterTitle = null;
+        // Each B-roll entry belongs to the half that plays it; entries that
+        // straddle the cut are trimmed to their side's remainder.
+        tail.broll = s.broll
+          .filter(
+            (b) =>
+              b.startFrame >= op.atFrame &&
+              b.startFrame + 12 <= op.atFrame + tail.durationFrames,
+          )
+          .map((b) => ({ ...b, startFrame: b.startFrame - op.atFrame }));
+        s.broll = s.broll
+          .filter((b) => b.startFrame + 12 <= op.atFrame)
+          .map((b) =>
+            b.startFrame + b.durationFrames <= op.atFrame
+              ? b
+              : { ...b, durationFrames: op.atFrame - b.startFrame },
+          );
         next.scenes.splice(index + 1, 0, tail);
         s.durationFrames = op.atFrame;
         break;
@@ -646,6 +902,11 @@ export function applyPatch(
             "INVALID_PLAN",
             "Merge requires adjacent, contiguous scenes from the same source.",
           );
+        if (following.broll.length)
+          throw new StudioError(
+            "INVALID_PLAN",
+            "Remove the second scene's B-roll before merging.",
+          );
         s.durationFrames += following.durationFrames;
         s.narration += " " + following.narration;
         s.transcriptSegmentIds = [
@@ -658,6 +919,9 @@ export function applyPatch(
         next.scenes.splice(index + 1, 1);
         break;
       }
+      case "setBroll":
+        s.broll = structuredClone(op.broll);
+        break;
     }
   }
   return validatePlan(next);

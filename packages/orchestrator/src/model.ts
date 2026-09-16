@@ -97,7 +97,14 @@ export interface Transcript {
 }
 export interface Asset {
   assetId: string;
-  type: "remotion-render" | "preview-segment" | "proxy" | "audio";
+  type:
+    | "remotion-render"
+    | "preview-segment"
+    | "proxy"
+    | "audio"
+    | "generated-image"
+    | "broll-clip"
+    | "audio-mix";
   sceneId: string | null;
   productionPlanVersion: number;
   generator: string;

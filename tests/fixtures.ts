@@ -2,7 +2,7 @@ import { hash } from "../packages/shared/src/index.ts";
 import type { ProductionPlan } from "../packages/production-plan/src/index.ts";
 export function fixture(): ProductionPlan {
   return {
-    schemaVersion: "2.0.0",
+    schemaVersion: "3.0.0",
     id: "plan-1",
     projectId: "project-1",
     version: 1,
@@ -23,6 +23,7 @@ export function fixture(): ProductionPlan {
         transcriptSegmentIds: [],
         camera: { recordingId: "recording-1", framing: "medium", punchIn: 1 },
         visual: { type: "presenter", description: "Presenter", graphic: null },
+        broll: [],
         audio: { gainDb: 0 },
         transition: "cut",
         enabled: true,
@@ -30,5 +31,6 @@ export function fixture(): ProductionPlan {
         chapterTitle: null,
       },
     ],
+    audioDesign: { music: null, sfx: [] },
   };
 }

@@ -1,0 +1,34 @@
+{
+	Tools = ordered() {
+		WTS_SoftGlow = MacroOperator {
+			CtrlWZoom = false,
+			NameSet = true,
+			Inputs = ordered() {
+				Input = InstanceInput {
+					SourceOp = "WTSGlow",
+					Source = "Input",
+				},
+			},
+			Outputs = {
+				MainOutput1 = InstanceOutput {
+					SourceOp = "WTSGlow",
+					Source = "Output",
+				},
+			},
+			ViewInfo = GroupInfo { Pos = { 0, 0 } },
+			Tools = ordered() {
+				WTSGlow = Glow {
+					CtrlWZoom = false,
+					NameSet = true,
+					Inputs = {
+						GlowBGAlpha = Input { Value = 0, },
+						Gain = Input { Value = 0.12, },
+						GlowSize = Input { Value = 2.4, },
+					},
+					ViewInfo = OperatorInfo { Pos = { 275, 115.5 } },
+				},
+			},
+		},
+	},
+	ActiveTool = "WTS_SoftGlow",
+}

@@ -358,6 +358,7 @@ try {
             description: "Presenter carries the explanation.",
             graphic: null,
           },
+      broll: [],
       audio: { gainDb: 0 },
       transition: "cut" as const,
       enabled: true,
@@ -370,7 +371,7 @@ try {
     };
   });
   const plan = validatePlan({
-    schemaVersion: "2.0.0",
+    schemaVersion: "3.0.0",
     id: id("plan"),
     projectId,
     version: p.plans.length + 1,

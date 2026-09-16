@@ -344,15 +344,16 @@ test("cache verifies bytes, rerenders corruption, and never caches failed work",
 test("timeline export retains separate narration, presenter, and graphic tracks", () => {
   const p = fixture();
   const t = makeTimeline(p, [recording], new Map());
-  assert.equal(t.tracks.length, 3);
-  assert.equal(t.tracks[2].clips[0].sourceInFrame, 0);
+  // v1 presenter, v2 graphics, v3 B-roll insets (empty), a1 narration.
+  assert.equal(t.tracks.length, 4);
+  assert.equal(t.tracks[3].clips[0].sourceInFrame, 0);
   assert.ok(
     toFCPXML(t, "/Projects/My & Project").includes(
       "file:///Projects/My%20&amp;%20Project/",
     ),
   );
   const otio = toOTIO(t, "/Projects/My Project");
-  assert.equal(otio.tracks.children.length, 3);
+  assert.equal(otio.tracks.children.length, 4);
   t.tracks[0].clips[0].durationFrames = 200;
   assert.throws(() => validateTimeline(t));
 });
@@ -415,5 +416,5 @@ test("committed demo plan and Director output share valid transcript provenance"
   assert.equal(plan.transcriptHash, hash([t]));
   assert.deepEqual(plan, director);
   assert.ok(plan.scenes.length >= 1);
-  assert.equal(plan.schemaVersion, "2.0.0");
+  assert.equal(plan.schemaVersion, "3.0.0");
 });

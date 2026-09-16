@@ -2,6 +2,7 @@
 
 ## Completed
 
+- **Milestone 3 — production quality (2026-09-16).** The decision layer is a first-class pass: a `VisualPassAgent` decides whether the video needs a generated visual, what it must communicate, where it belongs, how long it lasts and which narration span it illustrates, then proposes `setBroll`/`setAudioDesign` patch operations through the existing human gate (`wts visuals propose`, Storyboard **Propose Visual Pass**). GPT-image generation (gpt-image-1) renders stills from validated briefs through trusted prompt assembly, with deterministic zoompan/pan motion, inset compositing over live presenter footage, full-frame replacement, and per-still/per-clip caching keyed on semantic identity. Music/SFX come from a creator-curated library manifest (`library/library.json`) and are mixed under narration with sidechain ducking (`amix` + `sidechaincompress` + limiter) at assembly, exported as FCPXML music/effects lanes and OTIO audio tracks. Automated visual QA: black/freeze detection, sampled mid-scene frames reviewed by a vision model (multimodal Responses input) against each scene's intent, generated-still brief gates, and a QA report v2 with per-scene verdicts and an `attention` list surfaced in Review. Resolve finishing: headless render-queue automation with validated presets and optional checked-in Fusion macros (`wts final render`, Review **Finishing**). Plan schema v3.0.0 (broll + audioDesign + migration from v1/v2), timeline schema 1.1.0 (v3 B-roll insets, a2 music, packed SFX lanes), `Usage.imageCount` accounting, engine capability advertisement with fail-closed execution (ADR 008).
 - **Milestone 2 — real footage pipeline (2026-09-16).** One autonomous rough cut from the real 2026-09-13 A-roll (nine 4K/23.976 takes, ~34 min): word-level transcripts imported from Final Cut speech analysis (3,536 words, take mapping by duration + whisper fingerprint for same-length retakes), script↔take alignment (191/201 sentences at 0.90 average score), deterministic A-roll edit (113 scenes, 16:08 kept, retakes/dead space dropped), human-curated Director plan imported through full validation (26 graphics from the 11-template catalog, 11 chapters), 1080p/30 rough cut, Resolve FCPXML/OTIO + YouTube chapters exports, and scoped range revisions.
 - Plan schema v2: discriminated 11-template graphic catalog with per-template parameters, sub-range scene sources (take selection instead of full-coverage), chapter titles, v1 plan auto-migration.
 - Milestone-2 stages surfaced in the native app: Final Cut analysis import, the deterministic A-roll draft with per-scene summary, plan JSON import, and timeline-range revisions in Review. Every catalog template is now render-verified by an integration test, and the A-roll editor de-overlaps padded alignment spans so a cut never presents source seconds twice or exceeds its sources.
@@ -18,8 +19,8 @@
 - Verified the native removal revision separately: one changed preview segment, three reused remaining graphics, two preserved plan/render versions, source hash unchanged.
 - Validated FCPXML 1.8 against Apple's installed DTD and decoded the three-track, 72-second OTIO with the upstream library.
 - Imported generated FCPXML into Resolve 21.1, inspected the 72-second V1/V2/A1 timeline and an architecture scene, and saved the isolated `WTS MVP Export Verification` project.
-- Passed `bun run check`: TypeScript, ESLint and **33 tests** (11 new Milestone-2 tests). Passed **4 actual media/render integration tests** (including a two-recording end-to-end build and a render of all 11 catalog templates), `bun run demo` (4 scenes, 2 graphics, selective 1+1 rebuild on 72 s), Prettier checks and Swift release build.
-- Added README, setup/development/troubleshooting/verification documentation and all seven requested ADRs.
+- Passed `bun run check`: TypeScript, ESLint and **44 tests** (8 Milestone-3 unit tests) plus **5 media/render integration tests** (generated-still → motion → inset composite → sidechain mix). `bun run demo` proves the full Milestone-3 loop credit-free: visual pass proposes 2 insets + a synthesized music bed, mock gpt-image renders stills with motion, segments composite insets over the presenter, the bed is mixed with ducking, and visual QA passes with sampled frames on disk. Prettier checks and the Swift debug build pass.
+- Added README, setup/development/troubleshooting/verification documentation and all seven requested ADRs, plus ADR 008 (generated media, curated audio, budgets, QA gates).
 
 ## In Progress
 
@@ -28,9 +29,10 @@
 ## Next
 
 - Creator review of rough cut #1 in the app (`~/Movies/WinTheCloud Studio`, project "Your AI-Generated App Is NOT Production Ready", latest: `renders/rough-cut-v2-42f364af97da.mp4`, 1920×1080/30, 16:08). Two dropped sentences and pacing notes go through `wts revision range`.
-- Live OpenAI validated (2026-09-16): gpt-5.4 returned a contract-valid plan from the real script+transcripts+alignment (89.7k in / 6.3k out tokens, 47 s). Its cut ran 238 s against the 780 s target — prompt tuning for target adherence is future work; the human-curated plan is what shipped.
-- Configure an OpenAI API key in Settings to verify live account/model access and transcription (paid requests were not made during development).
-- Future work: original-resolution reconform/final-render automation, distribution packaging/notarization, more reusable templates, optional Blender/Fusion/image production, then research/publishing/analytics behind their human gates.
+- Run `wts visuals propose --provider openai` on the real project once an API key is configured: the live visual pass (gpt-5.4 + gpt-image-1) has not been exercised against real footage yet — mock-provider demo coverage is complete, live calls are not.
+- Resolve final render (`wts final render`) remains unverified on this machine: the external-scripting probe could not connect during Milestone 2. The bridge implements the documented API; the manual FCPXML path is the verified fallback.
+- Curate a real music/SFX library (`~/Movies/WinTheCloud Studio/library/library.json`): the demo bed is synthesized; real tracks with cleared licenses are the creator's contribution.
+- Future work: Blender engine adapter (the registry, capability manifest and broll asset union are the whole integration surface — see ADR 008), original-resolution reconform for finals, distribution packaging/notarization, then research/publishing/analytics behind their human gates.
 
 ## Known Issues / Deliberate MVP Limits
 

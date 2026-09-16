@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "2.0.0",
+  "schemaVersion": "3.0.0",
   "id": "demo-plan",
   "projectId": "demo-project",
   "version": 1,
@@ -46,6 +46,7 @@
           }
         }
       },
+      "broll": [],
       "audio": {
         "gainDb": 0
       },
@@ -106,6 +107,7 @@
           }
         }
       },
+      "broll": [],
       "audio": {
         "gainDb": 0
       },
@@ -135,6 +137,7 @@
         "description": "Let the presenter carry the thought.",
         "graphic": null
       },
+      "broll": [],
       "audio": {
         "gainDb": 0
       },
@@ -163,6 +166,7 @@
         "description": "Let the presenter carry the thought.",
         "graphic": null
       },
+      "broll": [],
       "audio": {
         "gainDb": 0
       },
@@ -171,5 +175,9 @@
       "rationale": "Aligned take; kept in script order.",
       "chapterTitle": null
     }
-  ]
+  ],
+  "audioDesign": {
+    "music": null,
+    "sfx": []
+  }
 }

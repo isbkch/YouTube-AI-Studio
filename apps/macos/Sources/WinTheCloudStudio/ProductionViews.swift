@@ -37,12 +37,38 @@ struct StoryboardView: View {
           Text(
             p.plan?.director.summary ?? "Generate a plan from the approved script and transcript."
           ).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+          if let plan = p.plan {
+            let bed = plan.audioDesign?.music
+            let sfx = plan.audioDesign?.sfx ?? []
+            if plan.brollCount > 0 || bed != nil || !sfx.isEmpty {
+              Label(
+                "\(plan.brollCount) B-roll · \(bed?.trackId ?? "no music bed") · \(sfx.count) SFX",
+                systemImage: "waveform.and.photo"
+              ).font(.caption).foregroundStyle(Color.studioAccent)
+            } else {
+              Label(
+                "No B-roll or music yet — the visual pass can propose them.",
+                systemImage: "photo.on.rectangle"
+              ).font(.caption).foregroundStyle(.secondary)
+            }
+          }
         }
         Spacer()
         if let plan = p.plan {
           VStack(alignment: .trailing, spacing: 8) {
             Text("\(plan.scenes.count) scenes • v\(plan.version)").font(.caption).foregroundStyle(
               .secondary)
+            Button("Propose Visual Pass") {
+              Task {
+                await m.proposeVisualPass()
+                m.tab = "Review"
+              }
+            }.buttonStyle(QuietButtonStyle()).disabled(
+              m.busy
+                || ![
+                  "AWAITING_STORYBOARD_APPROVAL", "AWAITING_ROUGH_CUT_APPROVAL",
+                  "READY_TO_RENDER",
+                ].contains(p.status))
             if p.planApproval?.version == plan.version {
               Label("Storyboard approved", systemImage: "checkmark.circle.fill").font(.caption)
                 .foregroundStyle(Color.studioSuccess)
@@ -142,6 +168,15 @@ struct SceneCard: View {
         if let chapter = scene.chapterTitle {
           Label(chapter, systemImage: "bookmark.fill").font(.system(size: 10, weight: .medium))
             .foregroundStyle(Color.studioAccent).lineLimit(1)
+        }
+        ForEach(scene.broll ?? []) { b in
+          VStack(alignment: .leading, spacing: 2) {
+            Label(
+              "\(b.placement == "inset" ? "B-roll inset" : "B-roll full-frame") · \(b.motion) · \(b.asset.parameters.style)",
+              systemImage: "photo.on.rectangle.angled"
+            ).font(.system(size: 10, weight: .medium)).foregroundStyle(Color.studioAccent)
+            Text("“\(b.narrationHook)”").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+          }
         }
         Text(scene.rationale).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(
           height: 31, alignment: .topLeading)
