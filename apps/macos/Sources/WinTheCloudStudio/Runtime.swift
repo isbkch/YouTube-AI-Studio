@@ -35,7 +35,7 @@ import SwiftUI
     let script = runtimeRoot + "/packages/orchestrator/src/ipc.ts"
     guard fm.fileExists(atPath: script) else {
       startupError =
-        "The local runtime is missing at \(runtimeRoot). Run pnpm macos from the repository to rebuild the app."
+        "The local runtime is missing at \(runtimeRoot). Run bun install from the repository to restore it."
       return
     }
     let child = Process()

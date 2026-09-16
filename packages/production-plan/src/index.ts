@@ -3,17 +3,205 @@ import { hash, StudioError } from "../../shared/src/index.ts";
 
 const frame = z.number().int().nonnegative();
 const identifier = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$/);
-export const graphicSchema = z.strictObject({
-  engine: z.literal("remotion"),
-  template: z.enum(["Callout", "ArchitectureFlow", "ChapterTitle"]),
-  templateVersion: z.literal("1.0.0"),
-  parameters: z.strictObject({
-    title: z.string().min(1).max(100),
-    subtitle: z.string().max(180),
-    nodes: z.array(z.string().min(1).max(24)).max(5),
-    emphasis: z.number().int().min(-1).max(4),
+const title = z.string().min(1).max(100);
+const subtitle = z.string().max(180);
+const nodeLabel = z.string().min(1).max(24);
+const codeLine = z.string().max(90);
+
+/** The Remotion primitive catalog. Each variant carries its own parameters. */
+export const graphicSchema = z.discriminatedUnion("template", [
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("ChapterTitle"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({ title, subtitle }),
   }),
-});
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("Callout"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({ title, subtitle }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("Quote"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      quote: z.string().min(1).max(300),
+      attribution: z.string().max(80),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("ArchitectureFlow"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      subtitle,
+      nodes: z.array(nodeLabel).min(2).max(6),
+      emphasis: z.number().int().min(-1).max(5),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("ArchitectureDiagram"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      subtitle,
+      layers: z
+        .array(
+          z.strictObject({
+            name: z.string().min(1).max(28),
+            components: z.array(nodeLabel).min(1).max(4),
+          }),
+        )
+        .min(2)
+        .max(4),
+      failedLayer: z.number().int().min(-1).max(3),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("RequestFlow"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      subtitle,
+      method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+      path: z.string().min(1).max(60),
+      steps: z.array(nodeLabel).min(2).max(6),
+      failureStep: z.number().int().min(-1).max(5),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("CodeReveal"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      fileName: z.string().min(1).max(60),
+      lines: z.array(codeLine).min(1).max(12),
+      highlight: z.number().int().min(-1).max(11),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("Terminal"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      lines: z
+        .array(
+          z.strictObject({
+            kind: z.enum(["input", "output", "error"]),
+            text: z.string().max(100),
+          }),
+        )
+        .min(2)
+        .max(14),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("CodeDiff"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      fileName: z.string().min(1).max(60),
+      removed: z.array(codeLine).max(8),
+      added: z.array(codeLine).min(1).max(8),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("MetricChart"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      subtitle,
+      unit: z.string().min(1).max(10),
+      series: z.array(z.number().min(-1e9).max(1e9)).min(3).max(24),
+      threshold: z.number().min(-1e9).max(1e9).nullable(),
+      goodDirection: z.enum(["up", "down"]),
+    }),
+  }),
+  z.strictObject({
+    engine: z.literal("remotion"),
+    template: z.literal("FailureAnimation"),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.strictObject({
+      title,
+      subtitle,
+      nodes: z.array(nodeLabel).min(2).max(6),
+      failedNode: z.number().int().min(0).max(5),
+      recovered: z.boolean(),
+    }),
+  }),
+]);
+
+/** Usage guidance surfaced to the Director; rendering lives in templates/remotion. */
+export const TEMPLATE_CATALOG = [
+  {
+    template: "ChapterTitle",
+    when: "Opening a major section or argument shift.",
+    parameters: "title (≤100), subtitle.",
+  },
+  {
+    template: "Callout",
+    when: "A single sharp claim or definition the viewer must retain.",
+    parameters: "title (≤100), subtitle.",
+  },
+  {
+    template: "Quote",
+    when: "Verbatim quotation, tweet, or error message being read aloud.",
+    parameters: "quote (≤300), attribution.",
+  },
+  {
+    template: "ArchitectureFlow",
+    when: "A linear pipeline or request path of 2–6 services.",
+    parameters:
+      "title, subtitle, nodes[2–6] (≤24 chars), emphasis index or -1.",
+  },
+  {
+    template: "ArchitectureDiagram",
+    when: "Layered architecture (client/app/data tiers) with a failing layer.",
+    parameters:
+      "title, subtitle, layers[2–4]{name, components[1–4]}, failedLayer or -1.",
+  },
+  {
+    template: "RequestFlow",
+    when: "One concrete HTTP call travelling through steps, with a failing step.",
+    parameters: "title, subtitle, method, path, steps[2–6], failureStep or -1.",
+  },
+  {
+    template: "CodeReveal",
+    when: "Show ≤12 lines of real code; highlight one line while it is narrated.",
+    parameters: "title, fileName, lines[1–12], highlight index or -1.",
+  },
+  {
+    template: "Terminal",
+    when: "A command being run and its output or error.",
+    parameters: "title, lines[2–14]{kind: input|output|error, text}.",
+  },
+  {
+    template: "CodeDiff",
+    when: "A before/after code change (the fix, the migration).",
+    parameters: "title, fileName, removed[≤8], added[1–8].",
+  },
+  {
+    template: "MetricChart",
+    when: "A number changing over time (latency, uptime, cost, users).",
+    parameters:
+      "title, subtitle, unit, series[3–24], threshold|null, goodDirection.",
+  },
+  {
+    template: "FailureAnimation",
+    when: "Cascading failure across 2–6 nodes, optionally with recovery.",
+    parameters: "title, subtitle, nodes[2–6], failedNode, recovered.",
+  },
+] as const;
+
 export const sceneSchema = z.strictObject({
   id: identifier,
   startFrame: frame,
@@ -35,9 +223,10 @@ export const sceneSchema = z.strictObject({
   transition: z.literal("cut"),
   enabled: z.boolean(),
   rationale: z.string().max(1000),
+  chapterTitle: z.string().min(1).max(120).nullable(),
 });
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("1.0.0"),
+  schemaVersion: z.literal("2.0.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -60,9 +249,91 @@ export const planSchema = z.strictObject({
 export type ProductionPlan = z.infer<typeof planSchema>;
 export type Scene = z.infer<typeof sceneSchema>;
 export type Graphic = z.infer<typeof graphicSchema>;
+export type TemplateName = Graphic["template"];
 export const planJSONSchema = z.toJSONSchema(planSchema, { target: "draft-7" });
+
+/** Upgrade MVP v1 plans to the catalog schema so older libraries keep opening. */
+export function migratePlan(input: unknown): unknown {
+  const plan = input as {
+    schemaVersion?: unknown;
+    scenes?: unknown;
+  };
+  if (plan?.schemaVersion !== "1.0.0" || !Array.isArray(plan.scenes))
+    return input;
+  const scenes = plan.scenes.map((scene) => {
+    if (
+      typeof scene === "object" &&
+      scene !== null &&
+      !("chapterTitle" in scene)
+    )
+      (scene as { chapterTitle?: unknown }).chapterTitle = null;
+    if (
+      typeof scene !== "object" ||
+      scene === null ||
+      (scene as { visual?: { graphic?: unknown } }).visual?.graphic == null ||
+      typeof (scene as { visual: { graphic: unknown } }).visual.graphic !==
+        "object"
+    )
+      return scene;
+    const s = scene as {
+      visual: {
+        graphic: {
+          template: string;
+          parameters: Record<string, unknown>;
+        } & Record<string, unknown>;
+      };
+    };
+    const p = s.visual.graphic.parameters ?? {};
+    if (s.visual.graphic.template === "ArchitectureFlow") {
+      s.visual.graphic.parameters = {
+        title: p.title ?? "",
+        subtitle: p.subtitle ?? "",
+        nodes: Array.isArray(p.nodes) ? p.nodes.slice(0, 6) : [],
+        emphasis: typeof p.emphasis === "number" ? p.emphasis : -1,
+      };
+    } else {
+      s.visual.graphic.parameters = {
+        title: p.title ?? "",
+        subtitle: p.subtitle ?? "",
+      };
+    }
+    return s;
+  });
+  return { ...plan, schemaVersion: "2.0.0", scenes };
+}
+
+/**
+ * Repair director bookkeeping without touching editorial content: scene start
+ * frames are recomputed cumulatively and the plan duration becomes their sum.
+ * Models (and humans) routinely mis-total long timelines; content checks stay
+ * strict afterwards.
+ */
+export function normalizePlan(input: unknown): unknown {
+  const plan = input as {
+    scenes?: { durationFrames?: unknown }[];
+    durationFrames?: unknown;
+  };
+  if (!Array.isArray(plan.scenes)) return input;
+  let cursor = 0;
+  const scenes = plan.scenes.map((scene) => {
+    const duration =
+      typeof scene.durationFrames === "number" &&
+      Number.isFinite(scene.durationFrames)
+        ? Math.max(1, Math.round(scene.durationFrames))
+        : 1;
+    const next = { ...scene, startFrame: cursor, durationFrames: duration };
+    cursor += duration;
+    return next;
+  });
+  return { ...plan, scenes, durationFrames: cursor };
+}
+
 export function validatePlan(input: unknown): ProductionPlan {
-  const plan = planSchema.parse(input);
+  const plan = planSchema.parse(
+    input instanceof Object && "schemaVersion" in input && input.schemaVersion
+      ? migratePlan(input)
+      : input,
+  );
   let cursor = 0;
   const ids = new Set<string>();
   for (const scene of plan.scenes) {
@@ -83,16 +354,51 @@ export function validatePlan(input: unknown): ProductionPlan {
     if (g?.template === "ArchitectureFlow" && g.parameters.nodes.length < 2)
       throw new StudioError(
         "INVALID_PLAN",
-        `${scene.id}: ArchitectureFlow needs 2–5 nodes.`,
+        `${scene.id}: ArchitectureFlow needs 2–6 nodes.`,
       );
     if (
-      g &&
+      g?.template === "ArchitectureFlow" &&
       g.parameters.emphasis >= g.parameters.nodes.length &&
       g.parameters.emphasis !== -1
     )
       throw new StudioError(
         "INVALID_PLAN",
         `${scene.id}: emphasis points outside nodes.`,
+      );
+    if (
+      g?.template === "ArchitectureDiagram" &&
+      g.parameters.failedLayer >= g.parameters.layers.length &&
+      g.parameters.failedLayer !== -1
+    )
+      throw new StudioError(
+        "INVALID_PLAN",
+        `${scene.id}: failedLayer points outside layers.`,
+      );
+    if (
+      g?.template === "RequestFlow" &&
+      g.parameters.failureStep >= g.parameters.steps.length &&
+      g.parameters.failureStep !== -1
+    )
+      throw new StudioError(
+        "INVALID_PLAN",
+        `${scene.id}: failureStep points outside steps.`,
+      );
+    if (
+      g?.template === "CodeReveal" &&
+      g.parameters.highlight >= g.parameters.lines.length &&
+      g.parameters.highlight !== -1
+    )
+      throw new StudioError(
+        "INVALID_PLAN",
+        `${scene.id}: highlight points outside lines.`,
+      );
+    if (
+      g?.template === "FailureAnimation" &&
+      g.parameters.failedNode >= g.parameters.nodes.length
+    )
+      throw new StudioError(
+        "INVALID_PLAN",
+        `${scene.id}: failedNode points outside nodes.`,
       );
     cursor += scene.durationFrames;
   }
@@ -105,29 +411,27 @@ export function validatePlan(input: unknown): ProductionPlan {
     throw new StudioError("INVALID_PLAN", "H.264 dimensions must be even.");
   return plan;
 }
+
+/**
+ * Scenes select sub-ranges of recordings: takes may be skipped, reused out of
+ * import order, or trimmed. Every referenced range must stay inside its
+ * recording and use that recording's own transcript.
+ */
 export function validateSources(
   plan: ProductionPlan,
   recordings: { id: string; duration: number }[],
   transcripts: { recordingId: string; segments: { id: string }[] }[],
 ) {
-  const expectedOrder = recordings.map((r) => r.id);
-  const sceneOrder = [...new Set(plan.scenes.map((s) => s.camera.recordingId))];
-  if (
-    !expectedOrder.length ||
-    sceneOrder.length !== expectedOrder.length ||
-    sceneOrder.some((id, i) => id !== expectedOrder[i])
-  )
-    throw new StudioError(
-      "INVALID_PLAN",
-      "Scenes must cover every imported recording exactly once, in import order, without interleaving recordings.",
-    );
   // Later transcripts win, so retried or superseded imports stay valid.
   const latestByRecording = new Map<string, { segments: { id: string }[] }>();
   for (const t of transcripts) latestByRecording.set(t.recordingId, t);
   for (const scene of plan.scenes) {
-    const recording = recordings.find(
-      (r) => r.id === scene.camera.recordingId,
-    )!;
+    const recording = recordings.find((r) => r.id === scene.camera.recordingId);
+    if (!recording)
+      throw new StudioError(
+        "INVALID_PLAN",
+        `${scene.id}: references an unknown recording.`,
+      );
     if (
       scene.sourceInFrame + scene.durationFrames >
       Math.floor(recording.duration * plan.frameRate) + 1
@@ -153,6 +457,25 @@ export function validateSources(
       );
   }
 }
+
+/** How much of each recording the plan actually keeps; powers QA and review. */
+export function coverageSummary(
+  plan: ProductionPlan,
+  recordings: { id: string; name?: string; duration: number }[],
+) {
+  const per = new Map<string, number>();
+  for (const s of plan.scenes)
+    per.set(
+      s.camera.recordingId,
+      (per.get(s.camera.recordingId) || 0) + s.durationFrames / plan.frameRate,
+    );
+  return recordings.map((r) => ({
+    recordingId: r.id,
+    name: r.name ?? r.id,
+    durationSeconds: r.duration,
+    keptSeconds: per.get(r.id) || 0,
+  }));
+}
 const opScene = { sceneId: identifier };
 export const operationSchema = z.discriminatedUnion("type", [
   z.strictObject({
@@ -169,7 +492,12 @@ export const operationSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("updateGraphicParameters"),
     ...opScene,
-    parameters: graphicSchema.shape.parameters,
+    parameters: z.unknown(),
+  }),
+  z.strictObject({
+    type: z.literal("updateChapterTitle"),
+    ...opScene,
+    chapterTitle: z.string().min(1).max(120).nullable(),
   }),
   z.strictObject({ type: z.literal("removeGraphic"), ...opScene }),
   z.strictObject({
@@ -212,6 +540,7 @@ export const patchSchema = z.strictObject({
   operations: z.array(operationSchema).min(1).max(100),
 });
 export type PlanPatch = z.infer<typeof patchSchema>;
+export type Operation = z.infer<typeof operationSchema>;
 export function applyPatch(
   previous: ProductionPlan,
   input: unknown,
@@ -248,16 +577,25 @@ export function applyPatch(
     const s = next.scenes[index];
     switch (op.type) {
       case "replaceVisual":
-        s.visual = op.visual;
+        s.visual = structuredClone(op.visual);
         break;
       case "updateFraming":
         s.camera.framing = op.framing;
         s.camera.punchIn = op.punchIn;
         break;
-      case "updateGraphicParameters":
+      case "updateGraphicParameters": {
         if (!s.visual.graphic)
           throw new StudioError("INVALID_PLAN", "Scene has no graphic.");
-        s.visual.graphic.parameters = op.parameters;
+        // Re-validate the whole graphic with the substituted parameters.
+        const candidate = graphicSchema.parse({
+          ...structuredClone(s.visual.graphic),
+          parameters: structuredClone(op.parameters),
+        });
+        s.visual.graphic = candidate;
+        break;
+      }
+      case "updateChapterTitle":
+        s.chapterTitle = op.chapterTitle;
         break;
       case "removeGraphic":
         s.visual = {
@@ -286,13 +624,13 @@ export function applyPatch(
             "INVALID_PLAN",
             "Invalid split frame or duplicate new scene ID.",
           );
-        next.scenes.splice(index + 1, 0, {
-          ...structuredClone(s),
-          id: op.newSceneId,
-          startFrame: s.startFrame + op.atFrame,
-          sourceInFrame: s.sourceInFrame + op.atFrame,
-          durationFrames: s.durationFrames - op.atFrame,
-        });
+        const tail = structuredClone(s);
+        tail.id = op.newSceneId;
+        tail.startFrame = s.startFrame + op.atFrame;
+        tail.sourceInFrame = s.sourceInFrame + op.atFrame;
+        tail.durationFrames = s.durationFrames - op.atFrame;
+        tail.chapterTitle = null;
+        next.scenes.splice(index + 1, 0, tail);
         s.durationFrames = op.atFrame;
         break;
       }
@@ -316,6 +654,7 @@ export function applyPatch(
             ...following.transcriptSegmentIds,
           ]),
         ];
+        following.chapterTitle = null;
         next.scenes.splice(index + 1, 1);
         break;
       }

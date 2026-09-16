@@ -14,7 +14,10 @@ import UniformTypeIdentifiers
   @Published var error: String?
   @Published var notice: String?
   @Published var report: DoctorReport?
+  @Published var aroll: ArollDraft?
   @Published var provider = UserDefaults.standard.string(forKey: "provider") ?? "mock"
+  @Published var transcriptionProvider =
+    UserDefaults.standard.string(forKey: "transcriptionProvider") ?? "mock"
   @Published var modelName = UserDefaults.standard.string(forKey: "modelName") ?? "gpt-5.4"
   private var activeRequest: String?
   private var lastRefresh = Date.distantPast
@@ -27,7 +30,7 @@ import UniformTypeIdentifiers
   }
   func load() async {
     await refresh()
-    if provider == "openai" { await configureProvider() }
+    if provider != "mock" || transcriptionProvider != "mock" { await configureProvider() }
     await diagnose()
   }
   func refresh() async {
@@ -82,15 +85,24 @@ import UniformTypeIdentifiers
   }
   func configureProvider() async {
     do {
-      var args: [String: Any] = ["provider": provider, "model": modelName]
-      if provider == "openai" { args["apiKey"] = try Keychain.read() ?? "" }
+      var args: [String: Any] = [
+        "provider": provider,
+        "transcriptionProvider": transcriptionProvider,
+        "model": modelName,
+      ]
+      if provider == "openai" || transcriptionProvider == "openai" {
+        args["apiKey"] = try Keychain.read() ?? ""
+      }
       let _: AnyResponse = try await runtime.call("provider.configure", args)
       UserDefaults.standard.set(provider, forKey: "provider")
+      UserDefaults.standard.set(transcriptionProvider, forKey: "transcriptionProvider")
       UserDefaults.standard.set(modelName, forKey: "modelName")
     } catch {
       self.error = error.localizedDescription
       provider = "mock"
-      let _: AnyResponse? = try? await runtime.call("provider.configure", ["provider": "mock"])
+      transcriptionProvider = "mock"
+      let _: AnyResponse? = try? await runtime.call(
+        "provider.configure", ["provider": "mock", "transcriptionProvider": "mock"])
     }
   }
   func chooseFile(types: [UTType]) -> URL? {
@@ -130,6 +142,46 @@ import UniformTypeIdentifiers
       let json = try JSONSerialization.jsonObject(with: data)
       await perform("transcript.load", label: "Transcript import", params: ["transcript": json])
     } catch { self.error = error.localizedDescription }
+  }
+  func importFCPTranscripts() async {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = true
+    panel.message =
+      "Choose a Final Cut library, an event, or the folder containing your media. Word-level speech analysis is discovered next to the clips."
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    await perform(
+      "transcript.fcp", label: "Final Cut transcript import", params: ["path": url.path])
+  }
+  func draftAroll() async {
+    guard !busy, let id = selectedID else { return }
+    busy = true
+    busyLabel = "Drafting A-roll cut"
+    error = nil
+    defer { busy = false }
+    do {
+      aroll = try await runtime.call("aroll.draft", ["projectId": id])
+      notice = "A-roll draft ready."
+    } catch { self.error = error.localizedDescription }
+    await refresh()
+  }
+  func importPlan() async {
+    guard let url = chooseFile(types: [.json]) else { return }
+    do {
+      let data = try Data(contentsOf: url)
+      guard data.count <= 10_000_000 else {
+        throw StudioFailure(
+          kind: "INPUT", message: "Plan is too large.",
+          recovery: "Use the CLI to import plan JSON files up to 10 MB.", retryable: false)
+      }
+      let json = try JSONSerialization.jsonObject(with: data)
+      await perform("plan.import", label: "Plan import", params: ["plan": json])
+    } catch { self.error = error.localizedDescription }
+  }
+  func proposeRange(_ range: String, request: String) async {
+    await perform(
+      "revision.range", label: "Range revision proposal",
+      params: ["range": range, "request": request])
   }
   func openResolve() async {
     busy = true

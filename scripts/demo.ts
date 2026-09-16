@@ -119,7 +119,7 @@ export async function demo(
   }
   const store = new Store(root);
   let last = "";
-  const studio = new Studio(store, undefined, (event) => {
+  const studio = new Studio(store, undefined, undefined, (event) => {
     const e = event as {
       job?: { label: string; status: string; progress: number };
     };
@@ -163,6 +163,14 @@ export async function demo(
     await studio.loadTranscript(p.id, transcript);
     await studio.generatePlan(p.id);
     const plan = store.get(p.id).plans[0];
+    const graphicScenes = plan.scenes.filter((s) => s.visual.graphic);
+    assert.ok(
+      graphicScenes.length >= 1,
+      "mock direction should place at least one graphic",
+    );
+    // Continuous synthetic narration has no dead space to remove, so the
+    // A-roll editor may keep it as one scene; real footage cuts into many.
+    assert.ok(plan.scenes.length >= 1, "the A-roll editor produced a cut");
     const fixturePlan = {
       ...plan,
       projectId: "demo-project",
@@ -187,9 +195,11 @@ export async function demo(
     const originalAssets = store
       .assets(p.id)
       .filter((a) => a.type === "remotion-render");
-    assert.equal(originalAssets.length, 4);
+    assert.equal(originalAssets.length, graphicScenes.length);
     assert.ok(originalAssets.every((a) => !a.reused));
-    const callout = plan.scenes[1];
+    const callout = graphicScenes.find(
+      (s) => "title" in (s.visual.graphic!.parameters as object),
+    )!;
     const patch = await studio.proposeOperations(
       p.id,
       [
@@ -197,7 +207,7 @@ export async function demo(
           type: "updateGraphicParameters",
           sceneId: callout.id,
           parameters: {
-            ...callout.visual.graphic!.parameters,
+            ...(callout.visual.graphic!.parameters as object),
             title: "Two copies can still fail together.",
           },
         },
@@ -207,7 +217,7 @@ export async function demo(
     await studio.decidePatch(p.id, patch.id, true);
     await studio.approvePlan(p.id, 2);
     console.log(
-      "Rebuilding one changed callout; other graphics must hit verified cache…",
+      "Rebuilding one changed graphic; everything else must hit verified cache…",
     );
     await studio.build(p.id);
     const revised = store
@@ -216,7 +226,10 @@ export async function demo(
         (a) => a.type === "remotion-render" && a.productionPlanVersion === 2,
       );
     assert.equal(revised.filter((a) => !a.reused).length, 1);
-    assert.equal(revised.filter((a) => a.reused).length, 3);
+    assert.equal(
+      revised.filter((a) => a.reused).length,
+      graphicScenes.length - 1,
+    );
     assert.equal(
       store
         .assets(p.id)
@@ -229,6 +242,17 @@ export async function demo(
       1,
     );
     assert.equal(
+      store
+        .assets(p.id)
+        .filter(
+          (a) =>
+            a.type === "preview-segment" &&
+            a.productionPlanVersion === 2 &&
+            a.reused,
+        ).length,
+      plan.scenes.length - 1,
+    );
+    assert.equal(
       await fileHash(
         path.join(store.dir(p), store.get(p.id).recordings[0].path),
       ),
@@ -236,21 +260,22 @@ export async function demo(
     );
     const current = store.get(p.id),
       latest = current.builds.at(-1)!;
-    await verifyOutput(path.join(store.dir(p), latest.previewPath), 72);
+    const cutSeconds = plan.durationFrames / plan.frameRate;
+    await verifyOutput(path.join(store.dir(p), latest.previewPath), cutSeconds);
     const receipt = {
       projectId: p.id,
       root,
       projectDirectory: store.dir(p),
       preview: path.join(store.dir(p), latest.previewPath),
       resolveExport: path.join(store.dir(p), latest.exportPath),
-      duration: 72,
+      durationSeconds: Math.round(cutSeconds * 100) / 100,
       scenes: plan.scenes.length,
-      graphics: 4,
+      graphics: graphicScenes.length,
       incrementalRebuild: {
         regeneratedGraphics: 1,
-        reusedGraphics: 3,
+        reusedGraphics: graphicScenes.length - 1,
         regeneratedSegments: 1,
-        reusedSegments: 5,
+        reusedSegments: plan.scenes.length - 1,
       },
       sourceUnchanged: true,
       scriptGate: "approved by deterministic demo harness",

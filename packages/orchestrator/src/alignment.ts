@@ -1,0 +1,430 @@
+import { z } from "zod";
+import { hash, now, StudioError } from "../../shared/src/index.ts";
+import type { Recording, Transcript } from "./model.ts";
+
+/**
+ * Script↔recording alignment: which sentence of the approved script is spoken
+ * where (seconds) in which imported recording. Pure TypeScript fuzzy matching
+ * over transcript word streams — no model calls, fully inspectable.
+ */
+
+export interface TimedToken {
+  token: string;
+  start: number;
+  end: number;
+}
+
+const normalize = (word: string) =>
+  word
+    .toLowerCase()
+    .replace(/[^a-z0-9']+/g, "")
+    .replace(/^'+|'+$/g, "");
+
+export function tokenize(text: string): string[] {
+  return text
+    .split(/\s+/)
+    .map(normalize)
+    .filter((t) => t.length > 0 || /\d/.test(t));
+}
+
+export interface ScriptSentence {
+  index: number;
+  text: string;
+  tokens: string[];
+  /** Markdown-style heading (# …) or short standalone line preceding this sentence. */
+  heading: string | null;
+}
+
+/** Split a script into sentences; heading lines become chapter markers, not sentences. */
+export function splitScriptSentences(script: string): ScriptSentence[] {
+  const sentences: ScriptSentence[] = [];
+  let heading: string | null = null;
+  let index = 0;
+  for (const rawLine of script.split(/\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^#{1,3}\s+/.test(line)) {
+      heading = line.replace(/^#{1,3}\s+/, "").slice(0, 120);
+      continue;
+    }
+    // Short standalone lines without terminal punctuation act as section labels.
+    if (line.length <= 60 && !/[.!?]"?$/.test(line) && !/\s{3,}/.test(line)) {
+      heading = line.slice(0, 120);
+      continue;
+    }
+    for (const part of line.split(/(?<=[.!?])\s+/)) {
+      const text = part.trim();
+      if (!text) continue;
+      const tokens = tokenize(text);
+      if (!tokens.length) continue;
+      sentences.push({ index: index++, text, tokens, heading });
+      heading = null;
+    }
+  }
+  return sentences;
+}
+
+/** Word stream of a recording; falls back to even distribution over segments. */
+export function tokenStream(transcript: Transcript): TimedToken[] {
+  const out: TimedToken[] = [];
+  for (const segment of transcript.segments) {
+    const words = segment.words ?? [];
+    if (words.length) {
+      for (const w of words) {
+        const token = normalize(w.text);
+        if (token) out.push({ token, start: w.start, end: w.end });
+      }
+    } else {
+      const tokens = tokenize(segment.text);
+      if (!tokens.length) continue;
+      const span = (segment.end - segment.start) / tokens.length;
+      tokens.forEach((token, i) => {
+        const start = segment.start + i * span;
+        out.push({ token, start, end: start + span });
+      });
+    }
+  }
+  return out;
+}
+
+export interface SpanMatch {
+  recordingId: string;
+  start: number;
+  end: number;
+  score: number;
+  segmentIds: string[];
+}
+
+/** Smith-Waterman local alignment of sentence tokens inside a token stream. */
+function bestSpan(
+  tokens: string[],
+  stream: TimedToken[],
+): { start: number; end: number; score: number } | null {
+  const n = tokens.length,
+    m = stream.length;
+  if (!n || !m) return null;
+  const match = 2,
+    mismatch = -0.8,
+    gap = -1.2;
+  let prev = new Float64Array(m + 1);
+  let cur = new Float64Array(m + 1);
+  let best = 0,
+    bestI = -1,
+    bestEnd = -1;
+  const trace: Int32Array[] = [];
+  for (let i = 1; i <= n; i++) {
+    trace[i] = new Int32Array(m + 1);
+    for (let j = 1; j <= m; j++) {
+      const diag =
+        prev[j - 1] +
+        (tokens[i - 1] === stream[j - 1].token ? match : mismatch);
+      const up = prev[j] + gap;
+      const left = cur[j - 1] + gap;
+      let value = diag,
+        from = 1;
+      if (up > value) {
+        value = up;
+        from = 2;
+      }
+      if (left > value) {
+        value = left;
+        from = 3;
+      }
+      if (value <= 0) {
+        value = 0;
+        from = 0;
+      }
+      cur[j] = value;
+      trace[i][j] = from;
+      if (value > best) {
+        best = value;
+        bestI = i;
+        bestEnd = j;
+      }
+    }
+    const swap = prev;
+    prev = cur;
+    cur = swap;
+    cur.fill(0);
+  }
+  if (bestI < 0 || best <= 0) return null;
+  // Traceback from the scoring peak; the span covers only positions the
+  // sentence actually matched (diagonal moves), never gap-consumed tokens.
+  let i = bestI,
+    j = bestEnd,
+    spanStart = bestEnd,
+    spanEnd = bestEnd - 1;
+  while (i > 0 && j > 0) {
+    const from = trace[i][j];
+    if (from === 0) break;
+    if (from === 1) {
+      i--;
+      j--;
+      spanStart = Math.min(spanStart, j);
+      spanEnd = Math.max(spanEnd, j + 1);
+    } else if (from === 2) i--;
+    else j--;
+  }
+  if (spanEnd <= spanStart) return null;
+  return { start: spanStart, end: spanEnd - 1, score: best / (2 * n) };
+}
+
+export const alignmentSchema = z.strictObject({
+  schemaVersion: z.literal("1.0.0"),
+  createdAt: z.iso.datetime(),
+  scriptVersion: z.number().int().positive(),
+  transcriptHash: z.string().regex(/^[a-f0-9]{64}$/),
+  sentences: z.array(
+    z.strictObject({
+      id: z.string(),
+      index: z.number().int().nonnegative(),
+      text: z.string(),
+      heading: z.string().nullable(),
+      match: z
+        .strictObject({
+          recordingId: z.string(),
+          start: z.number().nonnegative(),
+          end: z.number().positive(),
+          score: z.number().min(0).max(1),
+          segmentIds: z.array(z.string()),
+        })
+        .nullable(),
+      alternates: z.array(
+        z.strictObject({
+          recordingId: z.string(),
+          start: z.number().nonnegative(),
+          end: z.number().positive(),
+          score: z.number().min(0).max(1),
+        }),
+      ),
+    }),
+  ),
+  stats: z.strictObject({
+    sentences: z.number().int().nonnegative(),
+    matched: z.number().int().nonnegative(),
+    unmatched: z.number().int().nonnegative(),
+    averageScore: z.number(),
+    perRecording: z.array(
+      z.strictObject({
+        recordingId: z.string(),
+        name: z.string(),
+        matchedSentences: z.number().int().nonnegative(),
+        keptSeconds: z.number().nonnegative(),
+      }),
+    ),
+  }),
+});
+export type Alignment = z.infer<typeof alignmentSchema>;
+
+const MATCH_THRESHOLD = 0.42;
+// Very short sentences match spuriously; demand more confidence.
+const SHORT_THRESHOLD = 0.55;
+const CONTINUITY_BONUS = 0.06;
+const SHORT_CONTINUITY_BONUS = 0.15;
+// Padding makes back-to-back spans overlap slightly; keep strict take order.
+const MONOTONIC_TOLERANCE = 0.65;
+const HEAD_PAD = 0.14;
+const TAIL_PAD = 0.3;
+
+export interface AlignInput {
+  script: string;
+  scriptVersion: number;
+  recordings: Recording[];
+  transcripts: Transcript[];
+}
+
+export function alignScript(input: AlignInput): Alignment {
+  const sentences = splitScriptSentences(input.script);
+  if (!sentences.length)
+    throw new StudioError(
+      "INVALID_INPUT",
+      "The script contains no alignable sentences.",
+    );
+  const latest = new Map<string, Transcript>();
+  for (const t of input.transcripts) latest.set(t.recordingId, t);
+  const streams = input.recordings.map((r) => {
+    const transcript = latest.get(r.id);
+    if (!transcript)
+      throw new StudioError(
+        "CONFLICT",
+        `Recording ${r.name} has no transcript; align after transcribing every recording.`,
+      );
+    return { recording: r, transcript, stream: tokenStream(transcript) };
+  });
+  const lastEnd = new Map<string, number>();
+  const used: Alignment["sentences"] = sentences.map((s) => ({
+    id: `sent-${String(s.index + 1).padStart(3, "0")}`,
+    index: s.index,
+    text: s.text,
+    heading: s.heading,
+    match: null,
+    alternates: [],
+  }));
+  let previousRecording: string | null = null;
+  for (const sentence of sentences) {
+    const candidates: SpanMatch[] = [];
+    for (const { recording, transcript, stream } of streams) {
+      const span = bestSpan(sentence.tokens, stream);
+      if (!span) continue;
+      const from = span.start;
+      const to = span.end;
+      let start = stream[from].start - HEAD_PAD;
+      let end = stream[to].end + TAIL_PAD;
+      start = Math.max(0, start);
+      end = Math.min(end, recording.duration);
+      if (end <= start) continue;
+      const segmentIds = transcript.segments
+        .filter((seg) => seg.start < end && seg.end > start)
+        .map((seg) => seg.id);
+      candidates.push({
+        recordingId: recording.id,
+        start,
+        end,
+        score: Math.min(1, span.score),
+        segmentIds,
+      });
+    }
+    const short = sentence.tokens.length <= 2;
+    const bonus = short ? SHORT_CONTINUITY_BONUS : CONTINUITY_BONUS;
+    // Rhetorical beats belong to the current take; cross-take one-word
+    // matches are almost always spurious.
+    const sameTake = candidates.filter(
+      (c) => c.recordingId === previousRecording,
+    );
+    const pool: SpanMatch[] =
+      short && previousRecording && sameTake.length ? sameTake : candidates;
+    const ranked = [...pool].sort(
+      (a, b) =>
+        b.score +
+        (b.recordingId === previousRecording ? bonus : 0) -
+        (a.score + (a.recordingId === previousRecording ? bonus : 0)),
+    );
+    const row = used[sentence.index];
+    row.alternates = ranked
+      .slice(0, 3)
+      .map(({ recordingId, start, end, score }) => ({
+        recordingId,
+        start,
+        end,
+        score,
+      }));
+    const viable = ranked.find(
+      (c) =>
+        c.score >= (short ? SHORT_THRESHOLD : MATCH_THRESHOLD) &&
+        c.start >= (lastEnd.get(c.recordingId) ?? 0) - MONOTONIC_TOLERANCE,
+    );
+    if (viable) {
+      row.match = viable;
+      lastEnd.set(viable.recordingId, viable.end);
+      previousRecording = viable.recordingId;
+    }
+  }
+  // Second pass: slot still-unmatched sentences into gaps between the spans
+  // already claimed in each recording, keeping per-recording monotonicity.
+  const claimed = new Map<string, { start: number; end: number }[]>();
+  for (const row of used)
+    if (row.match) {
+      const list = claimed.get(row.match.recordingId) ?? [];
+      list.push({ start: row.match.start, end: row.match.end });
+      claimed.set(row.match.recordingId, list);
+    }
+  for (const row of used) {
+    if (row.match) continue;
+    const sentence = sentences[row.index];
+    const fillIns: SpanMatch[] = [];
+    for (const { recording, transcript, stream } of streams) {
+      const span = bestSpan(sentence.tokens, stream);
+      if (!span) continue;
+      const start = Math.max(0, stream[span.start].start - HEAD_PAD);
+      const end = Math.min(recording.duration, stream[span.end].end + TAIL_PAD);
+      if (end <= start) continue;
+      const overlaps = (claimed.get(recording.id) ?? []).some(
+        (c) => start < c.end - 0.4 && end > c.start + 0.4,
+      );
+      if (overlaps) continue;
+      fillIns.push({
+        recordingId: recording.id,
+        start,
+        end,
+        score: Math.min(1, span.score),
+        segmentIds: transcript.segments
+          .filter((seg) => seg.start < end && seg.end > start)
+          .map((seg) => seg.id),
+      });
+    }
+    fillIns.sort((a, b) => b.score - a.score);
+    const rescue = fillIns.find(
+      (c) =>
+        c.score >=
+        (sentence.tokens.length <= 2 ? SHORT_THRESHOLD : MATCH_THRESHOLD),
+    );
+    if (rescue) {
+      row.match = rescue;
+      row.alternates = [
+        ...fillIns.slice(0, 3).map(({ recordingId, start, end, score }) => ({
+          recordingId,
+          start,
+          end,
+          score,
+        })),
+        ...row.alternates,
+      ].slice(0, 3);
+      const list = claimed.get(rescue.recordingId) ?? [];
+      list.push({ start: rescue.start, end: rescue.end });
+      claimed.set(rescue.recordingId, list);
+    }
+  }
+  // Head/tail padding makes dense back-to-back spans overlap; adjacent spans
+  // in the same recording meet at their midpoint instead of stacking pads.
+  const byRecording = new Map<string, typeof used>();
+  for (const row of used)
+    if (row.match) {
+      const list = byRecording.get(row.match.recordingId) ?? [];
+      list.push(row);
+      byRecording.set(row.match.recordingId, list);
+    }
+  for (const rows of byRecording.values()) {
+    rows.sort((a, b) => a.match!.start - b.match!.start);
+    for (let i = 1; i < rows.length; i++) {
+      const a = rows[i - 1].match!;
+      const b = rows[i].match!;
+      if (b.start < a.end) {
+        const mid = (a.end + b.start) / 2;
+        a.end = Math.max(a.start + 0.05, mid);
+        b.start = Math.min(b.end - 0.05, mid);
+      }
+    }
+  }
+  const matchedRows = used.filter((s) => s.match);
+  const perRecording = streams.map(({ recording }) => {
+    const rows = matchedRows.filter(
+      (s) => s.match!.recordingId === recording.id,
+    );
+    return {
+      recordingId: recording.id,
+      name: recording.name,
+      matchedSentences: rows.length,
+      keptSeconds: rows.reduce(
+        (sec, s) => sec + (s.match!.end - s.match!.start),
+        0,
+      ),
+    };
+  });
+  return alignmentSchema.parse({
+    schemaVersion: "1.0.0",
+    createdAt: now(),
+    scriptVersion: input.scriptVersion,
+    transcriptHash: hash(input.transcripts),
+    sentences: used,
+    stats: {
+      sentences: used.length,
+      matched: matchedRows.length,
+      unmatched: used.length - matchedRows.length,
+      averageScore: matchedRows.length
+        ? matchedRows.reduce((sum, s) => sum + s.match!.score, 0) /
+          matchedRows.length
+        : 0,
+      perRecording,
+    },
+  });
+}

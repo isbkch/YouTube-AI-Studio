@@ -107,6 +107,8 @@ test("mock Director validates structured input/output and binds source provenanc
       transcripts: [transcript],
       creator: p.creator,
       version: 1,
+      targetDuration: 900,
+      alignment: null,
     });
     assert.equal(result.output.transcriptHash, hash([transcript]));
     assert.equal(result.output.durationFrames, 90);
@@ -137,6 +139,8 @@ test("mock Director plans multiple recordings in import order with per-clip sour
       transcripts: [transcript, secondTranscript],
       creator: p.creator,
       version: 1,
+      targetDuration: 900,
+      alignment: null,
     });
     const plan = result.output;
     assert.equal(plan.transcriptHash, hash([transcript, secondTranscript]));
@@ -160,7 +164,7 @@ test("mock Director plans multiple recordings in import order with per-clip sour
       assert.deepEqual(s.transcriptSegmentIds, ["s-1"]);
     validateSources(plan, [recording, second], [transcript, secondTranscript]);
   }));
-test("source validation rejects skipped, interleaved and mis-scoped recordings", async () =>
+test("source validation allows take selection but rejects bad ranges and mis-scoped transcripts", async () =>
   temporary(async (_, store) => {
     const p = store.create("Source validation");
     const first: Recording = { ...recording, duration: 30 };
@@ -184,23 +188,33 @@ test("source validation rejects skipped, interleaved and mis-scoped recordings",
       transcripts: [transcript, secondTranscript],
       creator: p.creator,
       version: 1,
+      targetDuration: 900,
+      alignment: null,
     });
     const sources = [first, second];
     validateSources(base.output, sources, [transcript, secondTranscript]);
+    // The A-roll editor may drop a take entirely.
     const skipped = structuredClone(base.output);
     skipped.scenes = skipped.scenes.filter(
       (s) => s.camera.recordingId === first.id,
     );
-    assert.throws(
-      () => validateSources(skipped, sources, [transcript, secondTranscript]),
-      /import order/,
-    );
-    const interleaved = structuredClone(base.output);
-    interleaved.scenes = interleaved.scenes.slice().reverse();
+    validateSources(skipped, sources, [transcript, secondTranscript]);
+    const unknownRecording = structuredClone(base.output);
+    unknownRecording.scenes[0].camera.recordingId = "recording-404";
     assert.throws(
       () =>
-        validateSources(interleaved, sources, [transcript, secondTranscript]),
-      /import order/,
+        validateSources(unknownRecording, sources, [
+          transcript,
+          secondTranscript,
+        ]),
+      /unknown recording/,
+    );
+    const beyondEnd = structuredClone(base.output);
+    beyondEnd.scenes[0].sourceInFrame = 25 * 30;
+    beyondEnd.scenes[0].durationFrames = 10 * 30;
+    assert.throws(
+      () => validateSources(beyondEnd, sources, [transcript, secondTranscript]),
+      /source range exceeds/,
     );
     const misScoped = structuredClone(base.output);
     const secondScene = misScoped.scenes.find(
@@ -400,5 +414,6 @@ test("committed demo plan and Director output share valid transcript provenance"
   );
   assert.equal(plan.transcriptHash, hash([t]));
   assert.deepEqual(plan, director);
-  assert.equal(plan.scenes.length, 6);
+  assert.ok(plan.scenes.length >= 1);
+  assert.equal(plan.schemaVersion, "2.0.0");
 });

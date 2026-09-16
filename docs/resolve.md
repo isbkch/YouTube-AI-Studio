@@ -24,8 +24,8 @@ The trusted `bridge.py` supports two allowlisted actions:
 - `import`: create a uniquely named project, import a supplied generated timeline, save it and return track/duration information. It refuses to overwrite an existing named project.
 
 ```sh
-pnpm wts resolve probe
-pnpm wts resolve import /absolute/path/to/resolve-v2-HASH.fcpxml "My new Resolve project"
+bun run wts resolve probe
+bun run wts resolve import /absolute/path/to/resolve-v2-HASH.fcpxml "My new Resolve project"
 ```
 
 External scripting requires a running, fully loaded Resolve instance and an edition/preferences configuration that permits local connections. It is not enabled by this app. On this development machine, the API probe returned no connection even while Resolve was open. Therefore **direct scripted import is implemented but not verified here**; manual FCPXML import is verified. Earlier Resolve versions without bundled Python should use manual import until an explicitly configured interpreter adapter is added.

@@ -2,7 +2,7 @@ import { hash } from "../packages/shared/src/index.ts";
 import type { ProductionPlan } from "../packages/production-plan/src/index.ts";
 export function fixture(): ProductionPlan {
   return {
-    schemaVersion: "1.0.0",
+    schemaVersion: "2.0.0",
     id: "plan-1",
     projectId: "project-1",
     version: 1,
@@ -10,7 +10,7 @@ export function fixture(): ProductionPlan {
     scriptVersion: 1,
     transcriptHash: hash("transcript"),
     frameRate: 30,
-    resolution: { width: 1280, height: 720 },
+    resolution: { width: 1920, height: 1080 },
     durationFrames: 90,
     director: { provider: "mock", model: "fixture", summary: "Simple." },
     scenes: [
@@ -27,6 +27,7 @@ export function fixture(): ProductionPlan {
         transition: "cut",
         enabled: true,
         rationale: "Give this thought room.",
+        chapterTitle: null,
       },
     ],
   };

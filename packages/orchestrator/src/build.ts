@@ -10,11 +10,13 @@ import {
   StudioError,
 } from "../../shared/src/index.ts";
 import {
+  coverageSummary,
   graphicKey,
   validatePlan,
   validateSources,
 } from "../../production-plan/src/index.ts";
 import {
+  PREVIEW,
   analyzeAudio,
   extractAudio,
   proxy,
@@ -31,6 +33,7 @@ import {
   makeTimeline,
   toOTIO,
   toFCPXML,
+  toChapters,
   renderSegment,
   concatenateSegments,
 } from "./timeline.ts";
@@ -114,13 +117,13 @@ export async function buildProject(
     )
       throw new StudioError("CONFLICT", `Cannot build from ${p.status}.`);
     if (
-      plan.frameRate !== 30 ||
-      plan.resolution.width !== 1280 ||
-      plan.resolution.height !== 720
+      plan.frameRate !== PREVIEW.frameRate ||
+      plan.resolution.width !== PREVIEW.width ||
+      plan.resolution.height !== PREVIEW.height
     )
       throw new StudioError(
         "UNSUPPORTED",
-        "The MVP preview supports 1280×720 at 30 fps.",
+        `The preview pipeline renders ${PREVIEW.width}×${PREVIEW.height} at ${PREVIEW.frameRate} fps.`,
         "Create a plan using the supported preview capability.",
       );
     if (
@@ -166,7 +169,7 @@ export async function buildProject(
     for (const recording of p.recordings) {
       const key = hash({
         source: recording.hash,
-        operation: "proxy-v1-1280x720-30fps",
+        operation: `proxy-v2-${PREVIEW.width}x${PREVIEW.height}-${PREVIEW.frameRate}fps`,
       });
       tasks.push({
         id: `proxy-${recording.id}`,
@@ -298,7 +301,7 @@ export async function buildProject(
             punchIn: graphic ? 1 : scene.camera.punchIn,
             audio: scene.audio,
             graphic: graphic?.outputHash || null,
-            renderer: "preview-v1-30fps-720p",
+            renderer: `preview-v2-${PREVIEW.frameRate}fps-${PREVIEW.height}p`,
           });
           const c = await cachedFile(
             dir,
@@ -367,6 +370,14 @@ export async function buildProject(
           await safePath(dir, exportPath),
           toFCPXML(timeline, dir),
         );
+        await store.artifact(
+          p,
+          exportPath.replace(/\.fcpxml$/, ".chapters.txt"),
+          {
+            text: toChapters(timeline),
+            note: "YouTube-ready chapter list; paste into the description.",
+          },
+        );
         const key = hash({
           segments: plan.scenes.map((s) => segments.get(s.id)!.outputHash),
           operation: "concat-v1",
@@ -428,6 +439,21 @@ export async function buildProject(
           warnings.push(
             "Narration contains a possible unresolved placeholder.",
           );
+        const cutSeconds = plan.durationFrames / plan.frameRate;
+        if (
+          cutSeconds < p.targetDuration * 0.5 ||
+          cutSeconds > p.targetDuration * 1.5
+        )
+          warnings.push(
+            `Rough cut runs ${Math.round(cutSeconds)}s against a ${Math.round(p.targetDuration)}s target; review pacing.`,
+          );
+        const droppedTakes = coverageSummary(plan, p.recordings).filter(
+          (c) => c.keptSeconds === 0,
+        );
+        if (droppedTakes.length && p.recordings.length > 1)
+          warnings.push(
+            `${droppedTakes.length} imported recording(s) unused by this cut: ${droppedTakes.map((c) => c.name).join(", ")}.`,
+          );
         await store.artifact(p, qaPath, {
           status: "PASS",
           checkedAt: now(),
@@ -440,13 +466,15 @@ export async function buildProject(
           ],
           metadata: meta,
           audio,
+          coverage: coverageSummary(plan, p.recordings),
           warnings,
           humanChecks: [
             "Factual accuracy and narration/graphic agreement",
             "Speech pacing, dead air and mix",
             "Text fit and brand consistency",
           ],
-          coverage: "Technical QA only; not factual or perceptual approval.",
+          coverageNote:
+            "Technical QA only; not factual or perceptual approval.",
         });
         ctx.log(
           `QA passed: ${meta.duration.toFixed(2)}s, ${meta.width}×${meta.height}.`,

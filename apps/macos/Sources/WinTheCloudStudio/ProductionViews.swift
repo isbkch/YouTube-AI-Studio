@@ -138,6 +138,10 @@ struct SceneCard: View {
         }
         Text(scene.narration).font(.system(size: 13)).lineSpacing(3).lineLimit(4).frame(
           height: 74, alignment: .topLeading)
+        if let chapter = scene.chapterTitle {
+          Label(chapter, systemImage: "bookmark.fill").font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.studioAccent).lineLimit(1)
+        }
         Text(scene.rationale).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(
           height: 31, alignment: .topLeading)
         HStack {
@@ -213,12 +217,17 @@ struct SceneEditor: View {
         Spacer()
         Button("Propose This Change") {
           Task {
-            let params: [String: Any] = [
-              "title": title, "subtitle": subtitle,
-              "nodes": template == "ArchitectureFlow"
-                ? nodes.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } : [],
-              "emphasis": template == "ArchitectureFlow" ? emphasis : -1,
-            ]
+            let flowNodes = nodes.split(separator: ",").map {
+              $0.trimmingCharacters(in: .whitespaces)
+            }
+            let params: [String: Any] =
+              template == "ArchitectureFlow"
+              ? [
+                "title": title, "subtitle": subtitle,
+                "nodes": Array(flowNodes.prefix(6)),
+                "emphasis": template == "ArchitectureFlow" ? emphasis : -1,
+              ]
+              : ["title": title, "subtitle": subtitle]
             let visual: [String: Any] =
               template == "Presenter"
               ? [
@@ -256,7 +265,7 @@ struct SceneEditor: View {
       title = scene.visual.graphic?.parameters.title ?? ""
       subtitle = scene.visual.graphic?.parameters.subtitle ?? ""
       nodes =
-        scene.visual.graphic?.parameters.nodes.joined(separator: ", ")
+        scene.visual.graphic?.parameters.nodes?.joined(separator: ", ")
         ?? "Requests, Service, Database"
       emphasis = scene.visual.graphic?.parameters.emphasis ?? -1
       punch = scene.camera.punchIn

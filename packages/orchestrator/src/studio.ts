@@ -1,11 +1,15 @@
+import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { z } from "zod";
 import {
   applyPatch,
   patchSchema,
+  normalizePlan,
   validatePlan,
   validateSources,
   operationSchema,
+  type Graphic,
   type PlanPatch,
   type ProductionPlan,
 } from "../../production-plan/src/index.ts";
@@ -14,6 +18,7 @@ import {
   MockAIProvider,
   validateTranscript,
   type AIProvider,
+  type Transcriber,
 } from "../../agents/src/index.ts";
 import {
   fileHash,
@@ -34,13 +39,30 @@ import {
 } from "./model.ts";
 import { buildProject } from "./build.ts";
 import { JobGraph } from "./jobs.ts";
+import { alignScript, alignmentSchema, type Alignment } from "./alignment.ts";
+import { buildEditDecision, suggestGraphic } from "./aroll.ts";
+import {
+  discoverFCPTranscripts,
+  fcpToTranscriptInput,
+  mapFCPTranscriptsToRecordings,
+  readFCPTranscript,
+} from "./fcp.ts";
 
 export class Studio {
+  public transcription: Transcriber;
   constructor(
     public store: Store,
     public provider: AIProvider = new MockAIProvider(),
+    transcription?: Transcriber,
     private notify?: (event: unknown) => void,
-  ) {}
+  ) {
+    this.transcription =
+      transcription ??
+      (("transcribe" in provider &&
+      typeof (provider as unknown as Transcriber).transcribe === "function"
+        ? (provider as unknown as Transcriber)
+        : new MockAIProvider()) as Transcriber);
+  }
   snapshot(projectId: string) {
     const p = this.store.get(projectId);
     return {
@@ -257,6 +279,132 @@ export class Studio {
       });
     });
   }
+  async importFCPTranscripts(
+    projectId: string,
+    root: string,
+    signal?: AbortSignal,
+  ) {
+    return this.locked(projectId, async (p) => {
+      if (p.status !== "MEDIA_IMPORTED")
+        throw new StudioError(
+          "CONFLICT",
+          "Import Final Cut transcripts after media import and before planning.",
+        );
+      const files = await discoverFCPTranscripts(root);
+      if (!files.length)
+        throw new StudioError(
+          "INVALID_INPUT",
+          "No .fcptranscript files found under that path.",
+          "Open the library in Final Cut once so speech analysis runs, then retry.",
+        );
+      const fcps = await Promise.all(files.map((f) => readFCPTranscript(f)));
+      const { mapping, fingerprints } = await mapFCPTranscriptsToRecordings(
+        fcps,
+        p.recordings,
+        { projectDir: this.store.dir(p), signal },
+      );
+      const imported: {
+        recording: string;
+        phrases: number;
+        words: number;
+      }[] = [];
+      for (const recording of p.recordings) {
+        const fcp = mapping.get(recording.id);
+        if (!fcp) continue;
+        if (p.transcripts.some((t) => t.recordingId === recording.id)) continue;
+        const transcript = validateTranscript(
+          fcpToTranscriptInput(fcp, recording),
+          recording,
+        );
+        await this.store.artifact(
+          p,
+          `transcripts/transcript-${hash(transcript).slice(0, 16)}.json`,
+          transcript,
+        );
+        this.store.update(p.id, (x) => {
+          x.transcripts.push(transcript);
+        });
+        imported.push({
+          recording: recording.name,
+          phrases: transcript.segments.length,
+          words: transcript.segments.reduce(
+            (n, s) => n + (s.words?.length ?? 0),
+            0,
+          ),
+        });
+      }
+      this.store.event(p.id, {
+        event: "transcript.fcpImported",
+        files: files.length,
+        recordings: imported.length,
+      });
+      return {
+        discovered: files.length,
+        fingerprinted: fingerprints,
+        imported,
+        unmatched: p.recordings
+          .filter(
+            (r) =>
+              !mapping.has(r.id) &&
+              !p.transcripts.some((t) => t.recordingId === r.id),
+          )
+          .map((r) => r.name),
+      };
+    });
+  }
+  /** Sentence-level script↔source timing; deterministic, no model calls. */
+  async computeAlignment(projectId: string) {
+    const p = this.store.get(projectId);
+    const script = p.scripts.at(-1);
+    if (!script || !p.scriptApproval)
+      throw new StudioError(
+        "CONFLICT",
+        "Alignment requires an approved script.",
+      );
+    if (!p.recordings.length)
+      throw new StudioError("CONFLICT", "Import A-roll before aligning.");
+    const transcripts = p.recordings.map((r) =>
+      p.transcripts.findLast((t) => t.recordingId === r.id),
+    );
+    if (transcripts.some((t) => !t))
+      throw new StudioError(
+        "CONFLICT",
+        "Align after every recording has a transcript.",
+      );
+    const alignment = alignScript({
+      script: script.text,
+      scriptVersion: script.version,
+      recordings: p.recordings,
+      transcripts: transcripts as Transcript[],
+    });
+    await this.store.artifact(
+      p,
+      `alignment/alignment-v${script.version}.json`,
+      alignment,
+    );
+    this.store.event(p.id, {
+      event: "alignment.computed",
+      matched: alignment.stats.matched,
+      sentences: alignment.stats.sentences,
+    });
+    return alignment;
+  }
+  /** Latest stored alignment for the current script version, if present. */
+  alignment(projectId: string): Alignment | null {
+    const p = this.store.get(projectId);
+    const script = p.scripts.at(-1);
+    if (!script) return null;
+    try {
+      const file = path.join(
+        this.store.dir(p),
+        "alignment",
+        `alignment-v${script.version}.json`,
+      );
+      return alignmentSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    } catch {
+      return null;
+    }
+  }
   async transcribe(projectId: string, signal?: AbortSignal) {
     return this.locked(projectId, async (p) => {
       if (p.status !== "MEDIA_IMPORTED")
@@ -280,16 +428,18 @@ export class Studio {
           `Extract and transcribe ${pending.length} recording${pending.length === 1 ? "" : "s"}`,
           async (signal) => {
             for (const r of pending) {
+              const format = this.transcription.audioFormat;
               const audio = await safePath(
                 this.store.dir(p),
-                `cache/transcription-${r.hash}.mp3`,
+                `cache/transcription-${r.hash}.${format}`,
               );
               await extractAudio(
                 await safePath(this.store.dir(p), r.path),
                 audio,
                 signal,
+                format,
               );
-              const result = await this.provider.transcribe({
+              const result = await this.transcription.transcribe({
                 file: audio,
                 recording: r,
                 signal,
@@ -344,6 +494,24 @@ export class Studio {
           "director",
           "Director • production plan",
           async (signal) => {
+            let alignment: Alignment | null = this.alignment(p.id);
+            if (!alignment) {
+              try {
+                alignment = alignScript({
+                  script: p.scripts.at(-1)!.text,
+                  scriptVersion: p.scripts.at(-1)!.version,
+                  recordings: p.recordings,
+                  transcripts,
+                });
+                await this.store.artifact(
+                  p,
+                  `alignment/alignment-v${p.scripts.at(-1)!.version}.json`,
+                  alignment,
+                );
+              } catch {
+                alignment = null; // Planning still works; the Director times scenes itself.
+              }
+            }
             const result = await new DirectorAgent(this.provider).plan(
               {
                 projectId: p.id,
@@ -352,6 +520,8 @@ export class Studio {
                 recordings: p.recordings,
                 creator: p.creator,
                 version: p.plans.length + 1,
+                targetDuration: p.targetDuration,
+                alignment,
               },
               signal,
             );
@@ -383,8 +553,74 @@ export class Studio {
       return this.snapshot(p.id);
     });
   }
+  /**
+   * Import an externally authored plan (human or offline AI direction).
+   * It passes the exact validation an in-app Director plan must pass.
+   */
+  async importPlan(projectId: string, input: unknown, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      const transcripts = p.recordings
+        .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
+        .filter((t): t is Transcript => !!t);
+      if (
+        !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].includes(
+          p.status,
+        ) ||
+        !p.recordings.length ||
+        transcripts.length !== p.recordings.length ||
+        !p.scriptApproval
+      )
+        throw new StudioError(
+          "CONFLICT",
+          "Plan import requires an approved script and a transcript for every recording.",
+        );
+      const plan = validatePlan(normalizePlan(input));
+      if (
+        plan.projectId !== p.id ||
+        plan.version !== p.plans.length + 1 ||
+        plan.scriptVersion !== p.scripts.at(-1)!.version ||
+        plan.transcriptHash !== hash(transcripts)
+      )
+        throw new StudioError(
+          "INVALID_PLAN",
+          "Imported plan does not match this project's contract (id, next version, script or transcripts).",
+          "Regenerate the plan against the current project state.",
+        );
+      validateSources(plan, p.recordings, p.transcripts);
+      await this.operation(
+        p,
+        "plan-import",
+        `Import plan v${plan.version}`,
+        async () => {
+          await this.store.artifact(
+            p,
+            `production-plans/plan-v${plan.version}.json`,
+            plan,
+          );
+          this.store.update(p.id, (x) => {
+            x.plans.push(plan);
+            x.planApproval = null;
+            x.roughCutApproval = null;
+            x.status = transition(x.status, "AWAITING_STORYBOARD_APPROVAL");
+          });
+          this.store.event(p.id, {
+            event: "plan.imported",
+            version: plan.version,
+            director: plan.director.provider,
+          });
+        },
+        signal,
+      );
+      return this.snapshot(p.id);
+    });
+  }
+  /** Draft the deterministic A-roll edit for review; the Director refines it. */
+  async draftAroll(projectId: string) {
+    const alignment = await this.computeAlignment(projectId);
+    return buildEditDecision(alignment);
+  }
   async approvePlan(projectId: string, version: number) {
-    return this.locked(projectId, (p) => {
+    return this.locked(projectId, async (p) => {
       const plan = validatePlan(p.plans.at(-1));
       if (
         plan.version !== version ||
@@ -478,6 +714,122 @@ export class Studio {
         resultingVersion: current.version + 1,
         operations: ops,
       });
+      this.store.update(p.id, (x) => {
+        x.revisions.push({ patch, status: "PROPOSED", decidedAt: null });
+      });
+      return patch;
+    });
+  }
+  /**
+   * Surgical range revision: "3:42–4:10 is boring, illustrate the failover"
+   * becomes a scoped patch over exactly the scenes in that timeline range.
+   * Deterministic intent parsing; an OpenAI Director refines when configured.
+   */
+  async proposeRange(
+    projectId: string,
+    rangeText: string,
+    request: string,
+    signal?: AbortSignal,
+  ) {
+    return this.locked(projectId, async (p) => {
+      this.revisionAllowed(p);
+      const range = parseTimeRange(rangeText);
+      if (!range)
+        throw new StudioError(
+          "INVALID_INPUT",
+          "Use a timeline range like 3:42-4:10 or 222-260 (seconds).",
+        );
+      const plan = validatePlan(p.plans.at(-1));
+      const fps = plan.frameRate;
+      const [from, to] = range;
+      const overlapping = plan.scenes.filter(
+        (s) =>
+          s.startFrame / fps < to &&
+          (s.startFrame + s.durationFrames) / fps > from,
+      );
+      if (!overlapping.length)
+        throw new StudioError(
+          "INVALID_INPUT",
+          `No scenes fall inside ${rangeText} on the current timeline.`,
+        );
+      const intent = parseIntent(request);
+      // "Keep my A-roll for the first sentence, then illustrate the rest":
+      // the first scene stays presenter footage, later scenes get visuals.
+      const compound =
+        intent.keepPresenter &&
+        intent.illustrate &&
+        /first|then|after that/i.test(request);
+      const operations: import("../../production-plan/src/index.ts").Operation[] =
+        [];
+      for (const scene of overlapping) {
+        const keepPresenter =
+          intent.keepPresenter && (!compound || scene === overlapping[0]);
+        if (intent.chapter && scene === overlapping[0]) {
+          operations.push({
+            type: "updateChapterTitle",
+            sceneId: scene.id,
+            chapterTitle: intent.chapter,
+          });
+          continue;
+        }
+        if (keepPresenter) {
+          if (scene.visual.graphic)
+            operations.push({ type: "removeGraphic", sceneId: scene.id });
+          continue;
+        }
+        if (intent.illustrate) {
+          if (scene.visual.type === "graphic") continue;
+          const suggestion =
+            suggestGraphic(scene.narration, scene.chapterTitle ?? null) ??
+            intent.fallback;
+          operations.push({
+            type: "replaceVisual",
+            sceneId: scene.id,
+            visual: {
+              type: "graphic",
+              description: `Range revision: ${request.slice(0, 200)}`,
+              graphic: {
+                engine: "remotion",
+                template: suggestion!.template,
+                templateVersion: "1.0.0",
+                parameters: suggestion!.parameters,
+              } as Graphic,
+            },
+          });
+          continue;
+        }
+        if (intent.punch && scene.camera.punchIn < 1.05)
+          operations.push({
+            type: "updateFraming",
+            sceneId: scene.id,
+            framing: "close",
+            punchIn: 1.12,
+          });
+      }
+      if (!operations.length)
+        throw new StudioError(
+          "INVALID_INPUT",
+          "The request asks for no change in that range. Try “keep my A-roll”, “illustrate …”, “chapter: …” or “punch in”.",
+        );
+      void signal;
+      const current = p.plans.at(-1)!;
+      const patch: PlanPatch = {
+        id: id("patch"),
+        createdAt: now(),
+        originatingRequest: `Range ${rangeText}: ${request}`,
+        rationale: `Scoped range revision over ${rangeText}; only the listed scene instructions change.`,
+        affectedScenes: [
+          ...new Set(
+            (operations as { type: string; sceneId: string }[]).map(
+              (o) => o.sceneId,
+            ),
+          ),
+        ],
+        previousVersion: current.version,
+        resultingVersion: current.version + 1,
+        operations,
+      };
+      this.validateProposal(p, patch);
       this.store.update(p.id, (x) => {
         x.revisions.push({ patch, status: "PROPOSED", decidedAt: null });
       });
@@ -656,6 +1008,46 @@ export async function readJSONFile(file: string) {
   if ((await stat(file)).size > 10_000_000)
     throw new StudioError("INVALID_INPUT", "JSON input exceeds 10 MB.");
   return JSON.parse(await readFile(file, "utf8")) as unknown;
+}
+const parseClock = (value: string): number | null => {
+  const t = value.trim();
+  if (/^\d+(?:\.\d+)?$/.test(t)) return Number(t);
+  const mm = /^(\d+):(\d{1,2}(?:\.\d+)?)$/.exec(t);
+  if (mm) return Number(mm[1]) * 60 + Number(mm[2]);
+  const hh = /^(\d+):(\d{1,2}):(\d{1,2}(?:\.\d+)?)$/.exec(t);
+  if (hh) return Number(hh[1]) * 3600 + Number(hh[2]) * 60 + Number(hh[3]);
+  return null;
+};
+/** Accepts 3:42-4:10, 3:42–4:10, "3:42 to 4:10" and plain seconds. */
+export function parseTimeRange(text: string): [number, number] | null {
+  const parts = text.split(/\s*(?:-|–|—|\bto\b)\s*/i);
+  if (parts.length !== 2) return null;
+  const a = parseClock(parts[0]);
+  const b = parseClock(parts[1]);
+  if (a === null || b === null || b <= a || b - a > 3600) return null;
+  return [a, b];
+}
+function parseIntent(request: string) {
+  const chapterMatch = /chapter\s*[:\-]\s*(.{1,120})/i.exec(request);
+  return {
+    keepPresenter:
+      /\bkeep (my |the )?(a-?roll|presenter|talking head|me|face)\b/i.test(
+        request,
+      ),
+    illustrate:
+      /\b(illustrate|visuali[sz]e|diagram|graphic|show|animate|draw|explain with)\b/i.test(
+        request,
+      ),
+    punch: /\b(punch in|zoom in|tighter)\b/i.test(request),
+    chapter: chapterMatch ? chapterMatch[1].trim().slice(0, 120) : null,
+    fallback: {
+      template: "Callout" as const,
+      parameters: {
+        title: request.slice(0, 90) || "Key point",
+        subtitle: "",
+      },
+    },
+  };
 }
 export type ProjectSnapshot = ReturnType<Studio["snapshot"]>;
 export type JobUpdate = { event: "job"; job: Job };

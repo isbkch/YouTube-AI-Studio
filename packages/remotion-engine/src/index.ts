@@ -82,7 +82,7 @@ export async function renderPlaceholder(
   const inputProps = {
     template: "Placeholder",
     brand,
-    parameters: { title: "", subtitle: "", nodes: [], emphasis: -1 },
+    parameters: { title: "", subtitle: "" },
     durationFrames: 60,
     width: 1280,
     height: 720,

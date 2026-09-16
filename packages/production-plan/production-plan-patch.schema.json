@@ -70,67 +70,663 @@
                   "graphic": {
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "engine": {
-                            "type": "string",
-                            "const": "remotion"
-                          },
-                          "template": {
-                            "type": "string",
-                            "enum": [
-                              "Callout",
-                              "ArchitectureFlow",
-                              "ChapterTitle"
-                            ]
-                          },
-                          "templateVersion": {
-                            "type": "string",
-                            "const": "1.0.0"
-                          },
-                          "parameters": {
+                        "oneOf": [
+                          {
                             "type": "object",
                             "properties": {
-                              "title": {
+                              "engine": {
                                 "type": "string",
-                                "minLength": 1,
-                                "maxLength": 100
+                                "const": "remotion"
                               },
-                              "subtitle": {
+                              "template": {
                                 "type": "string",
-                                "maxLength": 180
+                                "const": "ChapterTitle"
                               },
-                              "nodes": {
-                                "maxItems": 5,
-                                "type": "array",
-                                "items": {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 24
-                                }
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
                               },
-                              "emphasis": {
-                                "type": "integer",
-                                "minimum": -1,
-                                "maximum": 4
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "maxLength": 180
+                                  }
+                                },
+                                "required": ["title", "subtitle"],
+                                "additionalProperties": false
                               }
                             },
                             "required": [
-                              "title",
-                              "subtitle",
-                              "nodes",
-                              "emphasis"
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "Callout"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "maxLength": 180
+                                  }
+                                },
+                                "required": ["title", "subtitle"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "Quote"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "quote": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 300
+                                  },
+                                  "attribution": {
+                                    "type": "string",
+                                    "maxLength": 80
+                                  }
+                                },
+                                "required": ["quote", "attribution"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "ArchitectureFlow"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "maxLength": 180
+                                  },
+                                  "nodes": {
+                                    "minItems": 2,
+                                    "maxItems": 6,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 24
+                                    }
+                                  },
+                                  "emphasis": {
+                                    "type": "integer",
+                                    "minimum": -1,
+                                    "maximum": 5
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "subtitle",
+                                  "nodes",
+                                  "emphasis"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "ArchitectureDiagram"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "maxLength": 180
+                                  },
+                                  "layers": {
+                                    "minItems": 2,
+                                    "maxItems": 4,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 28
+                                        },
+                                        "components": {
+                                          "minItems": 1,
+                                          "maxItems": 4,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 24
+                                          }
+                                        }
+                                      },
+                                      "required": ["name", "components"],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "failedLayer": {
+                                    "type": "integer",
+                                    "minimum": -1,
+                                    "maximum": 3
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "subtitle",
+                                  "layers",
+                                  "failedLayer"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "RequestFlow"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "maxLength": 180
+                                  },
+                                  "method": {
+                                    "type": "string",
+                                    "enum": [
+                                      "GET",
+                                      "POST",
+                                      "PUT",
+                                      "PATCH",
+                                      "DELETE"
+                                    ]
+                                  },
+                                  "path": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 60
+                                  },
+                                  "steps": {
+                                    "minItems": 2,
+                                    "maxItems": 6,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 24
+                                    }
+                                  },
+                                  "failureStep": {
+                                    "type": "integer",
+                                    "minimum": -1,
+                                    "maximum": 5
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "subtitle",
+                                  "method",
+                                  "path",
+                                  "steps",
+                                  "failureStep"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "CodeReveal"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "fileName": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 60
+                                  },
+                                  "lines": {
+                                    "minItems": 1,
+                                    "maxItems": 12,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 90
+                                    }
+                                  },
+                                  "highlight": {
+                                    "type": "integer",
+                                    "minimum": -1,
+                                    "maximum": 11
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "fileName",
+                                  "lines",
+                                  "highlight"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "Terminal"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "lines": {
+                                    "minItems": 2,
+                                    "maxItems": 14,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "kind": {
+                                          "type": "string",
+                                          "enum": ["input", "output", "error"]
+                                        },
+                                        "text": {
+                                          "type": "string",
+                                          "maxLength": 100
+                                        }
+                                      },
+                                      "required": ["kind", "text"],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": ["title", "lines"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "CodeDiff"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "fileName": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 60
+                                  },
+                                  "removed": {
+                                    "maxItems": 8,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 90
+                                    }
+                                  },
+                                  "added": {
+                                    "minItems": 1,
+                                    "maxItems": 8,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 90
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "fileName",
+                                  "removed",
+                                  "added"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "MetricChart"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "maxLength": 180
+                                  },
+                                  "unit": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 10
+                                  },
+                                  "series": {
+                                    "minItems": 3,
+                                    "maxItems": 24,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "number",
+                                      "minimum": -1000000000,
+                                      "maximum": 1000000000
+                                    }
+                                  },
+                                  "threshold": {
+                                    "anyOf": [
+                                      {
+                                        "type": "number",
+                                        "minimum": -1000000000,
+                                        "maximum": 1000000000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "goodDirection": {
+                                    "type": "string",
+                                    "enum": ["up", "down"]
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "subtitle",
+                                  "unit",
+                                  "series",
+                                  "threshold",
+                                  "goodDirection"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "engine": {
+                                "type": "string",
+                                "const": "remotion"
+                              },
+                              "template": {
+                                "type": "string",
+                                "const": "FailureAnimation"
+                              },
+                              "templateVersion": {
+                                "type": "string",
+                                "const": "1.0.0"
+                              },
+                              "parameters": {
+                                "type": "object",
+                                "properties": {
+                                  "title": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 100
+                                  },
+                                  "subtitle": {
+                                    "type": "string",
+                                    "maxLength": 180
+                                  },
+                                  "nodes": {
+                                    "minItems": 2,
+                                    "maxItems": 6,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 24
+                                    }
+                                  },
+                                  "failedNode": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 5
+                                  },
+                                  "recovered": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "title",
+                                  "subtitle",
+                                  "nodes",
+                                  "failedNode",
+                                  "recovered"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "required": [
+                              "engine",
+                              "template",
+                              "templateVersion",
+                              "parameters"
                             ],
                             "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "engine",
-                          "template",
-                          "templateVersion",
-                          "parameters"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"
@@ -180,38 +776,36 @@
                 "type": "string",
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
               },
-              "parameters": {
-                "type": "object",
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 100
-                  },
-                  "subtitle": {
-                    "type": "string",
-                    "maxLength": 180
-                  },
-                  "nodes": {
-                    "maxItems": 5,
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 24
-                    }
-                  },
-                  "emphasis": {
-                    "type": "integer",
-                    "minimum": -1,
-                    "maximum": 4
-                  }
-                },
-                "required": ["title", "subtitle", "nodes", "emphasis"],
-                "additionalProperties": false
-              }
+              "parameters": {}
             },
             "required": ["type", "sceneId", "parameters"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "updateChapterTitle"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "chapterTitle": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["type", "sceneId", "chapterTitle"],
             "additionalProperties": false
           },
           {

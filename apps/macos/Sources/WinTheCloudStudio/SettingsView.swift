@@ -20,12 +20,18 @@ struct SettingsView: View {
         }
         VStack(alignment: .leading, spacing: 14) {
           Text("Director & transcription").font(.title3)
-          Picker("Provider", selection: $m.provider) {
+          Picker("Director", selection: $m.provider) {
             Text("Mock · no API credits").tag("mock")
             Text("OpenAI · billed to your API account").tag("openai")
           }.pickerStyle(.segmented)
+          Picker("Transcription", selection: $m.transcriptionProvider) {
+            Text("Mock").tag("mock")
+            Text("Local whisper · free").tag("whisper")
+            Text("OpenAI").tag("openai")
+          }.pickerStyle(.segmented)
           TextField("Director model", text: $m.modelName)
-          SecureField("OpenAI API key", text: $key)
+          SecureField("OpenAI API key (optional — .env also works)", text: $key)
+            .onChange(of: key) { _ in keySaved = false }
           HStack {
             Button("Save Key in Keychain") {
               do {
@@ -44,7 +50,7 @@ struct SettingsView: View {
               !m.runtime.connected || m.busy)
           }
           Text(
-            "OpenAI sends the approved script and transcript for planning, and extracted audio for transcription. The key stays in macOS Keychain and is passed only to the private local runtime. Imported transcripts and mock direction are available offline."
+            "Local whisper transcribes on this Mac with whisper.cpp — no credits, no uploads. OpenAI sends the approved script and transcript for planning, and extracted audio for transcription; the key is read from OPENAI_API_KEY in the repository .env or macOS Keychain, and is passed only to the private local runtime. Final Cut speech analysis can be imported directly in Transcript."
           ).font(.caption).foregroundStyle(.secondary)
         }.padding(20).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
         VStack(alignment: .leading, spacing: 14) {

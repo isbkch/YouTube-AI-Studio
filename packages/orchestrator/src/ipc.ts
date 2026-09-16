@@ -3,21 +3,24 @@ import { z } from "zod";
 import { readFile } from "node:fs/promises";
 import { Studio } from "./studio.ts";
 import { Store } from "./store.ts";
-import { doctor } from "./doctor.ts";
+import { doctor, openAICredential } from "./doctor.ts";
 import { MockAIProvider, OpenAIProvider } from "../../agents/src/index.ts";
+import { WhisperCLIProvider } from "../../agents/src/whisper.ts";
 import {
   errorInfo,
+  loadDotEnv,
   safePath,
   StudioError,
   type CreatorProfile,
 } from "../../shared/src/index.ts";
 import { resolveCommand } from "../../resolve-engine/src/index.ts";
+loadDotEnv();
 // stdout is exclusively the IPC transport. Third-party diagnostics go to stderr.
 const send = (value: unknown) =>
   process.stdout.write(JSON.stringify(value) + "\n");
 console.log = (...args: unknown[]) => console.error(...args);
 const store = new Store();
-const studio = new Studio(store, undefined, send);
+const studio = new Studio(store, undefined, undefined, send);
 const active = new Map<string, AbortController>();
 const envelope = z.strictObject({
   id: z.string().max(100),
@@ -66,10 +69,24 @@ async function dispatch(
         .parse(params);
       return studio.loadTranscript(p.projectId, p.transcript, p.recordingId);
     }
+    case "transcript.fcp": {
+      const p = project.extend({ path: z.string() }).parse(params);
+      return studio.importFCPTranscripts(p.projectId, p.path, signal);
+    }
     case "transcript.generate":
       return studio.transcribe(project.parse(params).projectId, signal);
+    case "alignment.compute":
+      return studio.computeAlignment(project.parse(params).projectId);
+    case "alignment.get":
+      return studio.alignment(project.parse(params).projectId);
+    case "aroll.draft":
+      return studio.draftAroll(project.parse(params).projectId);
     case "plan.generate":
       return studio.generatePlan(project.parse(params).projectId, signal);
+    case "plan.import": {
+      const p = project.extend({ plan: z.unknown() }).parse(params);
+      return studio.importPlan(p.projectId, p.plan, signal);
+    }
     case "plan.approve": {
       const p = version.parse(params);
       return studio.approvePlan(p.projectId, p.version);
@@ -81,6 +98,12 @@ async function dispatch(
         .extend({ request: z.string(), sceneId: z.string() })
         .parse(params);
       return studio.propose(p.projectId, p.request, p.sceneId, signal);
+    }
+    case "revision.range": {
+      const p = project
+        .extend({ range: z.string(), request: z.string() })
+        .parse(params);
+      return studio.proposeRange(p.projectId, p.range, p.request, signal);
     }
     case "revision.edit": {
       const p = project
@@ -114,15 +137,33 @@ async function dispatch(
       const p = z
         .object({
           provider: z.enum(["mock", "openai"]),
+          transcriptionProvider: z
+            .enum(["mock", "whisper", "openai"])
+            .default("mock"),
           model: z.string().max(100).default("gpt-5.4"),
           apiKey: z.string().max(500).optional(),
+          whisperModel: z.string().max(1000).optional(),
         })
         .parse(params);
-      studio.provider =
-        p.provider === "mock"
-          ? new MockAIProvider()
-          : new OpenAIProvider(p.apiKey || "", p.model);
-      return { provider: studio.provider.name };
+      let credentialSource: "env" | "keychain" | "session" | "none" = "none";
+      const key = p.apiKey || (await openAICredential());
+      if (p.apiKey) credentialSource = "session";
+      else if (process.env.OPENAI_API_KEY?.trim()) credentialSource = "env";
+      else if (key) credentialSource = "keychain";
+      if (p.provider === "openai")
+        studio.provider = new OpenAIProvider(key || "", p.model);
+      else studio.provider = new MockAIProvider();
+      studio.transcription =
+        p.transcriptionProvider === "whisper"
+          ? new WhisperCLIProvider(p.whisperModel)
+          : p.transcriptionProvider === "openai"
+            ? new OpenAIProvider(key || "", p.model)
+            : new MockAIProvider();
+      return {
+        provider: studio.provider.name,
+        transcription: studio.transcription.name,
+        credentialSource,
+      };
     }
     case "resolve.probe":
       return resolveCommand("probe");

@@ -30,7 +30,12 @@ const edges: Record<ProjectStatus, ProjectStatus[]> = {
   SCRIPTING: ["AWAITING_SCRIPT_APPROVAL"],
   AWAITING_SCRIPT_APPROVAL: ["SCRIPTING", "READY_TO_RECORD"],
   READY_TO_RECORD: ["SCRIPTING", "MEDIA_IMPORTED"],
-  MEDIA_IMPORTED: ["MEDIA_IMPORTED", "TRANSCRIBING", "PLANNING"],
+  MEDIA_IMPORTED: [
+    "MEDIA_IMPORTED",
+    "TRANSCRIBING",
+    "PLANNING",
+    "AWAITING_STORYBOARD_APPROVAL",
+  ],
   TRANSCRIBING: ["MEDIA_IMPORTED", "PLANNING"],
   PLANNING: ["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"],
   AWAITING_STORYBOARD_APPROVAL: ["GENERATING_ASSETS", "REVISING", "PLANNING"],
@@ -82,7 +87,13 @@ export interface Transcript {
   language: string;
   provider: string;
   model: string;
-  segments: { id: string; start: number; end: number; text: string }[];
+  segments: {
+    id: string;
+    start: number;
+    end: number;
+    text: string;
+    words?: { start: number; end: number; text: string }[];
+  }[];
 }
 export interface Asset {
   assetId: string;
