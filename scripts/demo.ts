@@ -163,22 +163,24 @@ export async function demo(
     await studio.loadTranscript(p.id, transcript);
     await studio.generatePlan(p.id);
     const plan = store.get(p.id).plans[0];
+    const fixturePlan = {
+      ...plan,
+      projectId: "demo-project",
+      id: "demo-plan",
+      createdAt: "2026-09-16T00:00:00.000Z",
+      transcriptHash: hash({ ...transcript, recordingId: "demo-recording" }),
+      scenes: plan.scenes.map((s) => ({
+        ...s,
+        camera: { ...s.camera, recordingId: "demo-recording" },
+      })),
+    };
     await atomicJSON(
       path.join(repo, "examples/redundancy/production-plan.json"),
-      {
-        ...plan,
-        projectId: "demo-project",
-        id: "demo-plan",
-        createdAt: "2026-09-16T00:00:00.000Z",
-        scenes: plan.scenes.map((s) => ({
-          ...s,
-          camera: { ...s.camera, recordingId: "demo-recording" },
-        })),
-      },
+      fixturePlan,
     );
     await atomicJSON(
       path.join(repo, "examples/redundancy/director-response.json"),
-      plan.director,
+      fixturePlan,
     );
     await studio.approvePlan(p.id, 1);
     await studio.build(p.id);

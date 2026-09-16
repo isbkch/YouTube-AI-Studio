@@ -145,6 +145,7 @@ export class OpenAIProvider implements AIProvider {
   constructor(
     apiKey: string,
     public model = "gpt-5.4",
+    transport: { fetch?: typeof globalThis.fetch } = {},
   ) {
     if (!apiKey.trim())
       throw new StudioError(
@@ -152,7 +153,12 @@ export class OpenAIProvider implements AIProvider {
         "OpenAI credentials are not configured.",
         "Save an API key in Settings (macOS Keychain).",
       );
-    this.client = new OpenAI({ apiKey, maxRetries: 2, timeout: 180000 });
+    this.client = new OpenAI({
+      apiKey,
+      maxRetries: 2,
+      timeout: 180000,
+      ...transport,
+    });
   }
   async generateStructured<T>(
     r: StructuredRequest<T>,

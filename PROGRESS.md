@@ -2,51 +2,65 @@
 
 ## Completed
 
-- Inspected empty repository and local environment: macOS 27 arm64, Swift 6.4, Node 26.8.2, pnpm 10.24, FFmpeg 9.0.1, Resolve 21.1.
-- Read current Remotion SSR / OpenAI structured output and transcription documentation, and installed Resolve scripting reference (31 Aug 2026).
-- Established pnpm monorepo and verification commands.
-
-- Foundation: strict schema + generated JSON Schema, frame semantics, patches, state machine, SQLite storage.
-- Media: real FFprobe inspection, non-destructive import, 720p CFR proxies, extracted audio.
-- AI: mock + OpenAI Responses structured-output providers; timestamped transcription and scoped revision proposals.
-- Jobs: persistent dependencies, concurrency, cancellation, retries, logs, verified content cache and provenance.
-- Actual Remotion ArchitectureFlow, Callout and ChapterTitle rendering; FFmpeg assembly; internal timeline, FCPXML and OTIO exports.
-- First complete 72-second demo passed full decode and duration QA. Incremental revision regenerated 1/4 graphics and 1/6 segments; source hash unchanged.
-- Shared CLI and private stdio service; environment Doctor.
+- Established the monorepo, shared domain types, strict production-plan and patch schemas, generated JSON Schema, state transitions, SQLite metadata, local project files and CLI.
+- Implemented non-destructive recording import, actual ffprobe inspection, conformed 720p/30fps proxies, extracted audio, duration verification and full-decode QA.
+- Implemented typed mock/OpenAI providers, Responses structured output, timestamped transcription, Director planning, scoped revision proposals and usage tracking.
+- Implemented persistent job graphs, dependency validation, concurrency, cancellation, recoverable retries, explicit crash recovery, verified content-addressed caching and asset provenance.
+- Rendered actual Callout, ArchitectureFlow and ChapterTitle Remotion graphics. Built per-scene FFmpeg previews, local rough cuts, internal timelines, FCPXML and OTIO exports.
+- Built and launched the SwiftUI app with projects, script/version approval, media import/drop handling, transcript, storyboard/editor, live production queue, native AVKit playback, Director proposals, Settings, Keychain integration and editable creator preferences.
+- Exercised the native workflow from a newly created project through script approval, video/transcript import, planning, storyboard approval, real rendering, playback, a scoped revision, reapproval and selective rebuild.
+- Generated the complete 72-second demo with four graphics. The parameter revision regenerated exactly one graphic and one preview segment, reusing three graphics and five segments. Original recording hash unchanged.
+- Verified the native removal revision separately: one changed preview segment, three reused remaining graphics, two preserved plan/render versions, source hash unchanged.
+- Validated FCPXML 1.8 against Apple's installed DTD and decoded the three-track, 72-second OTIO with the upstream library.
+- Imported generated FCPXML into Resolve 21.1, inspected the 72-second V1/V2/A1 timeline and an architecture scene, and saved the isolated `WTS MVP Export Verification` project.
+- Passed `pnpm check`: TypeScript, ESLint and **22 tests**. Passed **2 actual media/render integration tests**, `pnpm demo`, Prettier checks and Swift release build.
+- Added README, setup/development/troubleshooting/verification documentation and all seven requested ADRs.
 
 ## In Progress
 
-- Native SwiftUI app compilation, launch, and UI verification.
-- Resolve import verification and export format checks.
-- Recovery/security edge cases, integration tests and final documentation.
+- None required for the functioning MVP. The automated demo rough cuts remain awaiting review. The native test project now has rough-cut approval recorded in the app.
 
 ## Next
 
-1. Verify foundation tests.
-2. Import/inspect actual media; create synthetic demo footage and transcript.
-3. Provider abstraction and Director, primarily verified with mock responses.
-4. Persistent jobs, content-addressable Remotion renders, internal timeline, FFmpeg preview.
-5. Produce and inspect complete demo media and incremental rebuild.
-6. Build and launch SwiftUI app over the same domain service.
-7. Resolve import/export verification and documentation/polish.
+- Creator review of the demo and a first real-footage project.
+- Configure an OpenAI API key in Settings to verify live account/model access and transcription (paid requests were not made during development).
+- Future work: original-resolution reconform/final-render automation, distribution packaging/notarization, more reusable templates, optional Blender/Fusion/image production, then research/publishing/analytics behind their human gates.
 
-## Known Issues
+## Known Issues / Deliberate MVP Limits
 
-- Blender 5.2.2 LTS detected in its app bundle (not on PATH); optional and outside MVP.
-- Resolve scripting access depends on edition/preferences and an active application. Export and preview must work independently.
-- Paid AI requests are not needed for development; live provider verification will be distinguished from mock tests.
+- One A-roll recording per project; 1280×720/30fps previews; hard cuts, full-frame graphics, numeric punch-ins and audio gain.
+- Script editing is locked after media import; use scene revisions or create a new project for a new script.
+- Real OpenAI calls and Keychain save/read with a real credential were not exercised. Provider transport/structured output/refusal handling is tested with mocked HTTP.
+- Resolve's external scripting probe could not connect on this installation. Direct adapter import is implemented against the installed vendor API but unverified here; **manual FCPXML import is verified**. No security preferences were changed.
+- OTIO does not apply camera sizing/audio gain universally; use FCPXML for those properties.
+- Technical QA checks media/timing/provenance and reports silence/peaks. Factual accuracy, text fit, mix and creative judgment still require review.
+- Audio uploads over the configured size limit require transcript import; no automatic chunking yet.
+- The ad-hoc signed development app requires this checkout, installed dependencies and Node. It is not a standalone notarized release.
+- Historical/cache files are retained; no automatic deletion or cache eviction.
+- Verified on macOS 27 arm64/Swift 6.4/Node 26.8.2/FFmpeg 9.0.1. Other supported Mac versions are not device-tested.
 
 ## Architectural Decisions
 
-- SwiftUI control plane + Node/TypeScript domain runtime, private stdio JSON-lines IPC.
-- Integer frames at a declared frame rate; source timing and timeline timing are distinct.
-- Zod schemas generate JSON Schema and TypeScript types; semantic validation runs before execution.
-- SQLite is metadata authority; media lives on disk. Versioned artifacts and human approvals bind to exact versions.
-- Render cache identity excludes plan version; provenance includes the plan/scene/job that reused or generated it.
+1. SwiftUI control plane + TypeScript/Node domain runtime; CLI shares domain logic.
+2. Private child-process JSON-lines IPC; no application HTTP daemon or cloud infrastructure.
+3. Versioned strict plan, integer frames, validated source references and explicit immutable patches/undo.
+4. SQLite-persisted DAG, bounded concurrency, process ownership locks and content-verified cache.
+5. Independent timeline abstraction; local preview and FCPXML/OTIO handoff.
+6. Local media/files + WAL SQLite metadata + macOS Keychain credentials.
+7. Trusted parameterized engine adapters; models never generate executable shell/Python/JavaScript instructions.
+
+See `docs/adr/` for rationale and consequences.
 
 ## How to Run
 
-- `pnpm install`
-- `pnpm check` (as implementation becomes available)
-- `pnpm demo` for the full credit-free pipeline
-- `pnpm macos` to build and launch the local app
+```sh
+pnpm install
+pnpm check
+pnpm test:integration
+pnpm demo
+pnpm macos:demo   # native app + demo library
+pnpm macos        # normal local project library
+pnpm wts doctor
+```
+
+The app is `dist/WinTheCloud Studio.app`. Default user library: `~/Movies/WinTheCloud Studio`; demo library: `.demo`. The newest demo's exact output paths and cache assertions are in `.demo/demo-result.json`. Native workflow evidence is in `.demo/native-verification.json`. See `docs/verification.md` for the proof boundaries.

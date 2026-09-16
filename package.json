@@ -19,7 +19,10 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "macos:build": "bash scripts/build-macos.sh",
     "macos": "bash scripts/launch-macos.sh",
-    "schema": "tsx scripts/schema.ts"
+    "schema": "tsx scripts/schema.ts",
+    "macos:demo": "bash scripts/launch-macos.sh --demo",
+    "test:e2e": "pnpm demo",
+    "swift:format": "swift format format --in-place --recursive apps/macos/Sources"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.525",

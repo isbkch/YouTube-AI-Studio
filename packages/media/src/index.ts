@@ -381,3 +381,37 @@ export async function thumbnail(input: string, output: string, seconds = 0) {
     path.resolve(output),
   ]);
 }
+
+/** Technical audio diagnostics; silence can be intentional and is a review warning. */
+export async function analyzeAudio(file: string, signal?: AbortSignal) {
+  const { stderr } = await runTool(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostdin",
+      "-i",
+      path.resolve(file),
+      "-vn",
+      "-af",
+      "silencedetect=noise=-45dB:d=2,volumedetect",
+      "-f",
+      "null",
+      "-",
+    ],
+    { signal },
+  );
+  const number = (pattern: RegExp) => {
+    const match = stderr.match(pattern);
+    return match ? Number(match[1]) : null;
+  };
+  return {
+    silenceThresholdDb: -45,
+    minimumSilenceSeconds: 2,
+    silenceStarts: [...stderr.matchAll(/silence_start: ([\d.]+)/g)].map((m) =>
+      Number(m[1]),
+    ),
+    meanVolumeDb: number(/mean_volume: (-?[\d.]+) dB/),
+    maxVolumeDb: number(/max_volume: (-?[\d.]+) dB/),
+    note: "Silence and peaks are technical observations, not automatic editorial decisions.",
+  };
+}

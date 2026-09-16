@@ -5,7 +5,7 @@
   "version": 1,
   "createdAt": "2026-09-16T00:00:00.000Z",
   "scriptVersion": 1,
-  "transcriptHash": "01fea68717cd36888e88295877a1db33665c1f12227e1058d06047d0cfaa33ef",
+  "transcriptHash": "2f4bec1c59c768569d659419ec07dc0940a5c5fcf8635546d92cf915c307dc36",
   "frameRate": 30,
   "resolution": {
     "width": 1280,
@@ -24,9 +24,7 @@
       "durationFrames": 360,
       "sourceInFrame": 0,
       "narration": "You have two servers. Two copies of the database. Maybe even two regions. Then one ordinary deployment takes everything down. The architecture was redundant. The service was not available.",
-      "transcriptSegmentIds": [
-        "segment-1"
-      ],
+      "transcriptSegmentIds": ["segment-1"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",
@@ -50,9 +48,7 @@
       "durationFrames": 360,
       "sourceInFrame": 360,
       "narration": "Redundancy describes the parts you own. Availability describes what a user can actually do. Adding another copy only helps when the failure that breaks one copy leaves the other useful.",
-      "transcriptSegmentIds": [
-        "segment-2"
-      ],
+      "transcriptSegmentIds": ["segment-2"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",
@@ -86,9 +82,7 @@
       "durationFrames": 360,
       "sourceInFrame": 720,
       "narration": "Imagine two application servers behind a load balancer. Both depend on one database endpoint. When that shared dependency fails, the second application server is just another machine returning the same error.",
-      "transcriptSegmentIds": [
-        "segment-3"
-      ],
+      "transcriptSegmentIds": ["segment-3"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",
@@ -104,11 +98,7 @@
           "parameters": {
             "title": "A shared dependency can break both.",
             "subtitle": "Redundant servers still depend on the same database.",
-            "nodes": [
-              "Requests",
-              "App A + B",
-              "Database"
-            ],
+            "nodes": ["Requests", "App A + B", "Database"],
             "emphasis": 2
           }
         }
@@ -126,9 +116,7 @@
       "durationFrames": 360,
       "sourceInFrame": 1080,
       "narration": "Even independent copies are not enough. Something must detect the failure, route traffic, and preserve the information needed to continue. A standby that nobody can reach is capacity, not recovery.",
-      "transcriptSegmentIds": [
-        "segment-4"
-      ],
+      "transcriptSegmentIds": ["segment-4"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",
@@ -152,9 +140,7 @@
       "durationFrames": 360,
       "sourceInFrame": 1440,
       "narration": "So test the entire path. Break a dependency. Watch detection. Measure the switch. Check a real request. Include the control plane, credentials, and the people who have to make the decision.",
-      "transcriptSegmentIds": [
-        "segment-5"
-      ],
+      "transcriptSegmentIds": ["segment-5"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",
@@ -170,12 +156,7 @@
           "parameters": {
             "title": "Failover is a path you must test.",
             "subtitle": "Detect → route → serve → verify",
-            "nodes": [
-              "Detect",
-              "Route",
-              "Standby",
-              "Verify"
-            ],
+            "nodes": ["Detect", "Route", "Standby", "Verify"],
             "emphasis": -1
           }
         }
@@ -193,9 +174,7 @@
       "durationFrames": 360,
       "sourceInFrame": 1800,
       "narration": "The useful question is not, how many copies do we have? It is, what happens to the next user request when this part fails? Availability is a behavior. Build it, then prove it.",
-      "transcriptSegmentIds": [
-        "segment-6"
-      ],
+      "transcriptSegmentIds": ["segment-6"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",

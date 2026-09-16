@@ -226,3 +226,38 @@ test("version artifacts reject symlink directory escapes", async () =>
     );
     await assert.rejects(readFile(path.join(root, "plan.json")));
   }));
+
+test("explicit recovery refuses a live owner and restores an orphaned transient stage", async () =>
+  temporary(async (_, store) => {
+    const p = store.create("Explicit recovery");
+    const studio = new Studio(store);
+    store.update(p.id, (x) => {
+      x.status = "TRANSCRIBING";
+    });
+    const release = store.acquire(p.id);
+    await assert.rejects(studio.recover(p.id), /active operation/);
+    release();
+    const recovered = await studio.recover(p.id);
+    assert.equal(recovered.status, "MEDIA_IMPORTED");
+  }));
+
+test("committed demo plan and Director output share valid transcript provenance", async () => {
+  const t = JSON.parse(
+    await readFile("examples/redundancy/transcript.json", "utf8"),
+  );
+  const { validatePlan } =
+    await import("../packages/production-plan/src/index.ts");
+  const plan = validatePlan(
+    JSON.parse(
+      await readFile("examples/redundancy/production-plan.json", "utf8"),
+    ),
+  );
+  const director = validatePlan(
+    JSON.parse(
+      await readFile("examples/redundancy/director-response.json", "utf8"),
+    ),
+  );
+  assert.equal(plan.transcriptHash, hash(t));
+  assert.deepEqual(plan, director);
+  assert.equal(plan.scenes.length, 6);
+});

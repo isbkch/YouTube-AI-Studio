@@ -25,7 +25,7 @@ const help = `WinTheCloud Studio — local production CLI
 
 pnpm wts doctor
 pnpm wts project create "Title" --duration 900 --description "Idea"
-pnpm wts project list | project inspect <project>
+pnpm wts project list | project inspect <project> | project recover <project>
 pnpm wts script import <project> <script.txt>
 pnpm wts script approve <project> --version 1
 pnpm wts media inspect <file> | media import <project> <file>
@@ -81,6 +81,8 @@ try {
     if (a[0] === "project" && a[1] === "create")
       result = store.create(a[2], v.description, Number(v.duration));
     else if (a[0] === "project" && a[1] === "list") result = store.list();
+    else if (a[0] === "project" && a[1] === "recover")
+      result = await studio.recover(a[2]);
     else if (a[0] === "project" && a[1] === "inspect")
       result = studio.snapshot(a[2]);
     else if (a[0] === "script" && a[1] === "import")

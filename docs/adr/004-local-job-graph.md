@@ -1,0 +1,3 @@
+# ADR 004: SQLite-persisted dependency graph and verified content cache
+
+Accepted 2026-09-16. A bounded local worker graph replaces external queue infrastructure. Dependencies gate work; progress/errors/retries/cancellation persist in SQLite. Exclusive per-project process locks coordinate app/CLI mutations. A retry reconstructs the graph and reuses content-verified files rather than rerunning all upstream work. Cache identities follow pixel/media inputs, not plan version; provenance records each reuse. Automatic background resumption and distributed workers are deferred. Dead-process locks recover on the next explicit operation.

@@ -1,0 +1,3 @@
+# ADR 002: Private JSON-lines IPC over child-process pipes
+
+Accepted 2026-09-16. The app launches one Node child with private stdin/stdout pipes. Each request has an ID, method and validated parameters; responses carry the same ID; progress arrives as events. Concurrent requests allow cancellation and status reads while a build runs. There is no listening HTTP port, browser-origin exposure, authentication token file, daemon installer or distributed infrastructure. Third-party diagnostics are routed to stderr. Parent termination cancels jobs. Protocol version is announced at startup. The app must be restarted when changing runtime code or configuration paths.
