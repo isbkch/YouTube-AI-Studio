@@ -6,7 +6,7 @@ import SwiftUI
   var body: some SwiftUI.Scene {
     WindowGroup("WinTheCloud Studio") {
       StudioView().environmentObject(model).frame(minWidth: 1040, minHeight: 720)
-        .preferredColorScheme(.dark).onAppear { model.runtime.launch() }.onReceive(
+        .preferredColorScheme(.light).onAppear { model.runtime.launch() }.onReceive(
           NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
         ) { _ in model.runtime.stop() }
     }
@@ -20,14 +20,23 @@ import SwiftUI
     }
     Settings {
       SettingsView().environmentObject(model).frame(width: 740, height: 760).preferredColorScheme(
-        .dark)
+        .light)
     }
   }
 }
 extension Color {
-  static let studioAccent = Color(red: 0.78, green: 0.94, blue: 0.5)
-  static let studioBackground = Color(red: 0.065, green: 0.083, blue: 0.10)
-  static let studioSurface = Color(red: 0.095, green: 0.115, blue: 0.135)
+  static let studioAccent = Color(nsColor: .controlAccentColor)
+  static let studioBackground = Color(nsColor: .windowBackgroundColor)
+  static let studioSurface = Color(nsColor: .controlBackgroundColor)
+  static let studioBorder = Color(nsColor: .separatorColor)
+}
+extension View {
+  func studioCard(cornerRadius: CGFloat) -> some View {
+    background(Color.studioSurface, in: RoundedRectangle(cornerRadius: cornerRadius))
+      .overlay(
+        RoundedRectangle(cornerRadius: cornerRadius)
+          .strokeBorder(Color.studioBorder, lineWidth: 1))
+  }
 }
 struct StudioView: View {
   @EnvironmentObject var m: StudioModel
@@ -50,8 +59,7 @@ struct StudioView: View {
           newProject = true
         } label: {
           Label("New Project", systemImage: "plus").frame(maxWidth: .infinity)
-        }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
-          m.busy)
+        }.buttonStyle(.borderedProminent).disabled(m.busy)
         Text("PRODUCTIONS").font(.system(size: 10, weight: .semibold)).tracking(2).foregroundStyle(
           .secondary)
         ScrollView {
@@ -67,7 +75,7 @@ struct StudioView: View {
                     m.selectedID == p.id ? Color.studioAccent : Color.secondary
                   ).lineLimit(2)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(
-                  m.selectedID == p.id ? Color.white.opacity(0.07) : .clear,
+                  m.selectedID == p.id ? Color.primary.opacity(0.07) : .clear,
                   in: RoundedRectangle(cornerRadius: 10))
               }.buttonStyle(.plain).disabled(m.busy)
             }
@@ -117,14 +125,14 @@ struct StudioView: View {
                 Text(tab).font(.system(size: 12, weight: .medium)).padding(.horizontal, 14).padding(
                   .vertical, 10
                 ).background(
-                  m.tab == tab ? Color.white.opacity(0.09) : .clear,
+                  m.tab == tab ? Color.primary.opacity(0.08) : .clear,
                   in: RoundedRectangle(cornerRadius: 8)
-                ).foregroundStyle(m.tab == tab ? .white : .secondary)
+                ).foregroundStyle(m.tab == tab ? .primary : .secondary)
               }.buttonStyle(.plain)
             }
             Spacer()
           }.padding(.horizontal, 28).padding(.bottom, 18)
-          Divider().opacity(0.45)
+          Divider()
           if m.busy {
             HStack {
               ProgressView().controlSize(.small)
@@ -154,9 +162,7 @@ struct StudioView: View {
             Text("A production studio for your ideas.").font(.system(size: 30, weight: .medium))
             Text("Approve the script. Record your A-roll. Direct the edit.").foregroundStyle(
               .secondary)
-            Button("Create a Project") { newProject = true }.buttonStyle(.borderedProminent).tint(
-              .studioAccent
-            ).foregroundStyle(.black)
+            Button("Create a Project") { newProject = true }.buttonStyle(.borderedProminent)
             RuntimeStatus(runtime: m.runtime)
           }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -232,7 +238,7 @@ struct NewProjectView: View {
             await m.create(title: title, description: description, minutes: minutes)
             dismiss()
           }
-        }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
+        }.buttonStyle(.borderedProminent).disabled(
           title.trimmingCharacters(in: .whitespaces).isEmpty || minutes <= 0)
       }
     }.padding(32).frame(width: 520)

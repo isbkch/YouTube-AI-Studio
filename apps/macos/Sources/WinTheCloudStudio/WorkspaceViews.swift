@@ -50,8 +50,7 @@ struct OverviewView: View {
             Button("Review Storyboard") { m.tab = "Storyboard" }.disabled(p.plan == nil)
             Button("Watch Rough Cut") { m.tab = "Review" }.disabled(p.latestBuild == nil)
           }
-        }.padding(22).frame(maxWidth: .infinity, alignment: .leading).background(
-          Color.studioSurface, in: RoundedRectangle(cornerRadius: 14))
+        }.padding(22).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
         CostView(p: p)
       }.padding(30)
     }
@@ -72,8 +71,7 @@ struct GateCard: View {
       }
       Text(title).font(.headline)
       Text(detail).font(.caption).foregroundStyle(.secondary).frame(height: 32, alignment: .top)
-    }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(
-      Color.studioSurface, in: RoundedRectangle(cornerRadius: 14))
+    }.padding(20).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
   }
 }
 struct Metric: View {
@@ -134,7 +132,7 @@ struct ScriptView: View {
       }
       TextEditor(text: $draft).font(.system(size: 16)).lineSpacing(7).scrollContentBackground(
         .hidden
-      ).padding(18).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+      ).padding(18).studioCard(cornerRadius: 12)
         .disabled(!editable)
       HStack {
         Text(
@@ -152,7 +150,7 @@ struct ScriptView: View {
               "script.approve", label: "Script approval",
               params: ["version": p.scripts.last?.version ?? 1])
           }
-        }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
+        }.buttonStyle(.borderedProminent).disabled(
           m.busy || p.status != "AWAITING_SCRIPT_APPROVAL" || draft != p.scripts.last?.text)
       }
     }.padding(28).task(id: p.scripts.last?.version) { draft = p.scripts.last?.text ?? "" }
@@ -183,12 +181,13 @@ struct MediaView: View {
               : "Select or drop several clips at once; each is imported in order. Originals are preserved."
           ).font(.caption).foregroundStyle(.secondary)
           Button("Choose A-roll…") { Task { await m.importVideo() } }.disabled(!canImport || m.busy)
-        }.frame(maxWidth: .infinity).padding(45).background(
-          targeted ? Color.studioAccent.opacity(0.08) : Color.studioSurface,
-          in: RoundedRectangle(cornerRadius: 14)
-        ).overlay(
+        }.frame(maxWidth: .infinity).padding(45).studioCard(cornerRadius: 14).overlay(
           RoundedRectangle(cornerRadius: 14).strokeBorder(
-            Color.studioAccent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
+            Color.studioAccent.opacity(targeted ? 0.6 : 0.35),
+            style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
+        ).background(
+          targeted ? Color.studioAccent.opacity(0.06) : .clear,
+          in: RoundedRectangle(cornerRadius: 14)
         )
         .dropDestination(for: URL.self) { urls, _ in
           guard !m.busy, canImport, !urls.isEmpty else { return false }
@@ -217,7 +216,7 @@ struct MediaView: View {
               Button("Reveal Imported Original") { m.reveal(p.url(r.path)) }
             }
             Spacer()
-          }.padding(20).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+          }.padding(20).studioCard(cornerRadius: 12)
         }
         if !p.recordings.isEmpty { Button("Continue to Transcript →") { m.tab = "Transcript" } }
       }.padding(30)
@@ -262,7 +261,7 @@ struct TranscriptView: View {
                 "Load a timestamped JSON for this clip, or transcribe all pending clips."
               ).font(.caption).foregroundStyle(.secondary).padding(.vertical, 14)
             }
-            Divider().opacity(0.4)
+            Divider()
           }
         }
       }
@@ -301,7 +300,7 @@ struct TranscriptView: View {
           Text(
             "Deterministic draft from script↔take alignment; the Director plan supersedes it."
           ).font(.caption2).foregroundStyle(.secondary)
-        }.padding(16).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+        }.padding(16).studioCard(cornerRadius: 12)
       }
       HStack {
         Button("Draft A-Roll Cut") { Task { await m.draftAroll() } }.disabled(
@@ -314,7 +313,7 @@ struct TranscriptView: View {
             await m.perform("plan.generate", label: "Director planning")
             m.tab = "Storyboard"
           }
-        }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
+        }.buttonStyle(.borderedProminent).disabled(
           !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
       }
     }.padding(28)

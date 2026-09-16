@@ -57,7 +57,7 @@ struct StoryboardView: View {
             Button("Build Rough Cut") {
               m.tab = "Production"
               Task { await m.perform("build", label: "Production") }
-            }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
+            }.buttonStyle(.borderedProminent).disabled(
               m.busy || p.planApproval?.version != plan.version)
           }
         }
@@ -113,15 +113,16 @@ struct SceneCard: View {
               Text(nodes.joined(separator: " → ")).font(.caption).foregroundStyle(.secondary)
             }
           }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(Color(red: 0.065, green: 0.105, blue: 0.16))
+            .background(Color.studioAccent.opacity(0.06))
         }
         Text(
           timestamp(Double(scene.startFrame) / Double(p.plan?.frameRate ?? 30)) + "–"
             + timestamp(
               Double(scene.startFrame + scene.durationFrames) / Double(p.plan?.frameRate ?? 30))
-        ).font(.system(size: 10, weight: .medium, design: .monospaced)).padding(7).background(
-          .black.opacity(0.65), in: RoundedRectangle(cornerRadius: 5)
-        ).padding(12)
+        ).font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(.white)
+          .padding(7).background(
+            .black.opacity(0.65), in: RoundedRectangle(cornerRadius: 5)
+          ).padding(12)
       }.frame(height: 172).clipped()
       VStack(alignment: .leading, spacing: 12) {
         HStack {
@@ -153,7 +154,7 @@ struct SceneCard: View {
           Button("Inspect / Edit", action: edit).controlSize(.small)
         }
       }.padding(16)
-    }.background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12)).clipShape(
+    }.studioCard(cornerRadius: 12).clipShape(
       RoundedRectangle(cornerRadius: 12))
   }
 }
@@ -257,7 +258,7 @@ struct SceneEditor: View {
             m.tab = "Review"
             dismiss()
           }
-        }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(
+        }.buttonStyle(.borderedProminent).disabled(
           m.busy || (template != "Presenter" && title.isEmpty))
       }
     }.padding(28).frame(width: 650, height: 600).textFieldStyle(.roundedBorder).onAppear {
@@ -333,7 +334,7 @@ struct ProductionView: View {
                 .font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(
                   maxWidth: .infinity, alignment: .leading)
             }
-          }.padding(18).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 11))
+          }.padding(18).studioCard(cornerRadius: 11)
         }
         if let build = p.currentBuild {
           HStack {
