@@ -1,10 +1,12 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { executable, runBinary } from "../../media/src/index.ts";
 import { defaultRoot } from "./store.ts";
 import { resolveApp } from "../../resolve-engine/src/index.ts";
+import { defaultWhisperModel } from "../../agents/src/whisper.ts";
+import { envCredential, loadDotEnv } from "../../shared/src/index.ts";
 export interface Check {
   name: string;
   status: "AVAILABLE" | "NOT FOUND" | "UNSUPPORTED VERSION";
@@ -13,6 +15,8 @@ export interface Check {
   guidance: string;
 }
 export async function hasCredential() {
+  loadDotEnv();
+  if (envCredential()) return true;
   try {
     await runBinary(
       "/usr/bin/security",
@@ -23,6 +27,16 @@ export async function hasCredential() {
   } catch {
     return false;
   }
+}
+/**
+ * OpenAI key resolution: environment/.env first, macOS Keychain second.
+ * The value never appears in logs, events or project files.
+ */
+export async function openAICredential(): Promise<string> {
+  loadDotEnv();
+  const fromEnv = envCredential();
+  if (fromEnv) return fromEnv;
+  return keychainCredential();
 }
 export async function keychainCredential() {
   const result = await runBinary(
@@ -81,33 +95,68 @@ export async function doctor(root = defaultRoot()) {
     }
   }
   const tools = await Promise.all(
-    (["pnpm", "ffmpeg", "ffprobe", "blender"] as const).map(async (tool) => {
-      try {
-        const binary = await executable(tool);
-        const { stdout, stderr } = await runBinary(
-          binary,
-          [tool === "ffmpeg" || tool === "ffprobe" ? "-version" : "--version"],
-          { timeoutMs: 15000 },
-        );
-        return {
-          name: tool,
-          status: "AVAILABLE" as const,
-          version: (stdout || stderr).split("\n")[0],
-          required: tool === "ffmpeg" || tool === "ffprobe",
-          guidance: binary,
-        };
-      } catch {
-        return {
-          name: tool,
-          status: "NOT FOUND" as const,
-          version: "",
-          required: tool === "ffmpeg" || tool === "ffprobe",
-          guidance: `Install ${tool} or set WTS_${tool.toUpperCase()}_PATH. ${tool === "blender" ? "Optional; 3D is not required for this MVP." : ""}`,
-        };
-      }
-    }),
+    (["bun", "ffmpeg", "ffprobe", "whisper-cli", "blender"] as const).map(
+      async (tool) => {
+        try {
+          const binary = await executable(tool);
+          const { stdout, stderr } = await runBinary(
+            binary,
+            [
+              tool === "ffmpeg" || tool === "ffprobe"
+                ? "-version"
+                : "--version",
+            ],
+            { timeoutMs: 15000 },
+          );
+          return {
+            name: tool,
+            status: "AVAILABLE" as const,
+            version: (stdout || stderr).split("\n")[0],
+            required: tool === "ffmpeg" || tool === "ffprobe",
+            guidance: binary,
+          };
+        } catch {
+          return {
+            name: tool,
+            status: "NOT FOUND" as const,
+            version: "",
+            required: tool === "ffmpeg" || tool === "ffprobe",
+            guidance: `Install ${tool} or set WTS_${tool.toUpperCase().replace(/-/g, "_")}_PATH. ${tool === "blender" ? "Optional; 3D is not required." : tool === "whisper-cli" ? "Optional; enables free local transcription." : ""}`,
+          };
+        }
+      },
+    ),
   );
   checks.push(...tools);
+  try {
+    const model = defaultWhisperModel();
+    if ((await stat(model)).isFile()) {
+      checks.push({
+        name: "Whisper model",
+        status: "AVAILABLE",
+        version: path.basename(model),
+        required: false,
+        guidance: model,
+      });
+    } else {
+      checks.push({
+        name: "Whisper model",
+        status: "NOT FOUND",
+        version: "",
+        required: false,
+        guidance: `Set WTS_WHISPER_MODEL to a ggml model (expected ${model}).`,
+      });
+    }
+  } catch {
+    checks.push({
+      name: "Whisper model",
+      status: "NOT FOUND",
+      version: "",
+      required: false,
+      guidance:
+        "Set WTS_WHISPER_MODEL to a ggml model for local transcription.",
+    });
+  }
   checks.push({
     name: "Remotion",
     status: "AVAILABLE",
@@ -146,10 +195,12 @@ export async function doctor(root = defaultRoot()) {
   checks.push({
     name: "OpenAI credentials",
     status: (await hasCredential()) ? "AVAILABLE" : "NOT FOUND",
-    version: "macOS Keychain",
+    version: envCredential()
+      ? "OPENAI_API_KEY (.env/environment)"
+      : "macOS Keychain",
     required: false,
     guidance:
-      "Save an API key in the app’s Settings to enable OpenAI. Mock mode needs no key.",
+      "Set OPENAI_API_KEY in .env or save a key in the app’s Settings. Mock and local whisper need no key.",
   });
   try {
     await mkdir(root, { recursive: true });

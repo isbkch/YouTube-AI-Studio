@@ -3,10 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.24.0",
+  "packageManager": "bun@1.4.2",
   "engines": {
     "node": ">=24.0.0"
   },
+  "workspaces": [
+    "packages/*"
+  ],
+  "trustedDependencies": [
+    "esbuild"
+  ],
   "scripts": {
     "wts": "tsx packages/orchestrator/src/cli.ts",
     "demo": "tsx scripts/demo.ts",
@@ -16,12 +22,12 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm typecheck && pnpm lint && pnpm test",
+    "check": "bun run typecheck && bun run lint && bun run test",
     "macos:build": "bash scripts/build-macos.sh",
     "macos": "bash scripts/launch-macos.sh",
     "schema": "tsx scripts/schema.ts",
     "macos:demo": "bash scripts/launch-macos.sh --demo",
-    "test:e2e": "pnpm demo",
+    "test:e2e": "bun run demo",
     "swift:format": "swift format format --in-place --recursive apps/macos/Sources"
   },
   "dependencies": {

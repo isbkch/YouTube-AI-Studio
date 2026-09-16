@@ -39,11 +39,15 @@ struct Graphic: Decodable {
   let templateVersion: String
   let parameters: Parameters
 }
-struct Parameters: Codable {
-  var title: String
-  var subtitle: String
-  var nodes: [String]
-  var emphasis: Int
+struct Parameters: Decodable {
+  let title: String?
+  let subtitle: String?
+  let nodes: [String]?
+  let emphasis: Int?
+  let quote: String?
+  let attribution: String?
+  let fileName: String?
+  let unit: String?
 }
 struct Visual: Decodable {
   let type: String
@@ -64,6 +68,7 @@ struct ProductionScene: Decodable, Identifiable {
   let visual: Visual
   let enabled: Bool
   let rationale: String
+  let chapterTitle: String?
 }
 struct Director: Decodable {
   let provider: String
@@ -190,6 +195,37 @@ struct ResolveReport: Decodable {
   let reason: String?
   let project: String?
   let timeline: String?
+}
+struct DraftGraphic: Decodable {
+  let template: String
+  let reason: String
+}
+struct DraftScene: Decodable, Identifiable {
+  let id: String
+  let recordingId: String
+  let start: Double
+  let end: Double
+  let narration: String
+  let heading: String?
+  let suggestedGraphic: DraftGraphic?
+}
+struct DroppedSentence: Decodable, Identifiable {
+  var id: Int { index }
+  let index: Int
+  let text: String
+  let reason: String
+}
+struct DraftStats: Decodable {
+  let keptSeconds: Double
+  let groups: Int
+  let droppedSentences: Int
+  let recordingsUsed: [String]
+  let suggestedGraphics: Int
+}
+struct ArollDraft: Decodable {
+  let scenes: [DraftScene]
+  let dropped: [DroppedSentence]
+  let stats: DraftStats
 }
 struct Preference: Codable, Identifiable {
   let id: String

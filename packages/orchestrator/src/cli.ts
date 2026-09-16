@@ -2,17 +2,25 @@
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { Store } from "./store.ts";
-import { Studio, readJSONFile } from "./studio.ts";
-import { doctor, keychainCredential } from "./doctor.ts";
+import { Studio, readJSONFile, parseTimeRange } from "./studio.ts";
+import { doctor, openAICredential } from "./doctor.ts";
 import { inspect } from "../../media/src/index.ts";
-import { MockAIProvider, OpenAIProvider } from "../../agents/src/index.ts";
+import {
+  MockAIProvider,
+  OpenAIProvider,
+  type AIProvider,
+  type Transcriber,
+} from "../../agents/src/index.ts";
+import { WhisperCLIProvider } from "../../agents/src/whisper.ts";
 import { validatePlan } from "../../production-plan/src/index.ts";
-import { errorInfo, StudioError } from "../../shared/src/index.ts";
+import { errorInfo, loadDotEnv, StudioError } from "../../shared/src/index.ts";
 import { resolveCommand } from "../../resolve-engine/src/index.ts";
+loadDotEnv();
 const { positionals: a, values: v } = parseArgs({
   allowPositionals: true,
   options: {
     provider: { type: "string", default: "mock" },
+    transcriber: { type: "string", default: "mock" },
     model: { type: "string", default: process.env.WTS_MODEL || "gpt-5.4" },
     description: { type: "string", default: "" },
     duration: { type: "string", default: "900" },
@@ -24,29 +32,34 @@ const { positionals: a, values: v } = parseArgs({
 });
 const help = `WinTheCloud Studio — local production CLI
 
-pnpm wts doctor
-pnpm wts project create "Title" --duration 900 --description "Idea"
-pnpm wts project list | project inspect <project> | project recover <project>
-pnpm wts script import <project> <script.txt>
-pnpm wts script approve <project> --version 1
-pnpm wts media inspect <file> | media import <project> <file>
-pnpm wts transcript load <project> <transcript.json>
-pnpm wts transcribe <project> --provider openai
-pnpm wts plan <project> [--provider openai]
-pnpm wts plan validate <project>
-pnpm wts plan approve <project> --version 1
-pnpm wts storyboard <project>
-pnpm wts build <project> | render <project> | jobs <project>
-pnpm wts revision propose <project> <scene-id> "Creative direction" [--provider openai]
-pnpm wts revision edit <project> <operations.json>
-pnpm wts revision apply <project> <patch-id> | revision reject <project> <patch-id>
-pnpm wts plan undo <project>
-pnpm wts review approve <project> --version 1
-pnpm wts resolve probe | resolve import <absolute.fcpxml> "New project name"
+bun run wts doctor
+bun run wts project create "Title" --duration 900 --description "Idea"
+bun run wts project list | project inspect <project> | project recover <project>
+bun run wts script import <project> <script.txt>
+bun run wts script approve <project> --version 1
+bun run wts media inspect <file> | media import <project> <file>
+bun run wts transcript load <project> <transcript.json>
+bun run wts transcript fcp <project> <fcpbundle-or-folder>
+bun run wts transcribe <project> [--transcriber whisper|openai]
+bun run wts align <project>
+bun run wts aroll <project>
+bun run wts plan <project> [--provider openai]
+bun run wts plan import <project> <plan.json>
+bun run wts plan validate <project>
+bun run wts plan approve <project> --version 1
+bun run wts storyboard <project>
+bun run wts build <project> | render <project> | jobs <project>
+bun run wts revision propose <project> <scene-id> "Creative direction" [--provider openai]
+bun run wts revision range <project> 3:42-4:10 "illustrate the failover"
+bun run wts revision edit <project> <operations.json>
+bun run wts revision apply <project> <patch-id> | revision reject <project> <patch-id>
+bun run wts plan undo <project>
+bun run wts review approve <project> --version 1
+bun run wts resolve probe | resolve import <absolute.fcpxml> "New project name"
 
-All approvals refer to an exact version. Publishing is unavailable in MVP.
-Default provider: mock (no credits). OpenAI uses the API key saved by the Mac app in Keychain.
-WTS_HOME overrides ~/Movies/WinTheCloud Studio. Paths may contain spaces; quote them.
+All approvals refer to an exact version. Publishing is unavailable.
+Providers: mock (default, no credits) · whisper (local whisper.cpp) · openai (.env OPENAI_API_KEY or Keychain).
+WTS_HOME overrides ~/Movies/WinTheCloud Studio. Quote paths with spaces.
 `;
 const abort = new AbortController();
 process.once("SIGINT", () => abort.abort());
@@ -69,11 +82,15 @@ try {
   else {
     store = new Store();
     const needsAI = ["transcribe", "plan", "revision"].includes(a[0]);
-    const provider =
-      v.provider === "openai" && needsAI
-        ? new OpenAIProvider(await keychainCredential(), v.model)
-        : new MockAIProvider();
-    const studio = new Studio(store, provider, (event) => {
+    const needsKey = needsAI && v.provider === "openai";
+    let provider: AIProvider = new MockAIProvider();
+    if (needsKey)
+      provider = new OpenAIProvider(await openAICredential(), v.model);
+    let transcriber: Transcriber | undefined;
+    if (v.transcriber === "whisper") transcriber = new WhisperCLIProvider();
+    else if (v.transcriber === "openai" && needsAI)
+      transcriber = new OpenAIProvider(await openAICredential(), v.model);
+    const studio = new Studio(store, provider, transcriber, (event) => {
       const job = (event as { job?: { status: string; label: string } }).job;
       if (job)
         process.stderr.write(JSON.stringify({ event: "job", ...job }) + "\n");
@@ -98,12 +115,22 @@ try {
         await readJSONFile(a[3]),
         v.recording,
       );
+    else if (a[0] === "transcript" && a[1] === "fcp")
+      result = await studio.importFCPTranscripts(a[2], a[3], abort.signal);
     else if (a[0] === "transcribe")
       result = await studio.transcribe(a[1], abort.signal);
+    else if (a[0] === "align") result = await studio.computeAlignment(a[1]);
+    else if (a[0] === "aroll") result = await studio.draftAroll(a[1]);
     else if (a[0] === "plan" && a[1] === "validate")
       result = validatePlan(store.get(a[2]).plans.at(-1));
     else if (a[0] === "plan" && a[1] === "approve")
       result = await studio.approvePlan(a[2], Number(v.version));
+    else if (a[0] === "plan" && a[1] === "import")
+      result = await studio.importPlan(
+        a[2],
+        await readJSONFile(a[3]),
+        abort.signal,
+      );
     else if (a[0] === "plan" && a[1] === "undo")
       result = await studio.undo(a[2]);
     else if (a[0] === "plan")
@@ -115,7 +142,14 @@ try {
     else if (a[0] === "jobs") result = store.jobs(store.get(a[1]).id);
     else if (a[0] === "revision" && a[1] === "propose")
       result = await studio.propose(a[2], a[4], a[3], abort.signal);
-    else if (a[0] === "revision" && a[1] === "edit")
+    else if (a[0] === "revision" && a[1] === "range") {
+      if (!parseTimeRange(a[3] ?? ""))
+        throw new StudioError(
+          "INVALID_INPUT",
+          "Pass a timeline range like 3:42-4:10 or 222-260.",
+        );
+      result = await studio.proposeRange(a[2], a[3], a[4] ?? "", abort.signal);
+    } else if (a[0] === "revision" && a[1] === "edit")
       result = await studio.proposeOperations(
         a[2],
         await readJSONFile(a[3]),
@@ -128,7 +162,7 @@ try {
     else
       throw new StudioError(
         "INVALID_INPUT",
-        "Unknown command. Run pnpm wts --help.",
+        "Unknown command. Run bun run wts --help.",
       );
     console.log(JSON.stringify(result, null, 2));
   }

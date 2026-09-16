@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { ffmpeg } from "../../media/src/index.ts";
+import { ffmpeg, PREVIEW } from "../../media/src/index.ts";
 import { StudioError, inside } from "../../shared/src/index.ts";
 import type { ProductionPlan } from "../../production-plan/src/index.ts";
 import type { Asset, Recording } from "./model.ts";
@@ -136,10 +136,36 @@ export function makeTimeline(
     markers: plan.scenes.map((s) => ({
       frame: s.startFrame,
       durationFrames: s.durationFrames,
-      label: s.visual.description,
+      label: s.chapterTitle
+        ? `Chapter — ${s.chapterTitle}`
+        : s.visual.description,
       sceneId: s.id,
     })),
   });
+}
+const chapterClock = (seconds: number) => {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    sec = s % 60;
+  const two = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${two(m)}:${two(sec)}` : `${m}:${two(sec)}`;
+};
+/** YouTube-ready chapter list derived from chapter markers. */
+export function toChapters(t: Timeline) {
+  validateTimeline(t);
+  const chapters = t.markers
+    .filter((m) => m.label.startsWith("Chapter — "))
+    .map((m) => ({
+      seconds: m.frame / t.frameRate,
+      title: m.label.replace(/^Chapter — /, ""),
+    }));
+  if (!chapters.length) return "";
+  if (!chapters.some((c) => c.seconds < 1))
+    chapters.unshift({ seconds: 0, title: "Intro" });
+  return chapters
+    .map((c) => `${chapterClock(c.seconds)} ${c.title}`)
+    .join("\n");
 }
 const time = (value: number, rate: number) => ({
   OTIO_SCHEMA: "RationalTime.1",
@@ -289,8 +315,10 @@ export async function renderSegment(options: {
   output: string;
   signal?: AbortSignal;
   progress?: (f: number) => void;
+  target?: { width: number; height: number; frameRate: number };
 }) {
   const o = options;
+  const { width, height, frameRate } = o.target ?? PREVIEW;
   const inputs = [
     "-ss",
     String(o.sourceStart),
@@ -302,7 +330,7 @@ export async function renderSegment(options: {
   if (o.graphic)
     inputs.push("-protocol_whitelist", "file,pipe", "-i", o.graphic);
   const visualIndex = o.graphic ? 1 : 0;
-  const filters = `scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,setsar=1${!o.graphic && o.punchIn !== 1 ? `,scale=ceil(iw*${o.punchIn}/2)*2:ceil(ih*${o.punchIn}/2)*2,crop=1280:720` : ""},fps=30`;
+  const filters = `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1${!o.graphic && o.punchIn !== 1 ? `,scale=ceil(iw*${o.punchIn}/2)*2:ceil(ih*${o.punchIn}/2)*2,crop=${width}:${height}` : ""},fps=${frameRate}`;
   if (!o.hasAudio)
     inputs.push("-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo");
   const audioIndex = o.hasAudio ? 0 : o.graphic ? 2 : 1;

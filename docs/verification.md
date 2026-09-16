@@ -4,12 +4,12 @@
 
 | Check                           | Result                                                                           |
 | ------------------------------- | -------------------------------------------------------------------------------- |
-| `pnpm check`                    | PASS: typecheck, lint, 22 unit/domain/IPC/provider tests                         |
-| `pnpm test:integration`         | PASS: real FFmpeg inspection/proxy/audio and actual Remotion rendering (2 tests) |
-| `pnpm demo`                     | PASS: complete 72-second production and incremental rebuild                      |
-| `pnpm format:check`             | PASS                                                                             |
-| `pnpm macos:build`              | PASS: Swift release executable and ad-hoc signed .app                            |
-| `pnpm wts doctor`               | READY for local/mock production; OpenAI credential absent/optional               |
+| `bun run check`                 | PASS: typecheck, lint, 22 unit/domain/IPC/provider tests                         |
+| `bun run test:integration`      | PASS: real FFmpeg inspection/proxy/audio and actual Remotion rendering (2 tests) |
+| `bun run demo`                  | PASS: complete 72-second production and incremental rebuild                      |
+| `bun run format:check`          | PASS                                                                             |
+| `bun run macos:build`           | PASS: Swift release executable and ad-hoc signed .app                            |
+| `bun run wts doctor`            | READY for local/mock production; OpenAI credential absent/optional               |
 | Apple FCPXML 1.8 DTD            | Generated export validates                                                       |
 | Upstream OpenTimelineIO decoder | Reads 3 tracks and 72 seconds                                                    |
 
@@ -33,7 +33,7 @@ A fresh **Native workflow verification** project was created entirely through th
 - After the initial native verification, the app showed Gate 2 approval for the native test project and the documented unavailable-scripting message from Open in Resolve. The persisted approval was checked against the preview file hash.
 - Native storyboard thumbnail extraction uses an exact nonzero frame so graphics are visible after their entrance animation.
 
-The receipt `.demo/native-verification.json` includes the project ID, preview, source hash result, revision counts, decoded metadata and QA. `pnpm exec tsx scripts/verification-receipt.ts` refreshes that read-only audit when the named local UI-test project exists.
+The receipt `.demo/native-verification.json` includes the project ID, preview, source hash result, revision counts, decoded metadata and QA. `bun x tsx scripts/verification-receipt.ts` refreshes that read-only audit when the named local UI-test project exists.
 
 Drop handling is implemented with SwiftUI's file-URL drop destination; the file-picker import path was the route exercised during this run. No real API credential was saved during the UI verification.
 

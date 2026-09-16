@@ -1,20 +1,20 @@
 # Development and dependencies
 
-Use Node 24+ for the built-in SQLite API. The checked lockfile pins the resolved dependency graph. All Remotion packages are aligned at exactly 4.0.525. React renders trusted templates; OpenAI SDK 7.15.0 handles current Responses/Audio calls. Zod supplies runtime validation, TypeScript inference and JSON Schema generation. ESLint and Prettier cover TypeScript/JSON; `pnpm swift:format` uses the Swift toolchain formatter.
+Use Node 24+ for the built-in SQLite API. The checked lockfile pins the resolved dependency graph. All Remotion packages are aligned at exactly 4.0.525. React renders trusted templates; OpenAI SDK 7.15.0 handles current Responses/Audio calls. Zod supplies runtime validation, TypeScript inference and JSON Schema generation. ESLint and Prettier cover TypeScript/JSON; `bun run swift:format` uses the Swift toolchain formatter.
 
-The local build was verified on macOS 27 arm64, Swift 6.4, Node 26.8.2, pnpm 10.24.0 and FFmpeg 9.0.1. Swift source targets macOS 14+, but other OS/toolchain combinations have not been device-tested. The app uses an explicit AVPlayerView bridge because the preview OS's SwiftUI VideoPlayer failed at runtime despite a successful build.
+The local build was verified on macOS 27 arm64, Swift 6.4, Node 26.8.2, Bun 1.4.2 and FFmpeg 9.0.1. Swift source targets macOS 14+, but other OS/toolchain combinations have not been device-tested. The app uses an explicit AVPlayerView bridge because the preview OS's SwiftUI VideoPlayer failed at runtime despite a successful build.
 
 ## Useful loops
 
 ```sh
-pnpm check
-pnpm test:integration
-pnpm schema
-pnpm format
-pnpm swift:format
-pnpm macos:build
-pnpm demo
-pnpm macos:demo
+bun run check
+bun run test:integration
+bun run schema
+bun run format
+bun run swift:format
+bun run macos:build
+bun run demo
+bun run macos:demo
 ```
 
 The app starts a Node child with `--import tsx` and the checked-in IPC entrypoint. Changes to the runtime require restarting the app. The app bundle embeds a reference to the checkout; rebuilding refreshes that path. Release packaging should bundle a supported Node runtime, compiled JS and production dependencies, then add hardened runtime signing/notarization. Current local signing is ad hoc and no distribution certificate is needed.
@@ -23,9 +23,9 @@ A configured `WTS_<TOOL>_PATH` overrides PATH lookup. Otherwise the runtime sear
 
 ## Tests
 
-`pnpm test` covers plan validation, state gates, canonical hashes, path traversal/symlinks, persisted locks, retry/dependency/cancellation behavior, immutable patches/undo, transcript timing, timeline construction, cache corruption, a real stdio IPC process, and OpenAI SDK requests with a completely mocked HTTP transport. These tests spend no credits.
+`bun run test` covers plan validation, state gates, canonical hashes, path traversal/symlinks, persisted locks, retry/dependency/cancellation behavior, immutable patches/undo, transcript timing, timeline construction, cache corruption, a real stdio IPC process, and OpenAI SDK requests with a completely mocked HTTP transport. These tests spend no credits.
 
-`pnpm test:integration` produces actual short FFmpeg media and a Remotion graphic, then fully decodes the outputs. It requires local tools and may download Remotion's official browser on first use. `pnpm demo` is the full end-to-end test: assertions verify media duration, graph execution, four rendered graphics, incremental cache reuse and unchanged source hash. Each run creates a new project so previous evidence remains intact.
+`bun run test:integration` produces actual short FFmpeg media and a Remotion graphic, then fully decodes the outputs. It requires local tools and may download Remotion's official browser on first use. `bun run demo` is the full end-to-end test: assertions verify media duration, graph execution, four rendered graphics, incremental cache reuse and unchanged source hash. Each run creates a new project so previous evidence remains intact.
 
 FCPXML can additionally be validated against the DTD shipped with Final Cut Pro. Copy the DTD to a path without spaces before passing it to `xmllint --dtdvalid` on macOS; the system libxml parser did not resolve the spaced DTD path directly. OTIO can be decoded with the upstream Python package:
 

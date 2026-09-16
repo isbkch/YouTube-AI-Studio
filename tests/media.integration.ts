@@ -9,11 +9,16 @@ import {
   proxy,
   extractAudio,
   verifyOutput,
+  PREVIEW,
 } from "../packages/media/src/index.ts";
 import { fileHash, defaultCreator } from "../packages/shared/src/index.ts";
 import { renderGraphic } from "../packages/remotion-engine/src/index.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
+import {
+  TEMPLATE_CATALOG,
+  type Graphic,
+} from "../packages/production-plan/src/index.ts";
 import { fixture } from "./fixtures.ts";
 
 async function syntheticClip(
@@ -102,7 +107,116 @@ test("real Remotion graphic renders decodable frames", async () => {
     };
     const output = path.join(dir, "graphic.mp4");
     await renderGraphic(p.scenes[0], p, defaultCreator.brand, output);
-    assert.equal((await verifyOutput(output, 3)).width, 1280);
+    assert.equal((await verifyOutput(output, 3)).width, PREVIEW.width);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+const CATALOG_PARAMETERS: Record<string, Record<string, unknown>> = {
+  ChapterTitle: {
+    title: "Availability is a behavior",
+    subtitle: "Section one",
+  },
+  Callout: {
+    title: "Two copies, one failure domain",
+    subtitle: "Redundancy is not availability",
+  },
+  Quote: {
+    quote: "Everything fails, all the time.",
+    attribution: "as spoken",
+  },
+  ArchitectureFlow: {
+    title: "The path",
+    subtitle: "",
+    nodes: ["Client", "Gateway", "App", "Database"],
+    emphasis: 2,
+  },
+  ArchitectureDiagram: {
+    title: "Layers",
+    subtitle: "",
+    layers: [
+      { name: "Clients", components: ["Web", "Mobile"] },
+      { name: "App tier", components: ["App A", "App B"] },
+      { name: "Data", components: ["Database"] },
+    ],
+    failedLayer: 2,
+  },
+  RequestFlow: {
+    title: "One request",
+    subtitle: "",
+    method: "GET",
+    path: "/api/health",
+    steps: ["Client", "Gateway", "Service", "Database"],
+    failureStep: 2,
+  },
+  CodeReveal: {
+    title: "The retry",
+    fileName: "retry.ts",
+    lines: [
+      "export async function get(url) {",
+      "  for (let i = 0; i < 3; i++) {",
+      "    try { return await fetch(url); }",
+      "    catch (e) { await sleep(100); }",
+      "  }",
+      "}",
+    ],
+    highlight: 2,
+  },
+  Terminal: {
+    title: "Run it",
+    lines: [
+      { kind: "input", text: "npm run deploy" },
+      { kind: "output", text: "deployed — verify it yourself" },
+      { kind: "error", text: "error: not production ready" },
+    ],
+  },
+  CodeDiff: {
+    title: "The fix",
+    fileName: "config.ts",
+    removed: ["timeout: 1000,"],
+    added: ["timeout: 10_000,", "retries: 3,"],
+  },
+  MetricChart: {
+    title: "Latency",
+    subtitle: "p99 before and after",
+    unit: "ms",
+    series: [820, 845, 860, 190, 185, 182],
+    threshold: 250,
+    goodDirection: "down",
+  },
+  FailureAnimation: {
+    title: "Cascade",
+    subtitle: "",
+    nodes: ["Users", "Gateway", "App", "Database"],
+    failedNode: 3,
+    recovered: true,
+  },
+};
+test("every catalog template renders decodable frames at preview resolution", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wts-catalog-"));
+  try {
+    assert.deepEqual(
+      new Set(TEMPLATE_CATALOG.map((c) => c.template)),
+      new Set(Object.keys(CATALOG_PARAMETERS)),
+      "the test parameter table must cover the whole catalog",
+    );
+    for (const entry of TEMPLATE_CATALOG) {
+      const p = fixture();
+      p.scenes[0].visual = {
+        type: "graphic",
+        description: entry.template,
+        graphic: {
+          engine: "remotion",
+          template: entry.template,
+          templateVersion: "1.0.0",
+          parameters: CATALOG_PARAMETERS[entry.template],
+        } as Graphic,
+      };
+      const output = path.join(dir, `${entry.template}.mp4`);
+      await renderGraphic(p.scenes[0], p, defaultCreator.brand, output);
+      const meta = await verifyOutput(output, 3);
+      assert.equal(meta.width, PREVIEW.width, entry.template);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

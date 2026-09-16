@@ -13,7 +13,21 @@ import {
 import type { MediaInfo, Recording } from "../../orchestrator/src/model.ts";
 
 export type Tool =
-  "ffmpeg" | "ffprobe" | "blender" | "say" | "python3" | "node" | "pnpm";
+  | "ffmpeg"
+  | "ffprobe"
+  | "whisper-cli"
+  | "blender"
+  | "say"
+  | "python3"
+  | "node"
+  | "bun";
+
+/** The single preview capability every build must conform to. */
+export const PREVIEW = {
+  width: 1920,
+  height: 1080,
+  frameRate: 30,
+} as const;
 export async function executable(name: Tool): Promise<string> {
   const override = process.env[`WTS_${name.toUpperCase()}_PATH`];
   const candidates = override
@@ -253,6 +267,7 @@ export async function proxy(
   output: string,
   signal?: AbortSignal,
   onProgress?: (n: number) => void,
+  target: { width: number; height: number; frameRate: number } = PREVIEW,
 ) {
   if (path.resolve(input) === path.resolve(output))
     throw new StudioError(
@@ -261,6 +276,7 @@ export async function proxy(
     );
   await mkdir(path.dirname(output), { recursive: true });
   const meta = await inspect(input);
+  const { width, height, frameRate } = target;
   await ffmpeg(
     [
       "-protocol_whitelist",
@@ -272,7 +288,7 @@ export async function proxy(
       "-map",
       "0:a:0?",
       "-vf",
-      "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30",
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${frameRate}`,
       "-c:v",
       "libx264",
       "-preset",
@@ -301,6 +317,7 @@ export async function extractAudio(
   input: string,
   output: string,
   signal?: AbortSignal,
+  format: "mp3" | "wav" = "mp3",
 ) {
   if (path.resolve(input) === path.resolve(output))
     throw new StudioError("INVALID_INPUT", "Cannot overwrite original media.");
@@ -323,9 +340,8 @@ export async function extractAudio(
       "-ar",
       "16000",
       "-c:a",
-      "libmp3lame",
-      "-b:a",
-      "64k",
+      format === "wav" ? "pcm_s16le" : "libmp3lame",
+      ...(format === "mp3" ? ["-b:a", "64k"] : []),
       path.resolve(output),
     ],
     signal,

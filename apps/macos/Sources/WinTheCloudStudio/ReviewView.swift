@@ -8,6 +8,7 @@ struct ReviewView: View {
   @State private var player: AVPlayer?
   @State private var request = ""
   @State private var sceneID = ""
+  @State private var range = ""
   var previewURL: URL? { p.latestBuild.flatMap { p.url($0.previewPath) } }
   var body: some View {
     HSplitView {
@@ -111,6 +112,22 @@ struct ReviewView: View {
             }
           }.disabled(
             m.busy || request.trimmingCharacters(in: .whitespaces).isEmpty || p.plan == nil)
+          Divider()
+          Text("Range revision").font(.headline)
+          Text(
+            "Scope a change to a stretch of the timeline you just watched, e.g. 3:42-4:10."
+          ).font(.caption).foregroundStyle(.secondary)
+          TextField("3:42-4:10", text: $range).textFieldStyle(.roundedBorder).font(
+            .system(size: 12, design: .monospaced))
+          Button("Propose Range Revision") {
+            Task {
+              await m.proposeRange(range, request: request)
+              range = ""
+              request = ""
+            }
+          }.disabled(
+            m.busy || range.trimmingCharacters(in: .whitespaces).isEmpty
+              || request.trimmingCharacters(in: .whitespaces).isEmpty || p.latestBuild == nil)
           Divider()
           ForEach(p.revisions.reversed()) { r in
             VStack(alignment: .leading, spacing: 12) {

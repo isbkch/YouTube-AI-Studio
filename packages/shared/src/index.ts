@@ -41,6 +41,27 @@ export function redact(text: string) {
 }
 export const id = (prefix: string) => `${prefix}-${randomUUID()}`;
 export const now = () => new Date().toISOString();
+
+let dotEnvLoaded = false;
+/**
+ * Load `.env` from a directory once (Node native parser). Variables already
+ * set in the real environment always win and are never overwritten.
+ */
+export function loadDotEnv(directory: string = process.cwd()) {
+  if (dotEnvLoaded) return;
+  dotEnvLoaded = true;
+  try {
+    process.loadEnvFile(path.join(directory, ".env"));
+  } catch {
+    /* No readable .env — environment-only configuration. */
+  }
+}
+/** The OpenAI API key from the environment (incl. `.env`), or null. Never logged. */
+export function envCredential(): string | null {
+  loadDotEnv();
+  const key = process.env.OPENAI_API_KEY?.trim();
+  return key ? key : null;
+}
 export function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;

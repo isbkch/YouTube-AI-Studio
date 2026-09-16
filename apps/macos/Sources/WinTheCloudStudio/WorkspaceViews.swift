@@ -239,6 +239,9 @@ struct TranscriptView: View {
           ).font(.caption).foregroundStyle(.secondary)
         }
         Spacer()
+        Button("Import Final Cut Analysis…") {
+          Task { await m.importFCPTranscripts() }
+        }.disabled(p.status != "MEDIA_IMPORTED" || m.busy)
         Button("Load Transcript…") { Task { await m.loadTranscript() } }.disabled(
           p.status != "MEDIA_IMPORTED" || m.busy)
         Button(m.provider == "mock" ? "Mock Transcribe" : "Transcribe with OpenAI") {
@@ -265,11 +268,47 @@ struct TranscriptView: View {
       }
       if p.transcripts.isEmpty {
         Text(
-          "A transcript must contain ordered, non-overlapping segments with start/end seconds and text, and may name its recordingId. See examples/redundancy/transcript.json."
+          "A transcript must contain ordered, non-overlapping segments with start/end seconds and text, and may name its recordingId. Final Cut speech analysis is imported word-level with Import Final Cut Analysis… See examples/redundancy/transcript.json."
         ).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 160)
       }
+      if let draft = m.aroll {
+        VStack(alignment: .leading, spacing: 10) {
+          HStack {
+            Text("A-roll draft").font(.headline)
+            Spacer()
+            Text(
+              "\(draft.stats.groups) scene(s) • \(String(format: "%.0f", draft.stats.keptSeconds))s kept • \(draft.stats.droppedSentences) sentence(s) dropped • \(draft.stats.suggestedGraphics) graphic suggestion(s)"
+            ).font(.caption).foregroundStyle(.secondary)
+          }
+          ForEach(draft.scenes) { s in
+            HStack(alignment: .top, spacing: 14) {
+              Text(timestamp(s.start) + "–" + timestamp(s.end)).font(
+                .system(size: 11, design: .monospaced)
+              ).foregroundStyle(Color.studioAccent).frame(width: 104, alignment: .leading)
+              VStack(alignment: .leading, spacing: 3) {
+                Text(String(s.narration.prefix(160))).font(.caption).lineLimit(2)
+                if let g = s.suggestedGraphic {
+                  Text("\(g.template) — \(g.reason)").font(.caption2).foregroundStyle(
+                    Color.studioAccent)
+                }
+              }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+          }
+          ForEach(draft.dropped) { d in
+            Text("Dropped: \(String(d.text.prefix(100)))").font(.caption2).foregroundStyle(
+              .secondary)
+          }
+          Text(
+            "Deterministic draft from script↔take alignment; the Director plan supersedes it."
+          ).font(.caption2).foregroundStyle(.secondary)
+        }.padding(16).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12))
+      }
       HStack {
+        Button("Draft A-Roll Cut") { Task { await m.draftAroll() } }.disabled(
+          !p.pendingRecordings.isEmpty || m.busy)
         Spacer()
+        Button("Import Plan…") { Task { await m.importPlan() } }.disabled(
+          !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
         Button("Generate Storyboard") {
           Task {
             await m.perform("plan.generate", label: "Director planning")
