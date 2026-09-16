@@ -74,7 +74,12 @@ import { JobGraph } from "./jobs.ts";
 import { engineCapabilities, validateEngines } from "./engines.ts";
 import { publishToYouTube } from "./youtube.ts";
 import { readLibrary, trackRefs } from "./library.ts";
-import { alignScript, alignmentSchema, type Alignment } from "./alignment.ts";
+import {
+  ALIGNMENT_ALGORITHM,
+  alignScript,
+  alignmentSchema,
+  type Alignment,
+} from "./alignment.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import {
   discoverFCPTranscripts,
@@ -790,7 +795,13 @@ export class Studio {
         "alignment",
         `alignment-v${script.version}.json`,
       );
-      return alignmentSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+      const stored = alignmentSchema.parse(
+        JSON.parse(readFileSync(file, "utf8")),
+      );
+      // An alignment from a different matching algorithm is not evidence about
+      // this code's take selection; recompute instead of reusing it.
+      if (stored.algorithm !== ALIGNMENT_ALGORITHM) return null;
+      return stored;
     } catch {
       return null;
     }
@@ -1006,8 +1017,14 @@ export class Studio {
   }
   /** Draft the deterministic A-roll edit for review; the Director refines it. */
   async draftAroll(projectId: string) {
+    const p = this.store.get(projectId);
     const alignment = await this.computeAlignment(projectId);
-    return buildEditDecision(alignment);
+    return buildEditDecision(
+      alignment,
+      p.recordings.map((r) =>
+        p.transcripts.findLast((t) => t.recordingId === r.id)!,
+      ),
+    );
   }
   async approvePlan(projectId: string, version: number) {
     return this.locked(projectId, async (p) => {
@@ -1150,13 +1167,69 @@ export class Studio {
         );
       const intent = parseIntent(request);
       // "Keep my A-roll for the first sentence, then illustrate the rest":
-      // the first scene stays presenter footage, later scenes get visuals.
+      // split the first scene at its first sentence boundary so the head stays
+      // presenter footage and the tail carries the visual; later scenes get
+      // visuals outright.
       const compound =
         intent.keepPresenter &&
         intent.illustrate &&
         /first|then|after that/i.test(request);
+      const transcriptsByRecording = new Map<string, Transcript>();
+      for (const t of p.transcripts)
+        transcriptsByRecording.set(t.recordingId, t);
+      /** Scene-relative frame where the scene's second transcript segment starts. */
+      const firstSentenceSplit = (scene: (typeof plan)["scenes"][number]) => {
+        const transcript = transcriptsByRecording.get(scene.camera.recordingId);
+        if (!transcript || scene.transcriptSegmentIds.length < 2) return null;
+        const byId = new Map(transcript.segments.map((s) => [s.id, s]));
+        const segs = scene.transcriptSegmentIds
+          .map((id) => byId.get(id))
+          .filter((s): s is Transcript["segments"][number] => !!s)
+          .sort((a, b) => a.start - b.start);
+        if (segs.length < 2) return null;
+        const atFrame = Math.round(segs[1].start * fps) - scene.sourceInFrame;
+        if (atFrame < 24 || atFrame > scene.durationFrames - 24) return null;
+        return atFrame;
+      };
+      /**
+       * Audience-facing copy comes from the narration, never from the creator's
+       * revision instruction.
+       */
+      const narratedTitle = (narration: string): string | null => {
+        const first = (narration.split(/(?<=\.)\s/)[0] ?? "").trim();
+        const t = first.slice(0, 100).trim();
+        return t.length >= 3 ? t : null;
+      };
+      const illustrateGraphic = (
+        scene: (typeof plan)["scenes"][number],
+      ): Graphic => {
+        const suggestion = suggestGraphic(
+          scene.narration,
+          scene.chapterTitle ?? null,
+        );
+        if (suggestion)
+          return {
+            engine: "remotion",
+            template: suggestion.template,
+            templateVersion: "1.0.0",
+            parameters: suggestion.parameters,
+          } as Graphic;
+        const title = narratedTitle(scene.narration);
+        if (!title)
+          throw new StudioError(
+            "INVALID_INPUT",
+            `No audience-facing copy could be derived from ${scene.id}'s narration; name the graphic content explicitly.`,
+          );
+        return {
+          engine: "remotion",
+          template: "Callout",
+          templateVersion: "1.0.0",
+          parameters: { title, subtitle: "" },
+        };
+      };
       const operations: import("../../production-plan/src/index.ts").Operation[] =
         [];
+      let compoundNote = "";
       for (const scene of overlapping) {
         const keepPresenter =
           intent.keepPresenter && (!compound || scene === overlapping[0]);
@@ -1167,6 +1240,36 @@ export class Studio {
             chapterTitle: intent.chapter,
           });
           continue;
+        }
+        if (compound && scene === overlapping[0]) {
+          const atFrame = firstSentenceSplit(scene);
+          if (atFrame !== null) {
+            const tailId = `${scene.id}-b`;
+            if (scene.visual.graphic)
+              operations.push({
+                type: "removeGraphic",
+                sceneId: scene.id,
+              });
+            operations.push({
+              type: "splitScene",
+              sceneId: scene.id,
+              atFrame,
+              newSceneId: tailId,
+            });
+            operations.push({
+              type: "replaceVisual",
+              sceneId: tailId,
+              visual: {
+                type: "graphic",
+                description: `Range revision: ${request.slice(0, 200)}`,
+                graphic: illustrateGraphic(scene),
+              },
+            });
+            compoundNote = ` ${scene.id} was split at its first sentence boundary so the opening stays on camera.`;
+            continue;
+          }
+          compoundNote =
+            " No sentence boundary was computable inside the first scene, so the whole first scene stays on camera.";
         }
         if (keepPresenter) {
           if (scene.visual.graphic)
@@ -1222,21 +1325,13 @@ export class Studio {
         }
         if (intent.illustrate) {
           if (scene.visual.type === "graphic") continue;
-          const suggestion =
-            suggestGraphic(scene.narration, scene.chapterTitle ?? null) ??
-            intent.fallback;
           operations.push({
             type: "replaceVisual",
             sceneId: scene.id,
             visual: {
               type: "graphic",
               description: `Range revision: ${request.slice(0, 200)}`,
-              graphic: {
-                engine: "remotion",
-                template: suggestion!.template,
-                templateVersion: "1.0.0",
-                parameters: suggestion!.parameters,
-              } as Graphic,
+              graphic: illustrateGraphic(scene),
             },
           });
           continue;
@@ -1260,7 +1355,7 @@ export class Studio {
         id: id("patch"),
         createdAt: now(),
         originatingRequest: `Range ${rangeText}: ${request}`,
-        rationale: `Scoped range revision over ${rangeText}; only the listed scene instructions change.`,
+        rationale: `Scoped range revision over ${rangeText}; only the listed scene instructions change.${compoundNote}`,
         affectedScenes: [
           ...new Set(
             operations.flatMap((o) =>
@@ -1566,6 +1661,13 @@ export class Studio {
             options.macroId,
             signal ?? options.signal,
           );
+          if (!result.available)
+            throw new StudioError(
+              "EXTERNAL_TOOL",
+              result.reason ?? "Resolve is unavailable for final rendering.",
+              "Check Resolve and its render queue, then retry.",
+              true,
+            );
           if (!result.output)
             throw new StudioError(
               "EXTERNAL_TOOL",
@@ -1922,13 +2024,6 @@ function parseIntent(request: string) {
     punch: /\b(punch in|zoom in|tighter)\b/i.test(request),
     broll: /\bb-?roll\b|\bgenerated (image|still)\b/i.test(request),
     chapter: chapterMatch ? chapterMatch[1].trim().slice(0, 120) : null,
-    fallback: {
-      template: "Callout" as const,
-      parameters: {
-        title: request.slice(0, 90) || "Key point",
-        subtitle: "",
-      },
-    },
   };
 }
 export type ProjectSnapshot = ReturnType<Studio["snapshot"]>;

@@ -2,7 +2,7 @@ import { hash } from "../packages/shared/src/index.ts";
 import type { ProductionPlan } from "../packages/production-plan/src/index.ts";
 export function fixture(): ProductionPlan {
   return {
-    schemaVersion: "3.0.0",
+    schemaVersion: "4.0.0",
     id: "plan-1",
     projectId: "project-1",
     version: 1,
@@ -29,8 +29,10 @@ export function fixture(): ProductionPlan {
         enabled: true,
         rationale: "Give this thought room.",
         chapterTitle: null,
+        selection: null,
       },
     ],
     audioDesign: { music: null, sfx: [] },
+    scriptCoverage: null,
   };
 }

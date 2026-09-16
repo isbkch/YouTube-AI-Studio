@@ -16,6 +16,7 @@ import { validateSources } from "../packages/production-plan/src/index.ts";
 import { fixture } from "./fixtures.ts";
 import {
   makeTimeline,
+  segmentArgs,
   toFCPXML,
   toOTIO,
   validateTimeline,
@@ -38,6 +39,8 @@ const recording: Recording = {
   importedAt: new Date().toISOString(),
   proxyPath: "cache/proxy.mp4",
   proxyStatus: "AVAILABLE",
+  frames: 90,
+  proxyFrames: 90,
 };
 const transcript = {
   schemaVersion: "1.0.0" as const,
@@ -226,6 +229,98 @@ test("source validation allows take selection but rejects bad ranges and mis-sco
       /scene's recording/,
     );
   }));
+test("source validation rejects replayed frames, unspoken narration and stray segment links", async () =>
+  temporary(async (_, store) => {
+    store.create("Hard source validation");
+    const rec: Recording = { ...recording, duration: 10, proxyFrames: 300 };
+    const spoken = {
+      ...transcript,
+      segments: [
+        { id: "s-1", start: 0, end: 2, text: "Alpha beta gamma delta." },
+        { id: "s-2", start: 2, end: 4, text: "Epsilon zeta eta theta." },
+        { id: "far", start: 8, end: 10, text: "Much later material." },
+      ],
+    };
+    const scene = (
+      over: Partial<ReturnType<typeof fixture>["scenes"][number]>,
+    ) => structuredClone({ ...fixture().scenes[0], ...over });
+    const build = (scenes: ReturnType<typeof scene>[]) => {
+      let cursor = 0;
+      const timed = scenes.map((s, i) => {
+        const withTiming = { ...s, id: `scene-${i + 1}`, startFrame: cursor };
+        cursor += withTiming.durationFrames;
+        return withTiming;
+      });
+      return structuredClone({
+        ...fixture(),
+        durationFrames: cursor,
+        scenes: timed,
+      });
+    };
+    // Two scenes from the same recording replaying source frames.
+    const replay = build([
+      scene({
+        sourceInFrame: 0,
+        durationFrames: 60,
+        narration: "Alpha beta gamma delta.",
+      }),
+      scene({
+        sourceInFrame: 30,
+        durationFrames: 60,
+        narration: "Epsilon zeta eta theta.",
+      }),
+    ]);
+    assert.throws(
+      () => validateSources(replay, [rec], [spoken]),
+      /replay the same source frames/,
+    );
+    // Narration claims speech that is not inside the selected range.
+    const unspoken = build([
+      scene({
+        sourceInFrame: 0,
+        durationFrames: 60,
+        narration: "Lambda mu nu xi omicron pi rho sigma tau.",
+      }),
+    ]);
+    assert.throws(
+      () => validateSources(unspoken, [rec], [spoken]),
+      /not spoken inside the selected source range/,
+    );
+    // Paraphrase inside the range stays valid.
+    const paraphrased = build([
+      scene({
+        sourceInFrame: 0,
+        durationFrames: 60,
+        narration: "Alpha gamma beta delta similar phrasing.",
+      }),
+    ]);
+    validateSources(paraphrased, [rec], [spoken]);
+    // A transcript link pointing outside the selected range.
+    const stray = build([
+      scene({
+        sourceInFrame: 0,
+        durationFrames: 60,
+        narration: "Alpha beta gamma delta.",
+        transcriptSegmentIds: ["far"],
+      }),
+    ]);
+    assert.throws(
+      () => validateSources(stray, [rec], [spoken]),
+      /lies outside the selected source range/,
+    );
+    // One frame past the deterministic proxy bound is rejected.
+    const overhang = build([
+      scene({
+        sourceInFrame: 300 - 30,
+        durationFrames: 31,
+        narration: "Alpha beta gamma delta.",
+      }),
+    ]);
+    assert.throws(
+      () => validateSources(overhang, [rec], [spoken]),
+      /source range exceeds/,
+    );
+  }));
 test("transcript loading targets each recording once and accepts explicit IDs", async () =>
   temporary(async (_, store) => {
     const studio = new Studio(store);
@@ -357,6 +452,127 @@ test("timeline export retains separate narration, presenter, and graphic tracks"
   t.tracks[0].clips[0].durationFrames = 200;
   assert.throws(() => validateTimeline(t));
 });
+test("FCPXML clip timings match the plan exactly and graphics attach at the scene start", () => {
+  const plan = fixture();
+  plan.scenes = [
+    {
+      ...plan.scenes[0],
+      id: "scene-1",
+      startFrame: 0,
+      durationFrames: 71,
+      sourceInFrame: 2035,
+      visual: {
+        type: "graphic",
+        description: "Graphic",
+        graphic: {
+          engine: "remotion",
+          template: "Callout",
+          templateVersion: "1.0.0",
+          parameters: { title: "Works is not ready", subtitle: "" },
+        },
+      },
+    },
+    {
+      ...plan.scenes[0],
+      id: "scene-2",
+      startFrame: 71,
+      durationFrames: 49,
+      sourceInFrame: 120,
+    },
+  ];
+  plan.durationFrames = 120;
+  const rec: Recording = { ...recording, duration: 100, proxyFrames: 3000 };
+  const graphicAsset = {
+    assetId: "asset-graphic",
+    type: "remotion-render" as const,
+    sceneId: "scene-1",
+    productionPlanVersion: plan.version,
+    generator: "remotion",
+    template: "Callout",
+    templateVersion: "1.0.0",
+    parameters: {},
+    inputHash: "k",
+    outputHash: hash("graphic"),
+    createdAt: new Date().toISOString(),
+    path: "assets/graphics/scene-1.mp4",
+    jobId: "job-1",
+    reused: false,
+    sourceAssets: [],
+    renderMs: 1,
+  };
+  const xml = toFCPXML(
+    makeTimeline(plan, [rec], new Map([["scene-1", graphicAsset]])),
+    "/Projects/P",
+  );
+  const clips = [...xml.matchAll(/<asset-clip name="scene-\d+"[^>]*>/g)].map(
+    (m) => m[0],
+  );
+  assert.equal(clips.length, 2);
+  const attrs = (clip: string) => ({
+    offset: /offset="([^"]+)"/.exec(clip)![1],
+    start: / start="([^"]+)"/.exec(clip)![1],
+    duration: /duration="([^"]+)"/.exec(clip)![1],
+  });
+  assert.deepEqual(attrs(clips[0]), {
+    offset: "0/30s",
+    start: "2035/30s",
+    duration: "71/30s",
+  });
+  assert.deepEqual(attrs(clips[1]), {
+    offset: "71/30s",
+    start: "120/30s",
+    duration: "49/30s",
+  });
+  // Connected graphics and markers are anchored to their parent scene, never
+  // to the presenter's source offset.
+  const graphic = /<asset-clip lane="1"[^>]*>/.exec(xml)![0];
+  assert.match(graphic, /offset="0s"/);
+  assert.match(xml, /<marker start="0s"/);
+});
+test("segment encodes pin exact output frame counts", () => {
+  const plain = segmentArgs({
+    source: "proxy.mp4",
+    graphic: null,
+    sourceStart: 2035 / 30,
+    duration: 241 / 30,
+    punchIn: 1,
+    gainDb: 0,
+    hasAudio: true,
+    output: "segment.mp4",
+  });
+  const framesAt = plain.indexOf("-frames:v");
+  assert.deepEqual(
+    [plain[framesAt + 1], plain.indexOf("-t") >= 0],
+    ["241", true],
+  );
+  // -t keeps a half-frame margin so the padded audio never truncates video.
+  assert.equal(plain[plain.indexOf("-t") + 1], String(241 / 30 + 1 / 60));
+  const overlaid = segmentArgs({
+    source: "proxy.mp4",
+    graphic: null,
+    sourceStart: 0,
+    duration: 2,
+    punchIn: 1,
+    gainDb: 0,
+    hasAudio: true,
+    output: "segment.mp4",
+    overlays: [
+      {
+        clip: "broll.mp4",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 66,
+        startSec: 0,
+        endSec: 1,
+        fadeInSec: 0,
+        fadeOutSec: 0,
+      },
+    ],
+  });
+  assert.ok(overlaid.includes("-filter_complex"));
+  assert.equal(overlaid[overlaid.indexOf("-frames:v") + 1], "60");
+});
 test("crashed worker lock is reclaimed and transient state becomes recoverable", async () =>
   temporary(async (_, store) => {
     const p = store.create("Recovery");
@@ -416,5 +632,5 @@ test("committed demo plan and Director output share valid transcript provenance"
   assert.equal(plan.transcriptHash, hash([t]));
   assert.deepEqual(plan, director);
   assert.ok(plan.scenes.length >= 1);
-  assert.equal(plan.schemaVersion, "3.0.0");
+  assert.equal(plan.schemaVersion, "4.0.0");
 });

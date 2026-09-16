@@ -149,6 +149,36 @@ struct Graphic: Decodable {
   let templateVersion: String
   let parameters: Parameters
 }
+struct ArchLayer: Decodable {
+  let name: String
+  let components: [String]
+}
+/// CodeReveal renders `lines` as plain strings; Terminal renders {kind, text} rows.
+enum GraphicLine: Decodable {
+  case code(String)
+  case terminal(kind: String, text: String)
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    if let line = try? container.decode(String.self) {
+      self = .code(line)
+      return
+    }
+    struct Row: Decodable {
+      let kind: String
+      let text: String
+    }
+    let row = try container.decode(Row.self)
+    self = .terminal(kind: row.kind, text: row.text)
+  }
+
+  var text: String {
+    switch self {
+    case .code(let line): return line
+    case .terminal(_, let text): return text
+    }
+  }
+}
 struct Parameters: Decodable {
   let title: String?
   let subtitle: String?
@@ -158,6 +188,22 @@ struct Parameters: Decodable {
   let attribution: String?
   let fileName: String?
   let unit: String?
+  let basis: String?
+  let layers: [ArchLayer]?
+  let failedLayer: Int?
+  let method: String?
+  let path: String?
+  let steps: [String]?
+  let failureStep: Int?
+  let removed: [String]?
+  let added: [String]?
+  let series: [Double]?
+  let threshold: Double?
+  let goodDirection: String?
+  let failedNode: Int?
+  let recovered: Bool?
+  let highlight: Int?
+  let lines: [GraphicLine]?
 }
 struct Visual: Decodable {
   let type: String
@@ -214,17 +260,47 @@ struct Camera: Decodable {
   let framing: String
   let punchIn: Double
 }
+struct SceneAudio: Decodable {
+  let gainDb: Double
+}
+struct SelectionAlternate: Decodable {
+  let recordingId: String
+  let start: Double
+  let end: Double
+  let score: Double
+}
+struct SceneSelection: Decodable {
+  let score: Double
+  let bridged: Bool
+  let alternates: [SelectionAlternate]?
+}
 struct ProductionScene: Decodable, Identifiable {
   let id: String
   let startFrame: Int
   let durationFrames: Int
+  let sourceInFrame: Int
   let narration: String
+  let transcriptSegmentIds: [String]?
+  let audio: SceneAudio?
+  let transition: String?
   let camera: Camera
   let visual: Visual
   let broll: [BRollEntry]?
   let enabled: Bool
   let rationale: String
   let chapterTitle: String?
+  let selection: SceneSelection?
+}
+struct CoverageSentence: Decodable {
+  let text: String
+  let status: String
+  let sceneId: String?
+  let reason: String?
+}
+struct ScriptCoverage: Decodable {
+  let sentences: [CoverageSentence]
+  var included: [CoverageSentence] { sentences.filter { $0.status == "included" } }
+  var omitted: [CoverageSentence] { sentences.filter { $0.status == "omitted" } }
 }
 struct Director: Decodable {
   let provider: String
@@ -238,6 +314,7 @@ struct Plan: Decodable {
   let scenes: [ProductionScene]
   let director: Director
   let audioDesign: AudioDesign?
+  let scriptCoverage: ScriptCoverage?
   var brollCount: Int { scenes.reduce(0) { $0 + ($1.broll?.count ?? 0) } }
 }
 struct Asset: Decodable, Identifiable {

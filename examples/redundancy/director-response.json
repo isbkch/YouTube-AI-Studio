@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "3.0.0",
+  "schemaVersion": "4.0.0",
   "id": "demo-plan",
   "projectId": "demo-project",
   "version": 1,
@@ -11,7 +11,7 @@
     "width": 1920,
     "height": 1080
   },
-  "durationFrames": 2159,
+  "durationFrames": 2157,
   "director": {
     "provider": "mock",
     "model": "deterministic-v1",
@@ -53,13 +53,55 @@
       "transition": "cut",
       "enabled": true,
       "rationale": "Section heading from the script.",
-      "chapterTitle": "Why Redundancy Is Not High Availability"
+      "chapterTitle": "Why Redundancy Is Not High Availability",
+      "selection": {
+        "score": 1,
+        "bridged": false,
+        "alternates": [
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 1.5151724137931035,
+            "end": 4.024137931034483,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 3.5841379310344825,
+            "end": 5.679310344827586,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 5.239310344827587,
+            "end": 8.575862068965519,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 8.135862068965517,
+            "end": 10.231034482758622,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 9.79103448275862,
+            "end": 12.3,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 11.86,
+            "end": 14.700000000000001,
+            "score": 1
+          }
+        ]
+      }
     },
     {
       "id": "scene-002",
       "startFrame": 530,
       "durationFrames": 552,
-      "sourceInFrame": 530,
+      "sourceInFrame": 531,
       "narration": "Adding another copy only helps when the failure that breaks one copy leaves the other useful. Imagine two application servers behind a load balancer. Both depend on one database endpoint. When that shared dependency fails, the second application server is just another machine returning the same error.",
       "transcriptSegmentIds": [
         "segment-2",
@@ -73,7 +115,7 @@
       },
       "visual": {
         "type": "graphic",
-        "description": "Layered architecture with a shared failing layer.",
+        "description": "Layered architecture with a narrated failing shared layer.",
         "graphic": {
           "engine": "remotion",
           "template": "ArchitectureDiagram",
@@ -113,18 +155,48 @@
       },
       "transition": "cut",
       "enabled": true,
-      "rationale": "Layered architecture with a shared failing layer.",
-      "chapterTitle": null
+      "rationale": "Layered architecture with a narrated failing shared layer.",
+      "chapterTitle": null,
+      "selection": {
+        "score": 1,
+        "bridged": false,
+        "alternates": [
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 17.46,
+            "end": 24.3,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 23.86,
+            "end": 27.39677419354839,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 26.956774193548387,
+            "end": 29.719354838709677,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 29.279354838709676,
+            "end": 36.3,
+            "score": 1
+          }
+        ]
+      }
     },
     {
       "id": "scene-003",
       "startFrame": 1082,
       "durationFrames": 557,
-      "sourceInFrame": 1082,
+      "sourceInFrame": 1084,
       "narration": "Even independent copies are not enough. Something must detect the failure, route traffic, and preserve the information needed to continue. A standby that nobody can reach is capacity, not recovery. So test the entire path. Break a dependency. Watch detection. Measure the switch. Check a real request.",
       "transcriptSegmentIds": [
-        "segment-3",
         "segment-4",
+        "segment-3",
         "segment-5"
       ],
       "camera": {
@@ -144,13 +216,55 @@
       "transition": "cut",
       "enabled": true,
       "rationale": "Aligned take; kept in script order.",
-      "chapterTitle": null
+      "chapterTitle": null,
+      "selection": {
+        "score": 1,
+        "bridged": false,
+        "alternates": [
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 35.86,
+            "end": 38.699999999999996,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 38.26,
+            "end": 44.3,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 43.86,
+            "end": 48.3,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 47.86,
+            "end": 50.23548387096774,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 49.79548387096774,
+            "end": 51.39677419354839,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 50.956774193548384,
+            "end": 52.170967741935485,
+            "score": 1
+          }
+        ]
+      }
     },
     {
       "id": "scene-004",
       "startFrame": 1639,
-      "durationFrames": 520,
-      "sourceInFrame": 1640,
+      "durationFrames": 518,
+      "sourceInFrame": 1642,
       "narration": "Include the control plane, credentials, and the people who have to make the decision. The useful question is not, how many copies do we have? It is, what happens to the next user request when this part fails? Availability is a behavior. Build it, then prove it.",
       "transcriptSegmentIds": [
         "segment-5",
@@ -173,11 +287,201 @@
       "transition": "cut",
       "enabled": true,
       "rationale": "Aligned take; kept in script order.",
-      "chapterTitle": null
+      "chapterTitle": null,
+      "selection": {
+        "score": 1,
+        "bridged": false,
+        "alternates": [
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 54.44064516129032,
+            "end": 60.3,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 59.86,
+            "end": 64.3,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 63.86,
+            "end": 69.02727272727272,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 68.58727272727272,
+            "end": 70.48181818181817,
+            "score": 1
+          },
+          {
+            "recordingId": "recording-0de266e5-dc1d-4617-878c-e481d2bcb8d1",
+            "start": 70.04181818181819,
+            "end": 72,
+            "score": 1
+          }
+        ]
+      }
     }
   ],
   "audioDesign": {
     "music": null,
     "sfx": []
+  },
+  "scriptCoverage": {
+    "sentences": [
+      {
+        "text": "You have two servers.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "Two copies of the database.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "Maybe even two regions.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "Then one ordinary deployment takes everything down.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "The architecture was redundant.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "The service was not available.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "Redundancy describes the parts you own.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "Availability describes what a user can actually do.",
+        "status": "included",
+        "sceneId": "scene-001",
+        "reason": null
+      },
+      {
+        "text": "Adding another copy only helps when the failure that breaks one copy leaves the other useful.",
+        "status": "included",
+        "sceneId": "scene-002",
+        "reason": null
+      },
+      {
+        "text": "Imagine two application servers behind a load balancer.",
+        "status": "included",
+        "sceneId": "scene-002",
+        "reason": null
+      },
+      {
+        "text": "Both depend on one database endpoint.",
+        "status": "included",
+        "sceneId": "scene-002",
+        "reason": null
+      },
+      {
+        "text": "When that shared dependency fails, the second application server is just another machine returning the same error.",
+        "status": "included",
+        "sceneId": "scene-002",
+        "reason": null
+      },
+      {
+        "text": "Even independent copies are not enough.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "Something must detect the failure, route traffic, and preserve the information needed to continue.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "A standby that nobody can reach is capacity, not recovery.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "So test the entire path.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "Break a dependency.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "Watch detection.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "Measure the switch.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "Check a real request.",
+        "status": "included",
+        "sceneId": "scene-003",
+        "reason": null
+      },
+      {
+        "text": "Include the control plane, credentials, and the people who have to make the decision.",
+        "status": "included",
+        "sceneId": "scene-004",
+        "reason": null
+      },
+      {
+        "text": "The useful question is not, how many copies do we have?",
+        "status": "included",
+        "sceneId": "scene-004",
+        "reason": null
+      },
+      {
+        "text": "It is, what happens to the next user request when this part fails?",
+        "status": "included",
+        "sceneId": "scene-004",
+        "reason": null
+      },
+      {
+        "text": "Availability is a behavior.",
+        "status": "included",
+        "sceneId": "scene-004",
+        "reason": null
+      },
+      {
+        "text": "Build it, then prove it.",
+        "status": "included",
+        "sceneId": "scene-004",
+        "reason": null
+      }
+    ]
   }
 }

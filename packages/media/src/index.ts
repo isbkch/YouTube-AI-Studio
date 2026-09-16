@@ -181,6 +181,7 @@ export async function inspect(file: string): Promise<MediaInfo> {
       height?: number;
       avg_frame_rate?: string;
       duration?: string;
+      nb_frames?: string;
     }[];
   };
   const video = parsed.streams.find((s) => s.codec_type === "video"),
@@ -192,15 +193,21 @@ export async function inspect(file: string): Promise<MediaInfo> {
       "INVALID_INPUT",
       "Media has no readable finite duration.",
     );
+  const frameRate = d ? n / d : 0;
+  const indexed = Number(video?.nb_frames);
   return {
     duration,
     width: video?.width || 0,
     height: video?.height || 0,
     codec: video?.codec_name || "audio",
-    frameRate: d ? n / d : 0,
+    frameRate,
     hasAudio: !!audio,
     audioCodec: audio?.codec_name || null,
     bytes: Number(parsed.format.size) || info.size,
+    frames:
+      Number.isFinite(indexed) && indexed > 0
+        ? Math.round(indexed)
+        : Math.round(duration * frameRate),
   };
 }
 export async function importRecording(
@@ -233,6 +240,7 @@ export async function importRecording(
     importedAt: now(),
     proxyPath: null,
     proxyStatus: "PENDING",
+    proxyFrames: null,
   };
 }
 export async function ffmpeg(
@@ -278,6 +286,10 @@ export async function proxy(
   await mkdir(path.dirname(output), { recursive: true });
   const meta = await inspect(input);
   const { width, height, frameRate } = target;
+  // Pin the proxy to exactly floor(duration × frame rate) frames: the same
+  // bound source ranges are validated against, so declared FCPXML media,
+  // actual proxy frames, and plan ranges can never disagree by a frame.
+  const frameCap = Math.floor(meta.duration * frameRate);
   await ffmpeg(
     [
       "-protocol_whitelist",
@@ -290,6 +302,8 @@ export async function proxy(
       "0:a:0?",
       "-vf",
       `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${frameRate}`,
+      "-frames:v",
+      String(frameCap),
       "-c:v",
       "libx264",
       "-preset",
@@ -352,12 +366,20 @@ export async function verifyOutput(
   file: string,
   expectedDuration: number,
   signal?: AbortSignal,
+  expectedFrames?: number,
 ) {
   const meta = await inspect(file);
   if (Math.abs(meta.duration - expectedDuration) > 0.12)
     throw new StudioError(
       "EXTERNAL_TOOL",
       `Output duration ${meta.duration.toFixed(3)}s differs from expected ${expectedDuration.toFixed(3)}s.`,
+      "Retry the affected render.",
+      true,
+    );
+  if (expectedFrames !== undefined && meta.frames !== expectedFrames)
+    throw new StudioError(
+      "EXTERNAL_TOOL",
+      `Output has ${meta.frames} video frames instead of ${expectedFrames}.`,
       "Retry the affected render.",
       true,
     );

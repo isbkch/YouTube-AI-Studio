@@ -6,6 +6,7 @@ Imports into a newly named project and refuses to modify an existing project.
 import json
 import os
 import sys
+import time
 
 
 def fresh_project(resolve, project_name):
@@ -81,12 +82,16 @@ def main():
     if not project.SetRenderSettings({"CustomName": os.path.splitext(os.path.basename(output_path))[0], "TargetDir": os.path.dirname(output_path)}):
         raise RuntimeError("Resolve rejected the render destination")
     job_id = project.AddRenderJob()
-    if job_id is None:
+    if not job_id:
         raise RuntimeError("Resolve did not queue the render job")
-    if not resolve.StartRender():
-        raise RuntimeError("Resolve failed to start or complete rendering")
-    queue = project.GetRenderJobList() or []
-    job = next((j for j in queue if j.get("JobId") == job_id), queue[-1] if queue else {})
+    if not project.StartRendering([job_id]):
+        raise RuntimeError("Resolve failed to start rendering")
+    while project.IsRenderingInProgress():
+        time.sleep(1)
+    job = project.GetRenderJobStatus(job_id) or {}
+    status = job.get("JobStatus", "Unknown")
+    if status != "Complete":
+        raise RuntimeError("Resolve render did not complete (status %s): %s" % (status, job.get("Error", "Check the Resolve render queue")))
     produced = next(
         (
             candidate
@@ -99,7 +104,7 @@ def main():
         ),
         None,
     )
-    result.update(project=project.GetName(), timeline=timeline.GetName(), renderJob=job_id, renderStatus=job.get("Status", "Unknown"), output=produced)
+    result.update(project=project.GetName(), timeline=timeline.GetName(), renderJob=job_id, renderStatus=status, output=produced)
     return result
 
 

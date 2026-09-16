@@ -6,11 +6,16 @@ import path from "node:path";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio, parseTimeRange } from "../packages/orchestrator/src/studio.ts";
 import {
+  ALIGNMENT_ALGORITHM,
   alignScript,
   splitScriptSentences,
   tokenStream,
 } from "../packages/orchestrator/src/alignment.ts";
-import { buildEditDecision } from "../packages/orchestrator/src/aroll.ts";
+import {
+  buildEditDecision,
+  quantizeEditFrames,
+  suggestGraphic,
+} from "../packages/orchestrator/src/aroll.ts";
 import {
   readFCPTranscript,
   discoverFCPTranscripts,
@@ -45,6 +50,8 @@ const recording = (id: string, duration: number, name = id): Recording => ({
   importedAt: new Date().toISOString(),
   proxyPath: null,
   proxyStatus: "PENDING",
+  frames: Math.floor(duration * 23.976),
+  proxyFrames: null,
 });
 
 const transcriptWithWords = (
@@ -149,6 +156,166 @@ test("A-roll editor groups takes, drops dead space and reports cut statistics", 
   );
 });
 
+test("alignment refuses short cross-take rescues and records its algorithm identity", () => {
+  const takeA = recording("rec-a", 60, "earlier-take");
+  const takeB = recording("rec-b", 60, "current-take");
+  const script =
+    "The opening establishes the demo. Security. The closing thought moves on.";
+  // The earlier take discusses security in an unrelated context; the current
+  // take never says the word.
+  const transcriptA = transcriptWithWords(takeA.id, [
+    { start: 30, text: "A viewer asks about security vulnerabilities." },
+  ]);
+  const transcriptB = transcriptWithWords(takeB.id, [
+    { start: 2, text: "The opening establishes the demo." },
+    { start: 20, text: "The closing thought moves on." },
+  ]);
+  const alignment = alignScript({
+    script,
+    scriptVersion: 1,
+    recordings: [takeA, takeB],
+    transcripts: [transcriptA, transcriptB],
+  });
+  assert.equal(alignment.algorithm, ALIGNMENT_ALGORITHM);
+  const security = alignment.sentences[1];
+  // The one-word beat must not be pulled from the unrelated earlier take.
+  assert.equal(security.match, null);
+  const edit = buildEditDecision(alignment, [transcriptA, transcriptB]);
+  assert.ok(
+    edit.dropped.some(
+      (d) => d.text === "Security." && /confidence threshold/.test(d.reason),
+    ),
+  );
+});
+
+test("bridging requires transcript proof of the claimed sentence", () => {
+  const rec = recording("rec-1", 60);
+  const row = (
+    index: number,
+    text: string,
+    match: { recordingId: string; start: number; end: number } | null,
+  ) => ({
+    id: `sent-${String(index + 1).padStart(3, "0")}`,
+    index,
+    text,
+    heading: null,
+    match: match ? { ...match, score: 0.9, segmentIds: [] } : null,
+    alternates: [],
+  });
+  const alignmentFor = (sentences: ReturnType<typeof row>[]) =>
+    ({
+      schemaVersion: "2.0.0",
+      algorithm: ALIGNMENT_ALGORITHM,
+      createdAt: new Date().toISOString(),
+      scriptVersion: 1,
+      transcriptHash: hash("transcripts"),
+      sentences,
+      stats: {
+        sentences: sentences.length,
+        matched: sentences.filter((s) => s.match).length,
+        unmatched: sentences.filter((s) => !s.match).length,
+        averageScore: 0.8,
+        perRecording: [
+          {
+            recordingId: rec.id,
+            name: rec.name,
+            matchedSentences: 2,
+            keptSeconds: 8,
+          },
+        ],
+      },
+    }) as Parameters<typeof buildEditDecision>[0];
+  const sandwich = [
+    row(0, "The first claim is matched.", {
+      recordingId: rec.id,
+      start: 2,
+      end: 4,
+    }),
+    row(1, "The bridged sentence is spoken here.", null),
+    row(2, "The last claim is matched.", {
+      recordingId: rec.id,
+      start: 10,
+      end: 12,
+    }),
+  ];
+  // Gap audio contains the sentence: bridged in, flagged for review.
+  const spoken = transcriptWithWords(rec.id, [
+    { start: 0, text: "The first claim is matched." },
+    { start: 4.5, text: "The bridged sentence is spoken here." },
+    { start: 10, text: "The last claim is matched." },
+  ]);
+  const bridged = buildEditDecision(alignmentFor(sandwich), [spoken]);
+  assert.equal(bridged.dropped.length, 0);
+  const bridgedScene = bridged.scenes.find((s) =>
+    /bridged sentence/i.test(s.narration),
+  )!;
+  assert.equal(bridgedScene.selection.bridged, true);
+  // The gap audio is kept: every matched second survives the cut.
+  assert.ok(bridged.stats.keptSeconds > 9);
+  // Gap audio does not contain it: an explicit omission, never a false claim.
+  const silent = transcriptWithWords(rec.id, [
+    { start: 0, text: "The first claim is matched." },
+    { start: 5, text: "Completely different filler words entirely." },
+    { start: 10, text: "The last claim is matched." },
+  ]);
+  const omitted = buildEditDecision(alignmentFor(sandwich), [silent]);
+  assert.equal(
+    omitted.scenes.every((s) => !/bridged sentence/i.test(s.narration)),
+    true,
+  );
+  assert.ok(
+    omitted.dropped.some(
+      (d) =>
+        d.text === "The bridged sentence is spoken here." &&
+        /does not contain this sentence/.test(d.reason),
+    ),
+  );
+});
+
+test("graphic suggestions stay grounded in the narration", () => {
+  const chart = suggestGraphic(
+    "Latency climbed from 120 milliseconds to 340 milliseconds then 900 milliseconds at peak.",
+    null,
+  )!;
+  assert.equal(chart.template, "MetricChart");
+  assert.equal(chart.parameters.basis, "narration");
+  assert.deepEqual(chart.parameters.series, [120, 340, 900]);
+  // Too few spoken numbers: no chart is invented.
+  assert.equal(
+    suggestGraphic("Latency matters more than uptime percentages.", null)
+      ?.template,
+    undefined,
+  );
+  // A database mention without a narrated failure is not a failure-domain diagram.
+  assert.equal(
+    suggestGraphic("We store everything in the database.", null),
+    null,
+  );
+  assert.ok(
+    suggestGraphic("The shared database failed and took everything down.", null)
+      ?.template === "ArchitectureDiagram",
+  );
+});
+
+test("frame quantization keeps take ranges disjoint and inside the proxy bound", () => {
+  const rec = { id: "rec-1", duration: 10.05 };
+  const editScenes = [
+    { id: "s-a", recordingId: "rec-1", start: 0.9999, end: 2.0167 },
+    { id: "s-b", recordingId: "rec-1", start: 2.0, end: 3.5 },
+    { id: "s-c", recordingId: "rec-1", start: 9.9, end: 10.4 },
+  ];
+  const quantized = quantizeEditFrames(editScenes, [rec], 30);
+  const ranges = editScenes.map((s) => quantized.get(s.id)!);
+  const bound = Math.floor(10.05 * 30);
+  for (const r of ranges)
+    assert.ok(r.sourceInFrame + r.durationFrames <= bound);
+  for (let i = 1; i < ranges.length; i++)
+    assert.ok(
+      ranges[i].sourceInFrame >=
+        ranges[i - 1].sourceInFrame + ranges[i - 1].durationFrames,
+    );
+});
+
 test("FCP transcript parsing converts rational word times and maps by duration", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wts-fcp-"));
   try {
@@ -236,7 +403,7 @@ test("v1 plans migrate to the v2 catalog schema and still validate", () => {
     ],
   };
   const migrated = validatePlan(migratePlan(v1));
-  assert.equal(migrated.schemaVersion, "3.0.0");
+  assert.equal(migrated.schemaVersion, "4.0.0");
   const flow = migrated.scenes[0].visual.graphic!;
   assert.deepEqual(flow.parameters, {
     title: "Old flow",
@@ -329,6 +496,7 @@ test("range revisions scope operations to the scenes inside a timeline range", a
         id: `scene-${i + 1}`,
         startFrame: i * 60,
         durationFrames: 60,
+        sourceInFrame: i * 60,
         chapterTitle: i === 1 ? "Act two" : null,
         camera: { ...fixture().scenes[0].camera, recordingId: rec.id },
         visual:
@@ -379,6 +547,101 @@ test("range revisions scope operations to the scenes inside a timeline range", a
     const revised = store.get(p.id).plans.at(-1)!;
     assert.equal(revised.scenes[1].visual.type, "presenter");
     assert.equal(revised.scenes[0].visual.type, "presenter");
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("range revisions never render creator instructions and split compound requests at the first sentence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-honesty-"));
+  const store = new Store(root);
+  try {
+    const studio = new Studio(store);
+    const p = store.create("Revision honesty test", "", 60);
+    const rec = recording("rec-1", 10);
+    const sceneAt = (i: number, segIds: string[]) => ({
+      ...fixture().scenes[0],
+      id: `scene-${i + 1}`,
+      startFrame: i * 60,
+      durationFrames: 60,
+      sourceInFrame: i * 60,
+      narration:
+        i === 0 ? "This scene carries real narration already." : "Hello",
+      transcriptSegmentIds: segIds,
+      camera: { ...fixture().scenes[0].camera, recordingId: rec.id },
+    });
+    const plan = {
+      ...fixture(),
+      projectId: p.id,
+      durationFrames: 180,
+      scenes: [sceneAt(0, ["s-1", "s-2"]), sceneAt(1, []), sceneAt(2, [])],
+    };
+    const transcript = {
+      schemaVersion: "1.0.0" as const,
+      recordingId: rec.id,
+      language: "en",
+      provider: "test",
+      model: "test",
+      segments: [
+        {
+          id: "s-1",
+          start: 0,
+          end: 1,
+          text: "This scene carries real narration already.",
+        },
+        {
+          id: "s-2",
+          start: 1,
+          end: 2,
+          text: "And the friction story follows.",
+        },
+      ],
+    };
+    store.update(p.id, (x) => {
+      x.status = "AWAITING_ROUGH_CUT_APPROVAL";
+      x.recordings = [rec];
+      x.transcripts = [transcript];
+      x.plans = [validatePlan(plan)];
+    });
+    // The audited instruction: it must never appear as audience-facing copy.
+    const audited =
+      "This stretch is visually flat. Keep my A-roll for the first sentence, then illustrate the friction story";
+    const patch = await studio.proposeRange(p.id, "0-3", audited);
+    const renderedCopy = JSON.stringify(
+      patch.operations.flatMap((o) =>
+        o.type === "replaceVisual" ? [o.visual.graphic?.parameters ?? {}] : [],
+      ),
+    );
+    assert.ok(!renderedCopy.includes("visually flat"));
+    assert.ok(!renderedCopy.includes(audited.slice(0, 40)));
+    // The first scene splits at its second transcript segment (1s → frame 30).
+    const split = patch.operations.find((o) => o.type === "splitScene") as {
+      type: "splitScene";
+      sceneId: string;
+      atFrame: number;
+      newSceneId: string;
+    };
+    assert.deepEqual(
+      [split.sceneId, split.atFrame, split.newSceneId],
+      ["scene-1", 30, "scene-1-b"],
+    );
+    // Later scenes illustrate with narration-derived copy, never instructions.
+    const laterVisual = patch.operations.find(
+      (o) => o.type === "replaceVisual" && o.sceneId === "scene-2",
+    ) as {
+      type: "replaceVisual";
+      visual: { graphic: { parameters: { title: string } } };
+    };
+    assert.equal(laterVisual.visual.graphic.parameters.title, "Hello");
+    await studio.decidePatch(p.id, patch.id, true);
+    const applied = validatePlan(store.get(p.id).plans.at(-1)!);
+    assert.deepEqual(
+      applied.scenes.map((s) => s.id),
+      ["scene-1", "scene-1-b", "scene-2", "scene-3"],
+    );
+    assert.equal(applied.scenes[0].visual.type, "presenter");
+    assert.equal(applied.scenes[1].visual.type, "graphic");
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

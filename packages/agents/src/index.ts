@@ -30,7 +30,10 @@ import {
 } from "../../shared/src/index.ts";
 import type { Recording, Transcript } from "../../orchestrator/src/model.ts";
 import type { Alignment } from "../../orchestrator/src/alignment.ts";
-import { buildEditDecision } from "../../orchestrator/src/aroll.ts";
+import {
+  buildEditDecision,
+  quantizeEditFrames,
+} from "../../orchestrator/src/aroll.ts";
 
 export const transcriptSchema = z.strictObject({
   schemaVersion: z.literal("1.0.0"),
@@ -373,7 +376,7 @@ TAKE SELECTION (A-roll editing): scenes select sub-ranges of recordings. Use the
 
 TIMING: 30 fps, 1920×1080. Scenes tile the timeline contiguously from frame 0; durations come from the aligned speech spans. Cut on sentence boundaries; leave natural pauses inside scenes, not between words.
 
-VISUALS: most scenes stay presenter footage. Use the catalog only where the narration genuinely benefits: a diagram for architecture, RequestFlow for a concrete call, CodeReveal/Terminal/CodeDiff for real code, MetricChart for numbers over time, Quote for verbatim text, FailureAnimation for cascades, ChapterTitle at section starts (also set chapterTitle on that scene). Graphics replace the frame fully for their whole scene; do not place them over speech that needs the presenter's face. Content inside graphics must be real: actual code lines, actual numbers from the narration, actual system names — never placeholders.
+VISUALS: most scenes stay presenter footage. Use the catalog only where the narration genuinely benefits: a diagram for architecture, RequestFlow for a concrete call, CodeReveal/Terminal/CodeDiff for real code, MetricChart for numbers over time, Quote for verbatim text, FailureAnimation for cascades, ChapterTitle at section starts (also set chapterTitle on that scene). Graphics replace the frame fully for their whole scene; do not place them over speech that needs the presenter's face. Content inside graphics must be real: actual code lines, actual numbers from the narration, actual system names — never placeholders. MetricChart series must be numbers actually spoken in that scene's narration; if you chart a hypothetical, set basis to "illustrative" and say so in the subtitle — never present invented numbers as measured.
 
 CAMERA: framing wide/medium/close with punchIn 1.0–1.35. Punch-in sparingly for emphasis, not rhythm.
 
@@ -393,7 +396,7 @@ export class DirectorAgent {
         ...input,
         contract: {
           id: id("plan"),
-          schemaVersion: "3.0.0",
+          schemaVersion: "4.0.0",
           projectId: input.projectId,
           version: input.version,
           scriptVersion: input.script.version,
@@ -762,17 +765,12 @@ function graphicFrom(template: string, parameters: Record<string, unknown>) {
 /** Mock direction: a real alignment-based cut when available, else the MVP demo pattern. */
 export function mockPlan(input: DirectorInput): ProductionPlan {
   if (input.alignment && input.alignment.stats.matched > 0) {
-    const edit = buildEditDecision(input.alignment);
+    const edit = buildEditDecision(input.alignment, input.transcripts);
+    const quantized = quantizeEditFrames(edit.scenes, input.recordings, 30);
     let cursor = 0;
-    const byId = new Map(input.recordings.map((r) => [r.id, r]));
     const scenes: Scene[] = edit.scenes.map((s, i) => {
-      const recording = byId.get(s.recordingId)!;
-      const maxFrames = Math.floor(recording.duration * 30) + 1;
       const start = cursor;
-      let durationFrames = Math.max(12, Math.round((s.end - s.start) * 30));
-      const sourceInFrame = Math.round(s.start * 30);
-      if (sourceInFrame + durationFrames > maxFrames)
-        durationFrames = Math.max(12, maxFrames - sourceInFrame);
+      const { sourceInFrame, durationFrames } = quantized.get(s.id)!;
       cursor += durationFrames;
       const suggestion = s.suggestedGraphic;
       const graphic: Graphic | null = suggestion
@@ -809,10 +807,17 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
           ? suggestion.reason
           : "Aligned take; kept in script order.",
         chapterTitle: s.heading ? s.heading.slice(0, 120) : null,
+        selection: s.selection,
       };
     });
+    // Script-level review metadata: every sentence is accounted for, included
+    // or omitted with the reason the editor recorded.
+    const droppedIdx = new Set(edit.dropped.map((d) => d.index));
+    const sceneIdBySentence = new Map<number, string>();
+    for (const s of edit.scenes)
+      for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
     return validatePlan({
-      schemaVersion: "3.0.0",
+      schemaVersion: "4.0.0",
       id: id("plan"),
       projectId: input.projectId,
       version: input.version,
@@ -828,6 +833,25 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
         summary: `Deterministic alignment-based cut: ${edit.stats.groups} scenes, ${Math.round(edit.stats.keptSeconds)}s of kept speech, ${edit.stats.droppedSentences} sentence(s) dropped for retakes or dead space, ${edit.stats.suggestedGraphics} graphic suggestion(s). This is a mock, not AI interpretation.`,
       },
       scenes,
+      scriptCoverage: {
+        sentences: input.alignment.sentences.map((row) =>
+          row.match && !droppedIdx.has(row.index)
+            ? {
+                text: row.text.slice(0, 2000),
+                status: "included" as const,
+                sceneId: sceneIdBySentence.get(row.index) ?? null,
+                reason: null,
+              }
+            : {
+                text: row.text.slice(0, 2000),
+                status: "omitted" as const,
+                sceneId: null,
+                reason:
+                  edit.dropped.find((d) => d.index === row.index)?.reason ??
+                  null,
+              },
+        ),
+      },
     });
   }
   const titles = [
@@ -916,12 +940,13 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
           ? "Make the dependency or decision visible."
           : "Let the presenter carry the thought.",
         chapterTitle: null,
+        selection: null,
       });
     }
     timelineFrame += total;
   }
   return validatePlan({
-    schemaVersion: "3.0.0",
+    schemaVersion: "4.0.0",
     id: id("plan"),
     projectId: input.projectId,
     version: input.version,

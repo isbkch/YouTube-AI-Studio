@@ -38,6 +38,8 @@ const recording: Recording = {
   importedAt: new Date().toISOString(),
   proxyPath: "cache/proxy.mp4",
   proxyStatus: "AVAILABLE",
+  frames: 90,
+  proxyFrames: 90,
 };
 const still = (brief = "A quiet datacenter corridor at blue hour") =>
   ({
@@ -71,12 +73,68 @@ const withBroll = (broll: BRollEntry[], plan = fixture()): ProductionPlan =>
     scenes: plan.scenes.map((s) => ({ ...s, broll })),
   });
 
-test("v2 plans upgrade to v3 with defaulted broll and audio design", () => {
+test("v2 plans upgrade through v3 to v4 with defaulted broll and audio design", () => {
   const v2 = { ...fixture(), schemaVersion: "2.0.0" as const };
   const upgraded = validatePlan(migratePlan(v2));
-  assert.equal(upgraded.schemaVersion, "3.0.0");
+  assert.equal(upgraded.schemaVersion, "4.0.0");
   assert.deepEqual(upgraded.scenes[0].broll, []);
   assert.deepEqual(upgraded.audioDesign, { music: null, sfx: [] });
+});
+
+test("legacy v2 chapter omissions migrate without changing the saved edit or its hash", () => {
+  const plan = fixture();
+  const scenes = ["Opening", undefined, null].map((chapterTitle, i) => ({
+    ...plan.scenes[0],
+    id: `scene-${i + 1}`,
+    startFrame: i * 90,
+    chapterTitle,
+  }));
+  const legacy = JSON.parse(
+    JSON.stringify({
+      ...plan,
+      schemaVersion: "2.0.0",
+      durationFrames: 270,
+      scenes,
+    }),
+  );
+  const saved = structuredClone(legacy);
+  const savedHash = hash(legacy);
+  const migrated = validatePlan(legacy);
+  assert.deepEqual(
+    migrated.scenes.map((s) => s.chapterTitle),
+    ["Opening", null, null],
+  );
+  assert.deepEqual(migrated, {
+    ...saved,
+    schemaVersion: "4.0.0",
+    scriptCoverage: null,
+    scenes: scenes.map((s) => ({
+      ...s,
+      chapterTitle: s.chapterTitle ?? null,
+      selection: null,
+    })),
+  });
+  assert.deepEqual(legacy, saved);
+  assert.equal(hash(legacy), savedHash);
+  assert.deepEqual(validatePlan(migrated), migrated);
+});
+
+test("chapter migration preserves validation of malformed titles and current plans", () => {
+  const plan = fixture();
+  for (const chapterTitle of ["", 42, "x".repeat(121)])
+    assert.throws(() =>
+      validatePlan({
+        ...plan,
+        schemaVersion: "2.0.0",
+        scenes: [{ ...plan.scenes[0], chapterTitle }],
+      }),
+    );
+  assert.throws(() =>
+    validatePlan({
+      ...plan,
+      scenes: [{ ...plan.scenes[0], chapterTitle: undefined }],
+    }),
+  );
 });
 
 test("b-roll entries must stay inside their scene, ordered and unstacked", () => {
