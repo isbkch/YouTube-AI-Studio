@@ -146,6 +146,8 @@ export interface Project {
     scriptDocVersion: number | null;
     previsualization: { version: number; scriptVersion: number } | null;
   };
+  /** Milestone 5 — latest Packaging agent document version. */
+  packaging: { version: number | null };
   scripts: { version: number; text: string; createdAt: string }[];
   scriptApproval: Approval | null;
   recordings: Recording[];

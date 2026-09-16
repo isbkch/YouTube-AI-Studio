@@ -18,6 +18,7 @@ import UniformTypeIdentifiers
   @Published var qa: QAReport?
   @Published var previsualization: Previsualization?
   @Published var teleprompter: TeleprompterDocument?
+  @Published var packaging: PackagingDocument?
   @Published var finalMacros: [String] = []
   @Published var finalPresets: [String] = [
     "H.264 Master", "H.264 Narrative", "ProRes 422 HQ", "ProRes 422",
@@ -192,6 +193,35 @@ import UniformTypeIdentifiers
     do {
       teleprompter = try await runtime.call("teleprompter.get", ["projectId": id])
     } catch { self.error = error.localizedDescription }
+  }
+  /** Milestone 5 — packaging proposal, approval and one-shot publish. */
+  func packageVideo() async {
+    guard !busy, let id = selectedID else { return }
+    busy = true
+    busyLabel = "Packaging Agent"
+    error = nil
+    defer { busy = false }
+    do {
+      let r: PackagingResult = try await runtime.call("packaging.run", ["projectId": id])
+      packaging = PackagingDocument(
+        version: r.snapshot.packaging?.version ?? 0,
+        packaging: r.packaging,
+        description: r.description)
+      notice = "Packaging v\(packaging?.version ?? 0) ready for review."
+    } catch { self.error = error.localizedDescription }
+    await refresh()
+  }
+  func loadPackaging() async {
+    guard let id = selectedID else { return }
+    packaging = try? await runtime.call("packaging.get", ["projectId": id])
+  }
+  func approvePackaging(_ version: Int) async {
+    await perform(
+      "packaging.approve", label: "Packaging approval", params: ["version": version])
+    await loadPackaging()
+  }
+  func publish() async {
+    await perform("publish.run", label: "Publish to YouTube")
   }
   func importPlan() async {
     guard let url = chooseFile(types: [.json]) else { return }

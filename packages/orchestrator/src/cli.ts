@@ -51,6 +51,9 @@ bun run wts script import <project> <script.txt>
 bun run wts script approve <project> --version 1
 bun run wts previsualize <project> [--provider openai]
 bun run wts teleprompter <project>
+bun run wts packaging <project> [--provider openai]
+bun run wts packaging approve <project> --version 1
+bun run wts publish <project>
 bun run wts media inspect <file> | media import <project> <file>
 bun run wts transcript load <project> <transcript.json>
 bun run wts transcript fcp <project> <fcpbundle-or-folder>
@@ -73,7 +76,8 @@ bun run wts review approve <project> --version 1
 bun run wts final macros | final render <project> [--preset "H.264 Master"] [--macro CinematicGrade]
 bun run wts resolve probe | resolve import <absolute.fcpxml> "New project name"
 
-All approvals refer to an exact version. Publishing is unavailable.
+All approvals refer to an exact version. Publishing uploads through the local
+YouTube CLI (youtubeuploader; WTS_YOUTUBEUPLOADER_PATH / WTS_YOUTUBE_ARGS) only after packaging approval.
 Providers: mock (default, no credits) · whisper (local whisper.cpp) · openai (.env OPENAI_API_KEY or Keychain).
 WTS_HOME overrides ~/Movies/WinTheCloud Studio. Quote paths with spaces.
 `;
@@ -106,6 +110,7 @@ try {
         "research",
         "narrative",
         "previsualize",
+        "packaging",
       ].includes(a[0]) ||
       (a[0] === "script" && a[1] === "draft");
     const needsKey = needsAI && v.provider === "openai";
@@ -150,6 +155,12 @@ try {
     else if (a[0] === "previsualize")
       result = await studio.previsualize(a[1], abort.signal);
     else if (a[0] === "teleprompter") result = await studio.teleprompter(a[1]);
+    else if (a[0] === "packaging" && a[1] === "approve")
+      result = await studio.approvePackaging(a[2], Number(v.version));
+    else if (a[0] === "packaging")
+      result = await studio.packageVideo(a[1], abort.signal);
+    else if (a[0] === "publish")
+      result = await studio.publish(a[1], abort.signal);
     else if (a[0] === "media" && a[1] === "import")
       result = await studio.importMedia(a[2], a[3], abort.signal);
     else if (a[0] === "transcript" && a[1] === "load")

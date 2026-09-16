@@ -963,6 +963,7 @@ export {
   validatePrevisualization,
   formatTimecode,
   formatRunTimecode,
+  topicPhrase,
   type ResearchNotes,
   type Narrative,
   type VideoScript,
@@ -974,28 +975,19 @@ export {
   type ScriptInput,
   type PrevisualizationInput,
 } from "./preproduction.ts";
-export interface ThumbnailConcept {
-  thesis: string;
-  titleCandidates: string[];
-  layout: { template: string; headline: string; assetBriefs: string[] };
-  status: "CONCEPT" | "LAYOUT" | "ASSETS" | "COMPOSITION" | "REVIEW";
-}
-export interface PublishingAdapter {
-  prepare(metadata: {
-    title: string;
-    description: string;
-    chapters: { seconds: number; title: string }[];
-    visibility: "private" | "unlisted" | "public";
-  }): Promise<{ draftId: string }>;
-  upload(
-    draftId: string,
-    approval: {
-      approvedBy: "creator";
-      approvedAt: string;
-      contentHash: string;
-    },
-  ): Promise<{ videoId: string }>;
-}
+export {
+  // Milestone 5 — packaging agent (final render → publication proposal).
+  packagingSchema,
+  PackagingAgent,
+  mockPackaging,
+  planChapters,
+  chapterStamp,
+  renderDescription,
+  recommendedTitle,
+  validatePackaging,
+  type VideoPackaging,
+  type PackagingInput,
+} from "./packaging.ts";
 export interface AnalyticsObservation {
   videoId: string;
   retrievedAt: string;

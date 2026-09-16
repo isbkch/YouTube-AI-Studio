@@ -58,6 +58,66 @@ struct TeleprompterDocument: Decodable {
   let runSheet: String?
   let text: String
 }
+struct PackagingState: Decodable {
+  let version: Int?
+}
+struct PackagingChapter: Decodable, Identifiable {
+  var id: Int { seconds }
+  let seconds: Int
+  let title: String
+}
+struct TitleCandidate: Decodable, Identifiable {
+  var id: String { title }
+  let title: String
+  let angle: String
+  let why: String
+}
+struct ThumbnailConcept: Decodable, Identifiable {
+  let id: String
+  let headline: String
+  let direction: String
+  let emotionalHook: String
+}
+struct PackagingDescription: Decodable {
+  let opening: String
+  let body: [String]
+  let sources: [ResearchSource]
+}
+struct PackagingMetadata: Decodable {
+  let tags: [String]
+  let categoryId: String
+  let visibility: String
+  let language: String
+  let madeForKids: Bool
+}
+struct VideoPackaging: Decodable {
+  let titleCandidates: [TitleCandidate]
+  let recommendedTitleIndex: Int
+  let thumbnailConcepts: [ThumbnailConcept]
+  let description: PackagingDescription
+  let chapters: [PackagingChapter]
+  let metadata: PackagingMetadata
+  let notes: [String]
+  var recommendedTitle: String {
+    titleCandidates.indices.contains(recommendedTitleIndex)
+      ? titleCandidates[recommendedTitleIndex].title : (titleCandidates.first?.title ?? "")
+  }
+}
+struct PackagingDocument: Decodable {
+  let version: Int
+  let packaging: VideoPackaging
+  let description: String
+}
+struct PackagingResult: Decodable {
+  let snapshot: Project
+  let packaging: VideoPackaging
+  let description: String
+}
+struct Publication: Decodable {
+  let videoId: String
+  let url: String
+  let publishedAt: String
+}
 struct Recording: Decodable, Identifiable {
   let id: String
   let name: String
@@ -259,6 +319,9 @@ struct Project: Decodable, Identifiable {
   let plans: [Plan]
   let planApproval: Approval?
   let roughCutApproval: Approval?
+  let packaging: PackagingState?
+  let publishApproval: Approval?
+  let publication: Publication?
   let revisions: [Revision]
   let builds: [Build]
   let finalRender: String?

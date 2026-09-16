@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { OpenAIProvider, ResearchAgent } from "../packages/agents/src/index.ts";
+import {
+  OpenAIProvider,
+  PackagingAgent,
+  ResearchAgent,
+} from "../packages/agents/src/index.ts";
 import { OpenAIImageProvider } from "../packages/image-engine/src/index.ts";
 import { defaultCreator } from "../packages/shared/src/index.ts";
 
@@ -283,4 +287,108 @@ test("pre-production research agent rides the strict structured transport", asyn
   assert.equal(result.output.keyPoints.length, 1);
   assert.equal(result.usage.agent, "research_notes");
   assert.equal(result.usage.inputTokens, 210);
+});
+
+test("packaging agent rides the strict structured transport with the fixed timeline", async () => {
+  let body: Record<string, unknown> = {};
+  const provider = new OpenAIProvider("test-key", "gpt-5.4", {
+    fetch: async (_url, options) => {
+      body = JSON.parse(String(options?.body));
+      const output = {
+        schemaVersion: "1.0.0",
+        titleCandidates: [
+          { title: "Own what you generate", angle: "a", why: "b" },
+          { title: "The cost of generated code", angle: "a", why: "b" },
+          { title: "Cheap code, expensive systems", angle: "a", why: "b" },
+        ],
+        recommendedTitleIndex: 2,
+        thumbnailConcepts: [
+          {
+            id: "thumb-1",
+            headline: "IT WORKS.",
+            direction: "Green checkmark turning red behind the presenter.",
+            emotionalHook: "Irony",
+          },
+          {
+            id: "thumb-2",
+            headline: "WHO OWNS IT?",
+            direction: "Concerned face toward a laptop.",
+            emotionalHook: "Worry",
+          },
+        ],
+        description: {
+          opening: "Generated code is cheap; owning it is not.",
+          body: ["What the video covers and who it is for."],
+          sources: [{ url: "https://sre.google/books/", title: "SRE" }],
+        },
+        chapters: [
+          { seconds: 0, title: "The trap" },
+          { seconds: 10, title: "The failure" },
+        ],
+        metadata: {
+          tags: ["reliability", "ai"],
+          categoryId: "28",
+          visibility: "private",
+          language: "en",
+          madeForKids: false,
+        },
+        notes: [],
+      };
+      return new Response(
+        JSON.stringify({
+          id: "resp_packaging",
+          object: "response",
+          created_at: 1,
+          status: "completed",
+          model: "gpt-5.4",
+          output: [
+            {
+              id: "msg_packaging",
+              type: "message",
+              role: "assistant",
+              status: "completed",
+              content: [
+                {
+                  type: "output_text",
+                  text: JSON.stringify(output),
+                  annotations: [],
+                },
+              ],
+            },
+          ],
+          usage: { input_tokens: 400, output_tokens: 120, total_tokens: 520 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+  const result = await new PackagingAgent(provider).package({
+    projectId: "project-test",
+    videoTitle: "Not production ready",
+    thesis: "Generated code is cheap; owning it is not.",
+    chapters: [
+      { seconds: 0, title: "The trap" },
+      { seconds: 10, title: "The failure" },
+    ],
+    finalSeconds: 30,
+    sources: [],
+    creator: defaultCreator,
+  });
+  assert.equal(
+    (body.text as { format: { name: string } }).format.name,
+    "video_packaging",
+  );
+  const input = JSON.parse(String(body.input)) as {
+    chapters: { seconds: number }[];
+  };
+  assert.deepEqual(
+    input.chapters.map((c) => c.seconds),
+    [0, 10],
+  );
+  assert.equal(
+    result.output.titleCandidates[2].title,
+    "Cheap code, expensive systems",
+  );
+  assert.equal(result.usage.agent, "video_packaging");
+  assert.equal(result.usage.inputTokens, 400);
 });

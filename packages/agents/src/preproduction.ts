@@ -866,7 +866,7 @@ const firstSentence = (text: string) =>
   (text.trim().split(/[.!?\n]/)[0] || text.trim()).slice(0, 160);
 
 /** Mock phrasing wants a short noun phrase, not the creator's whole question. */
-const topicPhrase = (idea: string) => {
+export const topicPhrase = (idea: string) => {
   const raw = firstSentence(idea)
     .replace(/^(why|how|what|when|where|a|an|the|my|our)\s+/i, "")
     .replace(/\b(still|actually|really)\b/gi, "")
