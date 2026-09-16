@@ -5,7 +5,7 @@ import AppKit
 struct MediaThumbnail: View {
  let url: URL
  @State private var image: NSImage?
- var body: some View { ZStack { Color.studioSurface; if let image { Image(nsImage: image).resizable().aspectRatio(contentMode: .fill) } else { Image(systemName: "play.rectangle").font(.largeTitle).foregroundStyle(.secondary) } }.clipped().task(id: url) { let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url)); generator.appliesPreferredTrackTransform = true; generator.maximumSize = CGSize(width: 640, height: 360); if let result = try? await generator.image(at: CMTime(seconds: 1, preferredTimescale: 600)) { image = NSImage(cgImage: result.image, size: .zero) } } }
+ var body: some View { ZStack { Color.studioSurface; if let image { Image(nsImage: image).resizable().aspectRatio(contentMode: .fill) } else { Image(systemName: "play.rectangle").font(.largeTitle).foregroundStyle(.secondary) } }.clipped().task(id: url) { let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url)); generator.appliesPreferredTrackTransform = true; generator.requestedTimeToleranceBefore = .zero; generator.requestedTimeToleranceAfter = .zero; generator.maximumSize = CGSize(width: 640, height: 360); if let result = try? await generator.image(at: CMTime(seconds: 1, preferredTimescale: 600)) { image = NSImage(cgImage: result.image, size: .zero) } } }
 }
 struct StoryboardView: View {
  @EnvironmentObject var m: StudioModel; let p: Project; @State private var editing: ProductionScene?

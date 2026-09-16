@@ -25,7 +25,7 @@ struct Project: Decodable, Identifiable {
  let revisions: [Revision]; let builds: [Build]; let usage: [Usage]
  let directory: String?; let assets: [Asset]?; let jobs: [Job]?
  var plan: Plan? { plans.last }
- var currentBuild: Build? { builds.first { $0.planVersion == plan?.version } }
+ var currentBuild: Build? { builds.last { $0.planVersion == plan?.version } }
  var latestBuild: Build? { builds.last }
  func url(_ relative: String) -> URL? { directory.map { URL(fileURLWithPath: $0).appendingPathComponent(relative) } }
  var statusLabel: String { status.replacingOccurrences(of: "_", with: " ").capitalized }
