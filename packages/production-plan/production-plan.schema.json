@@ -63,10 +63,7 @@
           "maximum": 2160
         }
       },
-      "required": [
-        "width",
-        "height"
-      ],
+      "required": ["width", "height"],
       "additionalProperties": false
     },
     "durationFrames": {
@@ -90,11 +87,7 @@
           "maxLength": 2000
         }
       },
-      "required": [
-        "provider",
-        "model",
-        "summary"
-      ],
+      "required": ["provider", "model", "summary"],
       "additionalProperties": false
     },
     "scenes": {
@@ -143,11 +136,7 @@
               },
               "framing": {
                 "type": "string",
-                "enum": [
-                  "wide",
-                  "medium",
-                  "close"
-                ]
+                "enum": ["wide", "medium", "close"]
               },
               "punchIn": {
                 "type": "number",
@@ -155,11 +144,7 @@
                 "maximum": 1.35
               }
             },
-            "required": [
-              "recordingId",
-              "framing",
-              "punchIn"
-            ],
+            "required": ["recordingId", "framing", "punchIn"],
             "additionalProperties": false
           },
           "visual": {
@@ -167,10 +152,7 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": [
-                  "presenter",
-                  "graphic"
-                ]
+                "enum": ["presenter", "graphic"]
               },
               "description": {
                 "type": "string",
@@ -187,11 +169,7 @@
                       },
                       "template": {
                         "type": "string",
-                        "enum": [
-                          "Callout",
-                          "ArchitectureFlow",
-                          "ChapterTitle"
-                        ]
+                        "enum": ["Callout", "ArchitectureFlow", "ChapterTitle"]
                       },
                       "templateVersion": {
                         "type": "string",
@@ -224,12 +202,7 @@
                             "maximum": 4
                           }
                         },
-                        "required": [
-                          "title",
-                          "subtitle",
-                          "nodes",
-                          "emphasis"
-                        ],
+                        "required": ["title", "subtitle", "nodes", "emphasis"],
                         "additionalProperties": false
                       }
                     },
@@ -247,11 +220,7 @@
                 ]
               }
             },
-            "required": [
-              "type",
-              "description",
-              "graphic"
-            ],
+            "required": ["type", "description", "graphic"],
             "additionalProperties": false
           },
           "audio": {
@@ -263,9 +232,7 @@
                 "maximum": 12
               }
             },
-            "required": [
-              "gainDb"
-            ],
+            "required": ["gainDb"],
             "additionalProperties": false
           },
           "transition": {

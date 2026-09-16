@@ -1,6 +1,7 @@
 # WinTheCloud Studio — implementation progress
 
 ## Completed
+
 - Inspected empty repository and local environment: macOS 27 arm64, Swift 6.4, Node 26.8.2, pnpm 10.24, FFmpeg 9.0.1, Resolve 21.1.
 - Read current Remotion SSR / OpenAI structured output and transcription documentation, and installed Resolve scripting reference (31 Aug 2026).
 - Established pnpm monorepo and verification commands.
@@ -14,11 +15,13 @@
 - Shared CLI and private stdio service; environment Doctor.
 
 ## In Progress
+
 - Native SwiftUI app compilation, launch, and UI verification.
 - Resolve import verification and export format checks.
 - Recovery/security edge cases, integration tests and final documentation.
 
 ## Next
+
 1. Verify foundation tests.
 2. Import/inspect actual media; create synthetic demo footage and transcript.
 3. Provider abstraction and Director, primarily verified with mock responses.
@@ -28,11 +31,13 @@
 7. Resolve import/export verification and documentation/polish.
 
 ## Known Issues
+
 - Blender 5.2.2 LTS detected in its app bundle (not on PATH); optional and outside MVP.
 - Resolve scripting access depends on edition/preferences and an active application. Export and preview must work independently.
 - Paid AI requests are not needed for development; live provider verification will be distinguished from mock tests.
 
 ## Architectural Decisions
+
 - SwiftUI control plane + Node/TypeScript domain runtime, private stdio JSON-lines IPC.
 - Integer frames at a declared frame rate; source timing and timeline timing are distinct.
 - Zod schemas generate JSON Schema and TypeScript types; semantic validation runs before execution.
@@ -40,6 +45,7 @@
 - Render cache identity excludes plan version; provenance includes the plan/scene/job that reused or generated it.
 
 ## How to Run
+
 - `pnpm install`
 - `pnpm check` (as implementation becomes available)
 - `pnpm demo` for the full credit-free pipeline

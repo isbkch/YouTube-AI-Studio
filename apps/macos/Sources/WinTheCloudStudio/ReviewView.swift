@@ -9,7 +9,7 @@ struct ReviewView: View {
  var previewURL: URL? { p.latestBuild.flatMap { p.url($0.previewPath) } }
  var body: some View { HSplitView {
   ScrollView { VStack(alignment: .leading, spacing: 20) {
-   if let player { VideoPlayer(player: player).aspectRatio(16 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10)) } else { VStack(spacing: 16) { Image(systemName: "play.rectangle").font(.system(size: 50, weight: .ultraLight)); Text("Build a rough cut to preview it here.") }.foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 300).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12)) }
+   if let player { NativePlayer(player: player).aspectRatio(16 / 9, contentMode: .fit).clipShape(RoundedRectangle(cornerRadius: 10)); PlaybackControls(player: player) } else { VStack(spacing: 16) { Image(systemName: "play.rectangle").font(.system(size: 50, weight: .ultraLight)); Text("Build a rough cut to preview it here.") }.foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 300).background(Color.studioSurface, in: RoundedRectangle(cornerRadius: 12)) }
    if let build = p.latestBuild { HStack { Text("Rough cut v\(build.planVersion)").font(.headline); Spacer(); Text(timestamp(Double(p.plan?.durationFrames ?? 0) / Double(p.plan?.frameRate ?? 30))).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary) }; if build.planVersion != p.plan?.version { Text("This preview is from an earlier plan. Approve the current storyboard and rebuild to see the revision.").font(.caption).foregroundStyle(.orange) }; HStack { Button("Reveal Preview") { m.reveal(p.url(build.previewPath)) }; Button("Resolve Export…") { m.reveal(p.url(build.exportPath)) }; Button("Open in Resolve") { Task { await m.openResolve() } }.disabled(m.busy || p.currentBuild == nil) }; Button("Approve Rough Cut v\(build.planVersion)") { Task { await m.perform("roughCut.approve", label: "Rough-cut approval", params: ["version": build.planVersion]) } }.buttonStyle(.borderedProminent).tint(.studioAccent).foregroundStyle(.black).disabled(m.busy || p.currentBuild == nil || p.status != "AWAITING_ROUGH_CUT_APPROVAL") }
    if let a = p.roughCutApproval { Label("Rough cut v\(a.version) approved. Continue final finishing in Resolve.", systemImage: "checkmark.seal").foregroundStyle(Color.studioAccent).font(.caption) }
    Text("Review pacing, factual accuracy, audio, and text fit. Technical QA checks decode, timing and asset completeness; it does not approve creative choices.").font(.caption).foregroundStyle(.secondary)
@@ -19,7 +19,7 @@ struct ReviewView: View {
    HStack { Image(systemName: "sparkles").foregroundStyle(Color.studioAccent); Text("DIRECTOR").font(.system(size: 12, weight: .semibold)).tracking(2); Spacer(); Text(m.provider.uppercased()).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary) }
    Text("A proposal first. A focused rebuild after.").font(.title3)
    if m.provider == "mock" { Text("Mock mode proposes a simple return to presenter footage. Select OpenAI in Settings for natural-language editorial interpretation, or edit a scene in the storyboard.").font(.caption).foregroundStyle(.secondary) }
-   Picker("ProductionScene", selection: $sceneID) { ForEach(p.plan?.scenes ?? []) { s in Text(s.id).tag(s.id) } }
+   Picker("Scene", selection: $sceneID) { ForEach(p.plan?.scenes ?? []) { s in Text(s.id).tag(s.id) } }
    TextField("What should change?", text: $request, axis: .vertical).lineLimit(3...6).textFieldStyle(.roundedBorder)
    Button("Propose Revision") { Task { await m.perform("revision.propose", label: "Director proposal", params: ["request": request, "sceneId": sceneID]); request = "" } }.disabled(m.busy || request.trimmingCharacters(in: .whitespaces).isEmpty || p.plan == nil)
    Divider()
@@ -34,4 +34,34 @@ struct ReviewView: View {
    if p.plans.count > 1 { Button("Restore Previous Plan as New Version") { Task { await m.perform("plan.undo", label: "Plan restored") } }.disabled(m.busy).font(.caption) }
   }.padding(24) }.frame(minWidth: 300, idealWidth: 340, maxWidth: 430)
  }.task(id: previewURL) { if let url = previewURL { player = AVPlayer(url: url) }; if sceneID.isEmpty { sceneID = p.plan?.scenes.first?.id ?? "" } }.onDisappear { player?.pause() } }
+}
+
+struct NativePlayer: NSViewRepresentable {
+ let player: AVPlayer
+ func makeNSView(context: Context) -> AVPlayerView {
+  let view = AVPlayerView()
+  view.controlsStyle = .inline
+  view.showsFullScreenToggleButton = true
+  view.player = player
+  return view
+ }
+ func updateNSView(_ view: AVPlayerView, context: Context) { if view.player !== player { view.player = player } }
+ static func dismantleNSView(_ view: AVPlayerView, coordinator: ()) { view.player?.pause(); view.player = nil }
+}
+
+struct PlaybackControls: View {
+ let player: AVPlayer
+ @State private var position = 0.0
+ @State private var playing = false
+ @State private var seeking = false
+ private let timer = Timer.publish(every: 0.3, on: .main, in: .common).autoconnect()
+ var duration: Double { let d = player.currentItem?.duration.seconds ?? 0; return d.isFinite && d > 0 ? d : 1 }
+ var body: some View {
+  HStack(spacing: 14) {
+   Button { if player.rate == 0 { player.play() } else { player.pause() }; playing = player.rate != 0 } label: { Image(systemName: playing ? "pause.fill" : "play.fill") }.accessibilityLabel(playing ? "Pause rough cut" : "Play rough cut")
+   Text(timestamp(position)).font(.system(.caption, design: .monospaced)).frame(width: 44)
+   Slider(value: $position, in: 0...duration) { editing in seeking = editing; if !editing { player.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) } }.accessibilityLabel("Playback position")
+   Text(timestamp(duration)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+  }.onReceive(timer) { _ in playing = player.rate != 0; if !seeking { let time = player.currentTime().seconds; position = min(duration, time.isFinite ? max(0, time) : 0) } }
+ }
 }
