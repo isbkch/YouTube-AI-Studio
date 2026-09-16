@@ -8,6 +8,56 @@ struct ScriptVersion: Decodable {
   let version: Int
   let text: String
 }
+struct ResearchSource: Decodable, Identifiable {
+  var id: String { url }
+  let url: String
+  let title: String
+}
+struct ResearchSummary: Decodable {
+  let notes: String
+  let sources: [ResearchSource]
+}
+struct PrevisualizationRef: Decodable {
+  let version: Int
+  let scriptVersion: Int
+}
+struct PreproductionState: Decodable {
+  let researchVersion: Int?
+  let narrativeVersion: Int?
+  let scriptDocVersion: Int?
+  let previsualization: PrevisualizationRef?
+}
+struct PrevisualizationShot: Decodable, Identifiable {
+  let id: String
+  let sectionHeading: String
+  let startSeconds: Int
+  let endSeconds: Int
+  let setup: String
+  let direction: String
+}
+struct RecordingGroup: Decodable {
+  let setup: String
+  let shotIds: [String]
+  let prep: [String]
+}
+struct Previsualization: Decodable {
+  let scriptVersion: Int
+  let summary: String
+  let totalPlannedSeconds: Int
+  let shots: [PrevisualizationShot]
+  let recordingPlan: [RecordingGroup]
+  let notes: [String]
+}
+struct PrevisualizationResult: Decodable {
+  let snapshot: Project
+  let previsualization: Previsualization
+  let runSheet: String
+}
+struct TeleprompterDocument: Decodable {
+  let scriptVersion: Int
+  let runSheet: String?
+  let text: String
+}
 struct Recording: Decodable, Identifiable {
   let id: String
   let name: String
@@ -199,6 +249,9 @@ struct Project: Decodable, Identifiable {
   let description: String
   let targetDuration: Double
   let status: String
+  let research: ResearchSummary?
+  let outline: [String]?
+  let preproduction: PreproductionState?
   let scripts: [ScriptVersion]
   let scriptApproval: Approval?
   let recordings: [Recording]

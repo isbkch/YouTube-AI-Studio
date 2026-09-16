@@ -941,11 +941,39 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
   });
 }
 // Future agents share validated contracts. These are deliberately not executable workers yet.
-export interface ResearchNotes {
-  claims: { text: string; kind: "fact" | "opinion"; sourceUrls: string[] }[];
-  counterarguments: string[];
-  sources: { url: string; title: string; retrievedAt: string }[];
-}
+export {
+  // Milestone 4 — pre-production agents (idea → approval → teleprompter).
+  researchSchema,
+  narrativeSchema,
+  videoScriptSchema,
+  previsualizationSchema,
+  ResearchAgent,
+  NarrativeAgent,
+  ScriptAgent,
+  PrevisualizationAgent,
+  mockResearch,
+  mockNarrative,
+  mockScript,
+  mockPrevisualization,
+  renderVideoScript,
+  renderTeleprompter,
+  renderRunSheet,
+  parseScriptDocument,
+  validateVideoScript,
+  validatePrevisualization,
+  formatTimecode,
+  formatRunTimecode,
+  type ResearchNotes,
+  type Narrative,
+  type VideoScript,
+  type VideoScriptBlock,
+  type Previsualization,
+  type ShotSetup,
+  type ResearchInput,
+  type NarrativeInput,
+  type ScriptInput,
+  type PrevisualizationInput,
+} from "./preproduction.ts";
 export interface ThumbnailConcept {
   thesis: string;
   titleCandidates: string[];

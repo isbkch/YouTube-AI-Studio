@@ -66,6 +66,16 @@ async function dispatch(
       const p = version.parse(params);
       return studio.approveScript(p.projectId, p.version);
     }
+    case "research.run":
+      return studio.research(project.parse(params).projectId, signal);
+    case "narrative.run":
+      return studio.narrative(project.parse(params).projectId, signal);
+    case "script.draft":
+      return studio.draftScript(project.parse(params).projectId, signal);
+    case "previsualization.run":
+      return studio.previsualize(project.parse(params).projectId, signal);
+    case "teleprompter.get":
+      return studio.teleprompter(project.parse(params).projectId);
     case "media.import": {
       const p = project.extend({ path: z.string() }).parse(params);
       return studio.importMedia(p.projectId, p.path, signal);

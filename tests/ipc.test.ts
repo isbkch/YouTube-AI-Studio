@@ -64,6 +64,37 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
     assert.equal((snap.result as { status: string }).status, "READY_TO_RECORD");
     const unsupported = await call("execute.shell", { command: "echo unsafe" });
     assert.equal((unsupported.error as { kind: string }).kind, "UNSUPPORTED");
+    // Milestone 4 — the pre-production agent chain over private IPC.
+    const pp = (
+      await call("project.create", {
+        title: "IPC Preproduction",
+        description: "Why multi-region failover still fails at 3 AM",
+        targetDuration: 600,
+      })
+    ).result as { id: string };
+    const researched = await call("research.run", { projectId: pp.id });
+    assert.equal(
+      (researched.result as { status: string }).status,
+      "RESEARCHING",
+    );
+    await call("narrative.run", { projectId: pp.id });
+    const drafted = await call("script.draft", { projectId: pp.id });
+    assert.equal(
+      (drafted.result as { status: string }).status,
+      "AWAITING_SCRIPT_APPROVAL",
+    );
+    const visualized = await call("previsualization.run", { projectId: pp.id });
+    assert.ok((visualized.result as { runSheet: string }).runSheet.length > 0);
+    await call("script.approve", { projectId: pp.id, version: 1 });
+    const prompt = await call("teleprompter.get", { projectId: pp.id });
+    assert.match(
+      (prompt.result as { text: string }).text,
+      /Teleprompter — IPC Preproduction/,
+    );
+    assert.match(
+      (prompt.result as { text: string }).text,
+      /## Recording run sheet/,
+    );
     assert.equal(
       (await call("request.cancel", { requestId: "absent" })).error,
       undefined,

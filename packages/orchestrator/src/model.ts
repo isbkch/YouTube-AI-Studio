@@ -139,6 +139,13 @@ export interface Project {
     sources: { url: string; title: string; retrievedAt: string }[];
   };
   outline: string[];
+  /** Milestone 4 — pre-production agent artifact versions. */
+  preproduction: {
+    researchVersion: number | null;
+    narrativeVersion: number | null;
+    scriptDocVersion: number | null;
+    previsualization: { version: number; scriptVersion: number } | null;
+  };
   scripts: { version: number; text: string; createdAt: string }[];
   scriptApproval: Approval | null;
   recordings: Recording[];

@@ -18,9 +18,22 @@ import {
 import {
   DirectorAgent,
   MockAIProvider,
+  NarrativeAgent,
+  PrevisualizationAgent,
+  ResearchAgent,
+  ScriptAgent,
   VisualPassAgent,
   validateTranscript,
+  narrativeSchema,
+  previsualizationSchema,
+  renderRunSheet,
+  renderTeleprompter,
+  renderVideoScript,
+  researchSchema,
   type AIProvider,
+  type Narrative,
+  type Previsualization,
+  type ResearchNotes,
   type Transcriber,
   type VisualPassCapabilities,
 } from "../../agents/src/index.ts";
@@ -221,6 +234,359 @@ export class Studio {
         this.store.event(x.id, { event: "script.approved", version });
       });
     });
+  }
+  // ---------------------------------------------------------------------
+  // Milestone 4 — pre-production agents: idea → research → narrative →
+  // script draft → Director pre-visualization → approval → teleprompter.
+  // Every stage is an explicit, cancellable operation; script approval
+  // remains the single human gate before recording.
+  // ---------------------------------------------------------------------
+
+  /** Research agent: an evidence brief with sources, from the idea. */
+  async research(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      if (!["IDEA", "RESEARCHING"].includes(p.status))
+        throw new StudioError(
+          "CONFLICT",
+          "Research runs before narrative and scripting.",
+          "Continue with the current script, or start a new project for a new idea.",
+        );
+      const idea = p.description.trim();
+      if (idea.length < 8)
+        throw new StudioError(
+          "INVALID_INPUT",
+          "Describe the idea first: the project description needs at least 8 characters.",
+          "Edit the project description, then run research again.",
+        );
+      const version = (p.preproduction?.researchVersion ?? 0) + 1;
+      await this.operation(
+        p,
+        "research",
+        `Research • evidence brief v${version}`,
+        async (signal) => {
+          const result = await new ResearchAgent(this.provider).research(
+            {
+              projectId: p.id,
+              idea: p.description,
+              creator: p.creator,
+              targetDuration: p.targetDuration,
+            },
+            signal,
+          );
+          await this.store.artifact(
+            p,
+            `research/research-v${version}.json`,
+            result.output,
+          );
+          this.store.update(p.id, (x) => {
+            x.preproduction ??= emptyPreproduction();
+            x.preproduction.researchVersion = version;
+            x.research = {
+              notes: result.output.summary,
+              sources: result.output.sources.map((s) => ({
+                url: s.url,
+                title: s.title,
+                retrievedAt: now(),
+              })),
+            };
+            x.usage.push(result.usage);
+            if (x.status === "IDEA")
+              x.status = transition(x.status, "RESEARCHING");
+          });
+          this.store.event(p.id, {
+            event: "research.completed",
+            version,
+            sources: result.output.sources.length,
+            model: result.usage.model,
+          });
+        },
+        signal,
+      );
+      return this.snapshot(p.id);
+    });
+  }
+  /** Narrative agent: the retention architecture the script will follow. */
+  async narrative(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      const research = await this.loadPreproductionArtifact(p, "research");
+      if (
+        ![
+          "RESEARCHING",
+          "SCRIPTING",
+          "AWAITING_SCRIPT_APPROVAL",
+          "READY_TO_RECORD",
+        ].includes(p.status)
+      )
+        throw new StudioError(
+          "CONFLICT",
+          "The narrative pass needs a project that has not locked its script.",
+          "Scene-level changes after media import belong in revisions.",
+        );
+      const version = (p.preproduction?.narrativeVersion ?? 0) + 1;
+      await this.operation(
+        p,
+        "narrative",
+        `Narrative • outline v${version}`,
+        async (signal) => {
+          const result = await new NarrativeAgent(this.provider).narrate(
+            {
+              projectId: p.id,
+              idea: p.description,
+              research,
+              creator: p.creator,
+              targetDuration: p.targetDuration,
+            },
+            signal,
+          );
+          await this.store.artifact(
+            p,
+            `research/narrative-v${version}.json`,
+            result.output,
+          );
+          this.store.update(p.id, (x) => {
+            x.preproduction ??= emptyPreproduction();
+            x.preproduction.narrativeVersion = version;
+            x.outline = result.output.sections.map((s) => s.heading);
+            x.usage.push(result.usage);
+            if (x.status !== "SCRIPTING")
+              x.status = transition(x.status, "SCRIPTING");
+          });
+          this.store.event(p.id, {
+            event: "narrative.completed",
+            version,
+            sections: result.output.sections.length,
+            model: result.usage.model,
+          });
+        },
+        signal,
+      );
+      return this.snapshot(p.id);
+    });
+  }
+  /** Script agent: a full A-roll/B-roll draft saved as the next script version. */
+  async draftScript(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      const research = await this.loadPreproductionArtifact(p, "research");
+      const narrative = await this.loadPreproductionArtifact(p, "narrative");
+      if (
+        !["SCRIPTING", "AWAITING_SCRIPT_APPROVAL", "READY_TO_RECORD"].includes(
+          p.status,
+        )
+      )
+        throw new StudioError(
+          "CONFLICT",
+          "The agent draft needs a project that has not locked its script.",
+          "Approve and import first; later changes belong in revisions.",
+        );
+      const script = { version: p.scripts.length + 1, text: "", createdAt: "" };
+      await this.operation(
+        p,
+        "script-draft",
+        `Script Agent • draft v${script.version}`,
+        async (signal) => {
+          const result = await new ScriptAgent(this.provider).draft(
+            {
+              projectId: p.id,
+              idea: p.description,
+              projectTitle: p.title,
+              research,
+              narrative,
+              creator: p.creator,
+              targetDuration: p.targetDuration,
+              scriptVersion: script.version,
+            },
+            signal,
+          );
+          script.text = renderVideoScript(result.output);
+          script.createdAt = now();
+          await this.store.artifact(
+            p,
+            `scripts/script-v${script.version}.json`,
+            script,
+          );
+          await this.store.artifact(
+            p,
+            `scripts/script-doc-v${script.version}.json`,
+            result.output,
+          );
+          this.store.update(p.id, (x) => {
+            x.preproduction ??= emptyPreproduction();
+            x.preproduction.scriptDocVersion = script.version;
+            if (x.status !== "SCRIPTING")
+              x.status = transition(x.status, "SCRIPTING");
+            x.scripts.push({ ...script });
+            x.scriptApproval = null;
+            x.status = transition(x.status, "AWAITING_SCRIPT_APPROVAL");
+            x.usage.push(result.usage);
+          });
+          this.store.event(p.id, {
+            event: "script.drafted",
+            version: script.version,
+            sections: result.output.sections.length,
+            model: result.usage.model,
+          });
+        },
+        signal,
+      );
+      return this.snapshot(p.id);
+    });
+  }
+  /**
+   * Director pre-visualization: how the eventual edit plans to treat every
+   * moment, so the recording session knows when it is on camera. Binds to
+   * the current script version; no status change, no gate.
+   */
+  async previsualize(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      if (!["AWAITING_SCRIPT_APPROVAL", "READY_TO_RECORD"].includes(p.status))
+        throw new StudioError(
+          "CONFLICT",
+          "Pre-visualization directs a saved script.",
+          "Save or draft a script version first.",
+        );
+      const script = p.scripts.at(-1)!;
+      const version = (p.preproduction?.previsualization?.version ?? 0) + 1;
+      let output: Previsualization | undefined;
+      await this.operation(
+        p,
+        "previsualization",
+        `Director • pre-visualization v${version}`,
+        async (signal) => {
+          const result = await new PrevisualizationAgent(
+            this.provider,
+          ).previsualize(
+            {
+              projectId: p.id,
+              script: { version: script.version, text: script.text },
+              creator: p.creator,
+            },
+            signal,
+          );
+          output = result.output;
+          await this.store.artifact(
+            p,
+            `scripts/previsualization-v${version}.json`,
+            output,
+          );
+          this.store.update(p.id, (x) => {
+            x.preproduction ??= emptyPreproduction();
+            x.preproduction.previsualization = {
+              version,
+              scriptVersion: script.version,
+            };
+            x.usage.push(result.usage);
+          });
+          this.store.event(p.id, {
+            event: "previsualization.completed",
+            version,
+            scriptVersion: script.version,
+            shots: output.shots.length,
+            model: result.usage.model,
+          });
+        },
+        signal,
+      );
+      return {
+        snapshot: this.snapshot(p.id),
+        previsualization: output!,
+        runSheet: renderRunSheet(output!),
+      };
+    });
+  }
+  /** Reading document for the recording session, from the approved script. */
+  async teleprompter(projectId: string) {
+    return this.locked(projectId, async (p) => {
+      const script = p.scripts.at(-1);
+      if (
+        !p.scriptApproval ||
+        !script ||
+        p.scriptApproval.version !== script.version
+      )
+        throw new StudioError(
+          "CONFLICT",
+          "Approve the current script before generating the teleprompter.",
+          "Approve the script, then generate the teleprompter again.",
+        );
+      const runSheet = this.currentRunSheet(p);
+      const text = renderTeleprompter({
+        projectTitle: p.title,
+        scriptVersion: script.version,
+        scriptText: script.text,
+        runSheet,
+      });
+      await this.store.artifactText(
+        p,
+        `scripts/teleprompter-v${script.version}.md`,
+        text,
+      );
+      this.store.event(p.id, {
+        event: "teleprompter.rendered",
+        scriptVersion: script.version,
+        withRunSheet: runSheet !== null,
+      });
+      return { scriptVersion: script.version, runSheet, text };
+    });
+  }
+  private currentRunSheet(p: Project): string | null {
+    const ref = p.preproduction?.previsualization;
+    const script = p.scripts.at(-1)!;
+    if (!ref || ref.scriptVersion !== script.version) return null;
+    try {
+      const file = path.join(
+        this.store.dir(p),
+        "scripts",
+        `previsualization-v${ref.version}.json`,
+      );
+      return renderRunSheet(
+        previsualizationSchema.parse(JSON.parse(readFileSync(file, "utf8"))),
+      );
+    } catch {
+      return null;
+    }
+  }
+  private async loadPreproductionArtifact(
+    p: Project,
+    kind: "research",
+  ): Promise<ResearchNotes>;
+  private async loadPreproductionArtifact(
+    p: Project,
+    kind: "narrative",
+  ): Promise<Narrative>;
+  private async loadPreproductionArtifact(
+    p: Project,
+    kind: "research" | "narrative",
+  ): Promise<ResearchNotes | Narrative> {
+    const version =
+      kind === "research"
+        ? p.preproduction?.researchVersion
+        : p.preproduction?.narrativeVersion;
+    if (!version)
+      throw new StudioError(
+        "CONFLICT",
+        kind === "research"
+          ? "Run research before the narrative pass."
+          : "Run the narrative pass before drafting a script.",
+        kind === "research"
+          ? "Run the research agent on this project first."
+          : "Run the narrative agent on this project first.",
+      );
+    try {
+      const file = path.join(
+        this.store.dir(p),
+        "research",
+        `${kind}-v${version}.json`,
+      );
+      const raw = JSON.parse(readFileSync(file, "utf8"));
+      return kind === "research"
+        ? researchSchema.parse(raw)
+        : narrativeSchema.parse(raw);
+    } catch {
+      throw new StudioError(
+        "CONFLICT",
+        `The ${kind} artifact v${version} is missing or unreadable.`,
+        `Re-run the ${kind} agent on this project.`,
+      );
+    }
   }
   async importMedia(projectId: string, file: string, signal?: AbortSignal) {
     return this.locked(projectId, async (p) => {
@@ -1271,6 +1637,15 @@ export async function readJSONFile(file: string) {
   if ((await stat(file)).size > 10_000_000)
     throw new StudioError("INVALID_INPUT", "JSON input exceeds 10 MB.");
   return JSON.parse(await readFile(file, "utf8")) as unknown;
+}
+/** Pre-production tracker for projects created before Milestone 4. */
+function emptyPreproduction(): Project["preproduction"] {
+  return {
+    researchVersion: null,
+    narrativeVersion: null,
+    scriptDocVersion: null,
+    previsualization: null,
+  };
 }
 const parseClock = (value: string): number | null => {
   const t = value.trim();

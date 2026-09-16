@@ -44,8 +44,13 @@ const help = `WinTheCloud Studio — local production CLI
 bun run wts doctor
 bun run wts project create "Title" --duration 900 --description "Idea"
 bun run wts project list | project inspect <project> | project recover <project>
+bun run wts research <project> [--provider openai]
+bun run wts narrative <project> [--provider openai]
+bun run wts script draft <project> [--provider openai]
 bun run wts script import <project> <script.txt>
 bun run wts script approve <project> --version 1
+bun run wts previsualize <project> [--provider openai]
+bun run wts teleprompter <project>
 bun run wts media inspect <file> | media import <project> <file>
 bun run wts transcript load <project> <transcript.json>
 bun run wts transcript fcp <project> <fcpbundle-or-folder>
@@ -92,9 +97,17 @@ try {
     );
   else {
     store = new Store();
-    const needsAI = ["transcribe", "plan", "revision", "visuals"].includes(
-      a[0],
-    );
+    const needsAI =
+      [
+        "transcribe",
+        "plan",
+        "revision",
+        "visuals",
+        "research",
+        "narrative",
+        "previsualize",
+      ].includes(a[0]) ||
+      (a[0] === "script" && a[1] === "draft");
     const needsKey = needsAI && v.provider === "openai";
     let provider: AIProvider = new MockAIProvider();
     if (needsKey)
@@ -128,6 +141,15 @@ try {
       result = await studio.saveScript(a[2], await readFile(a[3], "utf8"));
     else if (a[0] === "script" && a[1] === "approve")
       result = await studio.approveScript(a[2], Number(v.version));
+    else if (a[0] === "script" && a[1] === "draft")
+      result = await studio.draftScript(a[2], abort.signal);
+    else if (a[0] === "research")
+      result = await studio.research(a[1], abort.signal);
+    else if (a[0] === "narrative")
+      result = await studio.narrative(a[1], abort.signal);
+    else if (a[0] === "previsualize")
+      result = await studio.previsualize(a[1], abort.signal);
+    else if (a[0] === "teleprompter") result = await studio.teleprompter(a[1]);
     else if (a[0] === "media" && a[1] === "import")
       result = await studio.importMedia(a[2], a[3], abort.signal);
     else if (a[0] === "transcript" && a[1] === "load")

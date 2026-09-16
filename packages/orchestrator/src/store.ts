@@ -6,6 +6,7 @@ import {
   existsSync,
   lstatSync,
 } from "node:fs";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import {
@@ -109,6 +110,12 @@ export class Store {
       creator: this.creator(),
       research: { notes: "", sources: [] },
       outline: [],
+      preproduction: {
+        researchVersion: null,
+        narrativeVersion: null,
+        scriptDocVersion: null,
+        previsualization: null,
+      },
       scripts: [],
       scriptApproval: null,
       recordings: [],
@@ -273,5 +280,13 @@ export class Store {
   }
   async artifact(p: Project, relative: string, data: unknown) {
     await atomicJSON(await safePath(this.dir(p), relative), data);
+  }
+  /** Atomic text artifact (markdown documents such as the teleprompter). */
+  async artifactText(p: Project, relative: string, text: string) {
+    const target = await safePath(this.dir(p), relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    const temp = `${target}.${id("tmp")}.tmp`;
+    await writeFile(temp, text, { mode: 0o600 });
+    await rename(temp, target);
   }
 }
