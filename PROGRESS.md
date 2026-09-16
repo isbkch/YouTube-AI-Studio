@@ -4,6 +4,7 @@
 
 - Established the monorepo, shared domain types, strict production-plan and patch schemas, generated JSON Schema, state transitions, SQLite metadata, local project files and CLI.
 - Implemented non-destructive recording import, actual ffprobe inspection, conformed 720p/30fps proxies, extracted audio, duration verification and full-decode QA.
+- Added multi-clip A-roll: imports stay open until planning, transcripts bind per recording (explicit ID, embedded ID, or next clip without a transcript), transcription loops pending clips, and plans must cover every recording in import order with per-clip transcript scoping. Verified with a real two-recording end-to-end build.
 - Implemented typed mock/OpenAI providers, Responses structured output, timestamped transcription, Director planning, scoped revision proposals and usage tracking.
 - Implemented persistent job graphs, dependency validation, concurrency, cancellation, recoverable retries, explicit crash recovery, verified content-addressed caching and asset provenance.
 - Rendered actual Callout, ArchitectureFlow and ChapterTitle Remotion graphics. Built per-scene FFmpeg previews, local rough cuts, internal timelines, FCPXML and OTIO exports.
@@ -28,7 +29,7 @@
 
 ## Known Issues / Deliberate MVP Limits
 
-- One A-roll recording per project; 1280×720/30fps previews; hard cuts, full-frame graphics, numeric punch-ins and audio gain.
+- Multiple A-roll recordings per project (imported before planning, in order); 1280×720/30fps previews; hard cuts, full-frame graphics, numeric punch-ins and audio gain.
 - Script editing is locked after media import; use scene revisions or create a new project for a new script.
 - Real OpenAI calls and Keychain save/read with a real credential were not exercised. Provider transport/structured output/refusal handling is tested with mocked HTTP.
 - Resolve's external scripting probe could not connect on this installation. Direct adapter import is implemented against the installed vendor API but unverified here; **manual FCPXML import is verified**. No security preferences were changed.
