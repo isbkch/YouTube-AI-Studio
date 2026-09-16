@@ -19,13 +19,18 @@ import {
   DirectorAgent,
   MockAIProvider,
   NarrativeAgent,
+  PackagingAgent,
   PrevisualizationAgent,
   ResearchAgent,
   ScriptAgent,
   VisualPassAgent,
   validateTranscript,
   narrativeSchema,
+  packagingSchema,
+  planChapters,
+  recommendedTitle,
   previsualizationSchema,
+  renderDescription,
   renderRunSheet,
   renderTeleprompter,
   renderVideoScript,
@@ -35,6 +40,7 @@ import {
   type Previsualization,
   type ResearchNotes,
   type Transcriber,
+  type VideoPackaging,
   type VisualPassCapabilities,
 } from "../../agents/src/index.ts";
 import {
@@ -66,6 +72,7 @@ import {
 import { buildProject } from "./build.ts";
 import { JobGraph } from "./jobs.ts";
 import { engineCapabilities, validateEngines } from "./engines.ts";
+import { publishToYouTube } from "./youtube.ts";
 import { readLibrary, trackRefs } from "./library.ts";
 import { alignScript, alignmentSchema, type Alignment } from "./alignment.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
@@ -1588,6 +1595,242 @@ export class Studio {
         });
       });
     });
+  }
+  // ---------------------------------------------------------------------
+  // Milestone 5 — packaging and publishing: the final render is packaged
+  // (titles, thumbnail concepts, description with chapter timestamps,
+  // metadata), the packaging document is approved by the creator, and only
+  // then does a local YouTube CLI upload it.
+  // ---------------------------------------------------------------------
+
+  /** Packaging agent: one versioned publication proposal for the final render. */
+  async packageVideo(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      if (
+        !["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].includes(p.status) ||
+        !p.finalRender
+      )
+        throw new StudioError(
+          "CONFLICT",
+          "Packaging needs a completed final render.",
+          "Approve the rough cut and run the final render first.",
+        );
+      const plan = validatePlan(p.plans.at(-1));
+      const chapters = planChapters(plan);
+      const thesis = this.videoThesis(p);
+      const version = (p.packaging?.version ?? 0) + 1;
+      let output: VideoPackaging | undefined;
+      await this.operation(
+        p,
+        "packaging",
+        `Packaging Agent • package v${version}`,
+        async (signal) => {
+          const result = await new PackagingAgent(this.provider).package(
+            {
+              projectId: p.id,
+              videoTitle: p.title,
+              thesis,
+              chapters,
+              finalSeconds: Math.round(plan.durationFrames / plan.frameRate),
+              sources: p.research.sources.map((s) => ({
+                url: s.url,
+                title: s.title,
+              })),
+              creator: p.creator,
+            },
+            signal,
+          );
+          output = result.output;
+          await this.store.artifact(
+            p,
+            `packaging/packaging-v${version}.json`,
+            output,
+          );
+          this.store.update(p.id, (x) => {
+            x.packaging ??= { version: null };
+            x.packaging.version = version;
+            x.publishApproval = null;
+            x.usage.push(result.usage);
+            if (x.status === "READY_TO_RENDER")
+              x.status = transition(x.status, "AWAITING_PUBLISH_APPROVAL");
+          });
+          this.store.event(p.id, {
+            event: "packaging.completed",
+            version,
+            title: recommendedTitle(output),
+            chapters: output.chapters.length,
+            model: result.usage.model,
+          });
+        },
+        signal,
+      );
+      return {
+        snapshot: this.snapshot(p.id),
+        packaging: output!,
+        description: renderDescription(output!),
+      };
+    });
+  }
+  /** The publication gate: approval binds to the exact packaging document. */
+  async approvePackaging(projectId: string, version: number) {
+    return this.locked(projectId, async (p) => {
+      if (
+        p.status !== "AWAITING_PUBLISH_APPROVAL" ||
+        p.packaging?.version !== version
+      )
+        throw new StudioError(
+          "CONFLICT",
+          "Review the current packaging version.",
+        );
+      const doc = await this.loadPackagingDocument(p, version);
+      return this.store.update(p.id, (x) => {
+        x.publishApproval = {
+          version,
+          hash: hash(doc),
+          approvedAt: now(),
+          approvedBy: "creator",
+        };
+        this.store.event(x.id, { event: "packaging.approved", version });
+      });
+    });
+  }
+  /** Upload the approved package through the local YouTube CLI. One-shot. */
+  async publish(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      if (p.publication)
+        throw new StudioError(
+          "CONFLICT",
+          `This video is already published as ${p.publication.videoId}.`,
+        );
+      if (p.status !== "AWAITING_PUBLISH_APPROVAL" || !p.finalRender)
+        throw new StudioError(
+          "CONFLICT",
+          "Publishing follows an approved packaging of the final render.",
+          "Approve the rough cut, render the final, package it, then approve the packaging.",
+        );
+      if (!p.publishApproval)
+        throw new StudioError(
+          "CONFLICT",
+          "Approve the packaging before publishing.",
+          "Review titles, description, chapters and metadata, then approve.",
+        );
+      const version = p.publishApproval.version;
+      const doc = await this.loadPackagingDocument(p, version);
+      if (hash(doc) !== p.publishApproval.hash)
+        throw new StudioError(
+          "CONFLICT",
+          "The packaging document changed after approval.",
+          "Re-review and approve the current packaging version.",
+        );
+      const video = await safePath(this.store.dir(p), p.finalRender);
+      if (!(await stat(video)).isFile())
+        throw new StudioError(
+          "CONFLICT",
+          "The final render file is missing from the project directory.",
+          "Re-run the final render, then publish again.",
+        );
+      const meta = {
+        title: recommendedTitle(doc),
+        description: renderDescription(doc),
+        tags: doc.metadata.tags,
+        categoryId: doc.metadata.categoryId,
+        privacyStatus: doc.metadata.visibility,
+      };
+      const metaFile = await safePath(
+        this.store.dir(p),
+        `packaging/upload-meta-v${version}.json`,
+      );
+      await this.store.artifact(
+        p,
+        `packaging/upload-meta-v${version}.json`,
+        meta,
+      );
+      let result;
+      await this.operation(
+        p,
+        "publish",
+        `Publish • YouTube (${meta.privacyStatus})`,
+        async (signal) => {
+          result = await publishToYouTube({
+            video,
+            metaFile,
+            extraArgs: (process.env.WTS_YOUTUBE_ARGS ?? "")
+              .split(/\s+/)
+              .filter(Boolean),
+            signal,
+          });
+        },
+        signal,
+      );
+      return this.store.update(p.id, (x) => {
+        x.status = transition(x.status, "PUBLISHED");
+        x.publication = {
+          videoId: result!.videoId,
+          url: result!.url,
+          publishedAt: now(),
+        };
+        this.store.event(x.id, {
+          event: "video.published",
+          videoId: result!.videoId,
+          visibility: meta.privacyStatus,
+          cli: result!.cli,
+          packagingVersion: version,
+        });
+      });
+    });
+  }
+  /** Latest packaging document and its assembled description, or null. */
+  packagingDocument(projectId: string) {
+    const p = this.store.get(projectId);
+    const version = p.packaging?.version;
+    if (!version) return null;
+    try {
+      const file = path.join(
+        this.store.dir(p),
+        "packaging",
+        `packaging-v${version}.json`,
+      );
+      const doc = packagingSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+      return { version, packaging: doc, description: renderDescription(doc) };
+    } catch {
+      return null;
+    }
+  }
+  private async loadPackagingDocument(p: Project, version: number) {
+    try {
+      const file = path.join(
+        this.store.dir(p),
+        "packaging",
+        `packaging-v${version}.json`,
+      );
+      return packagingSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    } catch {
+      throw new StudioError(
+        "CONFLICT",
+        `Packaging document v${version} is missing or unreadable.`,
+        "Re-run the packaging agent.",
+      );
+    }
+  }
+  /** The thesis line for packaging: the drafted script's, else the idea. */
+  private videoThesis(p: Project): string {
+    const script = p.scripts.at(-1);
+    if (script && p.preproduction?.scriptDocVersion === script.version) {
+      try {
+        const file = path.join(
+          this.store.dir(p),
+          "scripts",
+          `script-doc-v${script.version}.json`,
+        );
+        const doc = JSON.parse(readFileSync(file, "utf8")) as {
+          thesis?: string;
+        };
+        if (doc.thesis?.trim()) return doc.thesis;
+      } catch {
+        /* Hand-edited scripts fall back to the description. */
+      }
+    }
+    return p.description.trim() || p.title;
   }
   addPreference(text: string) {
     if (!text.trim() || text.length > 1000)

@@ -76,6 +76,16 @@ async function dispatch(
       return studio.previsualize(project.parse(params).projectId, signal);
     case "teleprompter.get":
       return studio.teleprompter(project.parse(params).projectId);
+    case "packaging.run":
+      return studio.packageVideo(project.parse(params).projectId, signal);
+    case "packaging.get":
+      return studio.packagingDocument(project.parse(params).projectId);
+    case "packaging.approve": {
+      const p = version.parse(params);
+      return studio.approvePackaging(p.projectId, p.version);
+    }
+    case "publish.run":
+      return studio.publish(project.parse(params).projectId, signal);
     case "media.import": {
       const p = project.extend({ path: z.string() }).parse(params);
       return studio.importMedia(p.projectId, p.path, signal);

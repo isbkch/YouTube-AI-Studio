@@ -8,6 +8,7 @@ import { resolveApp } from "../../resolve-engine/src/index.ts";
 import { defaultWhisperModel } from "../../agents/src/whisper.ts";
 import { envCredential, loadDotEnv } from "../../shared/src/index.ts";
 import { readLibrary } from "./library.ts";
+import { youTubeCLI } from "./youtube.ts";
 export interface Check {
   name: string;
   status: "AVAILABLE" | "NOT FOUND" | "UNSUPPORTED VERSION";
@@ -211,6 +212,25 @@ export async function doctor(root = defaultRoot()) {
     guidance:
       "Shares the OpenAI credential: enables GPT-image B-roll. The mock provider renders deterministic gradient stills without credits.",
   });
+  try {
+    const cli = await youTubeCLI();
+    checks.push({
+      name: "YouTube CLI",
+      status: "AVAILABLE",
+      version: path.basename(cli),
+      required: false,
+      guidance: `${cli} — publishing runs through it after packaging approval; WTS_YOUTUBE_ARGS appends OAuth flags.`,
+    });
+  } catch {
+    checks.push({
+      name: "YouTube CLI",
+      status: "NOT FOUND",
+      version: "",
+      required: false,
+      guidance:
+        "Optional: install youtubeuploader or set WTS_YOUTUBEUPLOADER_PATH to enable direct publishing. Without it, packaging still works and the upload is manual.",
+    });
+  }
   try {
     const library = await readLibrary(root);
     const music = library.tracks.filter((t) => t.kind === "music").length;

@@ -28,8 +28,11 @@ struct OverviewView: View {
               : "Version \(p.roughCutApproval!.version) approved",
             complete: p.roughCutApproval != nil)
           GateCard(
-            number: "03", title: "Publication approval", detail: "Publishing is outside this MVP.",
-            complete: false)
+            number: "03", title: "Publication approval",
+            detail: p.publication.map { "Published \($0.videoId)" }
+              ?? (p.publishApproval.map { "Packaging v\($0.version) approved — ready to publish" }
+                ?? "Package the final render, then approve."),
+            complete: p.publication != nil)
         }
         HStack(spacing: 20) {
           Metric(value: "\(p.recordings.count)", label: "A-roll recordings")

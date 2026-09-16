@@ -65,6 +65,7 @@ struct ReviewView: View {
           }
           QAReportView(p: p)
           if p.roughCutApproval != nil { FinalRenderView(p: p, preset: $preset, macro: $macro) }
+          PublishingView(p: p)
           Text(
             "Review pacing, factual accuracy, audio, and flagged visuals. Automated QA checks decode, timing, sampled frames and generated stills; it does not approve creative choices."
           ).font(.caption).foregroundStyle(.secondary)
@@ -258,6 +259,119 @@ struct QAReportView: View {
 }
 
 /// Headless finishing: preset + optional checked-in Fusion macro, through Resolve.
+/// Milestone 5 — packaging proposal, the publication gate and one-shot publish.
+struct PublishingView: View {
+  @EnvironmentObject var m: StudioModel
+  let p: Project
+  private var canPackage: Bool {
+    ["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].contains(p.status)
+      && p.finalRender != nil
+  }
+  private var doc: PackagingDocument? {
+    guard let d = m.packaging else { return nil }
+    return d.version == (p.packaging?.version ?? 0) ? d : nil
+  }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Image(systemName: "shippingbox").foregroundStyle(Color.studioAccent)
+        Text("Packaging & publishing").font(.headline)
+        Spacer()
+        if let pub = p.publication {
+          Label("Published", systemImage: "checkmark.seal.fill")
+            .font(.caption).foregroundStyle(Color.studioSuccess)
+        }
+      }
+      if let pub = p.publication {
+        VStack(alignment: .leading, spacing: 6) {
+          Text(pub.url).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+          Text(
+            "Uploaded \(pub.publishedAt) • review visibility in YouTube Studio before going wide."
+          )
+          .font(.caption2).foregroundStyle(.secondary)
+        }
+      } else {
+        Text(
+          "The Packaging Agent proposes titles, thumbnail concepts, the description with chapter timestamps, and upload metadata. Nothing leaves this Mac until you approve a version and publish."
+        ).font(.caption).foregroundStyle(.secondary)
+        Button(m.provider == "mock" ? "Generate Packaging (mock)" : "Generate Packaging") {
+          Task { await m.packageVideo() }
+        }.buttonStyle(QuietButtonStyle()).disabled(!canPackage || m.busy)
+        if let d = doc { packagingBody(d) }
+        if let approval = p.publishApproval, approval.version == (p.packaging?.version ?? 0) {
+          Label(
+            "Packaging v\(approval.version) approved — publishing uploads exactly this document.",
+            systemImage: "checkmark.seal"
+          ).font(.caption).foregroundStyle(Color.studioSuccess)
+        }
+        HStack {
+          Button("Approve Packaging v\(p.packaging?.version ?? 1)") {
+            Task { await m.approvePackaging(p.packaging?.version ?? 1) }
+          }.buttonStyle(QuietButtonStyle()).disabled(
+            m.busy || p.status != "AWAITING_PUBLISH_APPROVAL" || doc == nil
+              || p.publishApproval?.version == p.packaging?.version)
+          Button("Publish to YouTube") { Task { await m.publish() } }
+            .buttonStyle(PrimaryActionButtonStyle()).disabled(
+              m.busy || p.status != "AWAITING_PUBLISH_APPROVAL"
+                || p.publishApproval == nil)
+        }
+        Text(
+          "Uploads run through the local youtubeuploader CLI (see Settings → Environment); WTS_YOUTUBE_ARGS carries its OAuth flags."
+        ).font(.caption2).foregroundStyle(.secondary)
+      }
+    }.padding(16).studioCard(cornerRadius: 11).task(id: p.packaging?.version) {
+      await m.loadPackaging()
+    }
+  }
+  @ViewBuilder private func packagingBody(_ d: PackagingDocument) -> some View {
+    Divider()
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Recommended title").font(.caption).foregroundStyle(.secondary)
+      Text(d.packaging.recommendedTitle).font(.headline)
+      ForEach(d.packaging.titleCandidates) { c in
+        HStack(alignment: .top, spacing: 8) {
+          Image(systemName: c.title == d.packaging.recommendedTitle ? "star.fill" : "circle")
+            .font(.caption2).foregroundStyle(Color.studioAccent)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(c.title).font(.caption)
+            Text("\(c.angle) — \(c.why)").font(.caption2).foregroundStyle(.secondary)
+          }
+        }
+      }
+    }
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Thumbnail concepts").font(.caption).foregroundStyle(.secondary)
+      ForEach(d.packaging.thumbnailConcepts) { c in
+        VStack(alignment: .leading, spacing: 2) {
+          Text(c.headline).font(.system(size: 13, weight: .semibold))
+          Text("\(c.emotionalHook) — \(c.direction)").font(.caption2).foregroundStyle(.secondary)
+        }
+      }
+    }
+    if !d.packaging.chapters.isEmpty {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Chapters (from the rendered timeline)").font(.caption).foregroundStyle(.secondary)
+        ForEach(d.packaging.chapters) { c in
+          HStack(spacing: 10) {
+            Text(timestamp(Double(c.seconds))).font(.system(size: 11, design: .monospaced))
+              .foregroundStyle(Color.studioAccent).frame(width: 52, alignment: .leading)
+            Text(c.title).font(.caption)
+          }
+        }
+      }
+    }
+    VStack(alignment: .leading, spacing: 4) {
+      Text(
+        "Visibility \(d.packaging.metadata.visibility) • category \(d.packaging.metadata.categoryId) • \(d.packaging.metadata.tags.count) tags"
+      ).font(.caption2).foregroundStyle(.secondary)
+      ScrollView {
+        Text(d.description).font(.system(size: 12)).lineSpacing(4)
+          .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+      }.frame(maxHeight: 180)
+    }
+  }
+}
+
 struct FinalRenderView: View {
   @EnvironmentObject var m: StudioModel
   let p: Project

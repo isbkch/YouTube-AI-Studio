@@ -20,7 +20,8 @@ export type Tool =
   | "say"
   | "python3"
   | "node"
-  | "bun";
+  | "bun"
+  | "youtubeuploader";
 
 /** The single preview capability every build must conform to. */
 export const PREVIEW = {
