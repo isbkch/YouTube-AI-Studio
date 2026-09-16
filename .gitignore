@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+.build/
+.swiftpm/
+dist/
+.demo/
+.env*
+!.env.example
+*.sqlite*
+*.log
+.cache/
+coverage/
