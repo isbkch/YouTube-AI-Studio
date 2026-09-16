@@ -20,14 +20,19 @@ import SwiftUI
     }
     Settings {
       SettingsView().environmentObject(model).frame(width: 740, height: 760).preferredColorScheme(
-        .light)
+        .light
+      ).tint(.studioAccent)
     }
   }
 }
 extension Color {
-  static let studioAccent = Color(nsColor: .controlAccentColor)
+  static let studioAccent = Color(red: 0.80, green: 0.31, blue: 0.19)
+  static let studioAccentSoft = Color(red: 0.80, green: 0.31, blue: 0.19).opacity(0.12)
+  static let studioSuccess = Color(red: 0.18, green: 0.52, blue: 0.39)
   static let studioBackground = Color(nsColor: .windowBackgroundColor)
   static let studioSurface = Color(nsColor: .controlBackgroundColor)
+  static let studioPaper = Color(nsColor: .textBackgroundColor)
+  static let studioInk = Color(nsColor: .labelColor)
   static let studioBorder = Color(nsColor: .separatorColor)
 }
 extension View {
@@ -35,7 +40,40 @@ extension View {
     background(Color.studioSurface, in: RoundedRectangle(cornerRadius: cornerRadius))
       .overlay(
         RoundedRectangle(cornerRadius: cornerRadius)
-          .strokeBorder(Color.studioBorder, lineWidth: 1))
+          .strokeBorder(Color.studioBorder, lineWidth: 0.7))
+  }
+  func studioHeading(_ size: CGFloat) -> some View {
+    font(.system(size: size, weight: .regular, design: .serif))
+  }
+}
+struct PrimaryActionButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.system(size: 13, weight: .semibold))
+      .foregroundStyle(.white)
+      .padding(.horizontal, 16)
+      .frame(height: 38)
+      .background(
+        Capsule().fill(isEnabled ? Color.studioAccent : Color.studioInk.opacity(0.3))
+          .opacity(configuration.isPressed ? 0.78 : 1)
+      )
+      .scaleEffect(configuration.isPressed ? 0.98 : 1)
+      .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+  }
+}
+struct QuietButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(.system(size: 12, weight: .medium))
+      .foregroundStyle(isEnabled ? Color.studioInk : Color.studioInk.opacity(0.3))
+      .padding(.horizontal, 12)
+      .frame(height: 30)
+      .background(
+        Capsule()
+          .fill(Color.studioSurface.opacity(configuration.isPressed ? 0.65 : 1))
+          .overlay(Capsule().stroke(Color.studioBorder, lineWidth: 0.7)))
   }
 }
 struct StudioView: View {
@@ -49,7 +87,7 @@ struct StudioView: View {
           Image(systemName: "rectangle.stack.badge.play.fill").font(.title2).foregroundStyle(
             Color.studioAccent)
           VStack(alignment: .leading, spacing: 3) {
-            Text("WinTheCloud").font(.headline)
+            Text("WinTheCloud").font(.system(size: 18, weight: .medium, design: .serif))
             Text("STUDIO").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(
               3
             ).foregroundStyle(.secondary)
@@ -59,7 +97,7 @@ struct StudioView: View {
           newProject = true
         } label: {
           Label("New Project", systemImage: "plus").frame(maxWidth: .infinity)
-        }.buttonStyle(.borderedProminent).disabled(m.busy)
+        }.buttonStyle(PrimaryActionButtonStyle()).disabled(m.busy)
         Text("PRODUCTIONS").font(.system(size: 10, weight: .semibold)).tracking(2).foregroundStyle(
           .secondary)
         ScrollView {
@@ -139,8 +177,7 @@ struct StudioView: View {
               Text(m.busyLabel).font(.caption)
               Spacer()
               Button("Cancel") { Task { await m.cancel() } }.controlSize(.small)
-            }.padding(.horizontal, 28).padding(.vertical, 10).background(
-              Color.studioAccent.opacity(0.08))
+            }.padding(.horizontal, 28).padding(.vertical, 10).background(Color.studioAccentSoft)
           }
           if let error = m.error { Banner(text: error, isError: true) { m.error = nil } }
           if let notice = m.notice { Banner(text: notice, isError: false) { m.notice = nil } }
@@ -159,10 +196,10 @@ struct StudioView: View {
           VStack(spacing: 20) {
             Image(systemName: "film.stack").font(.system(size: 50, weight: .ultraLight))
               .foregroundStyle(Color.studioAccent)
-            Text("A production studio for your ideas.").font(.system(size: 30, weight: .medium))
+            Text("A production studio for your ideas.").studioHeading(28)
             Text("Approve the script. Record your A-roll. Direct the edit.").foregroundStyle(
               .secondary)
-            Button("Create a Project") { newProject = true }.buttonStyle(.borderedProminent)
+            Button("Create a Project") { newProject = true }.buttonStyle(PrimaryActionButtonStyle())
             RuntimeStatus(runtime: m.runtime)
           }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -207,7 +244,7 @@ struct Banner: View {
       Spacer()
       Button(action: close) { Image(systemName: "xmark") }.buttonStyle(.plain)
     }.padding(12).foregroundStyle(isError ? Color.orange : .studioAccent).background(
-      (isError ? Color.orange : .studioAccent).opacity(0.07))
+      isError ? Color.orange.opacity(0.08) : Color.studioAccentSoft)
   }
 }
 struct NewProjectView: View {
@@ -218,7 +255,7 @@ struct NewProjectView: View {
   @State private var minutes = 15.0
   var body: some View {
     VStack(alignment: .leading, spacing: 22) {
-      Text("Start with an idea.").font(.largeTitle)
+      Text("Start with an idea.").studioHeading(25)
       Text("Your script and recordings stay in a local project folder.").foregroundStyle(.secondary)
       TextField("Video title", text: $title).textFieldStyle(.roundedBorder)
       TextField("Creative direction / description", text: $description, axis: .vertical).lineLimit(
@@ -231,14 +268,14 @@ struct NewProjectView: View {
         Text("minutes").foregroundStyle(.secondary)
       }
       HStack {
-        Button("Cancel") { dismiss() }
+        Button("Cancel") { dismiss() }.buttonStyle(QuietButtonStyle())
         Spacer()
         Button("Create Project") {
           Task {
             await m.create(title: title, description: description, minutes: minutes)
             dismiss()
           }
-        }.buttonStyle(.borderedProminent).disabled(
+        }.buttonStyle(PrimaryActionButtonStyle()).disabled(
           title.trimmingCharacters(in: .whitespaces).isEmpty || minutes <= 0)
       }
     }.padding(32).frame(width: 520)
