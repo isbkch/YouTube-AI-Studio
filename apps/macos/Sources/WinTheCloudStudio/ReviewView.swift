@@ -38,10 +38,13 @@ struct ReviewView: View {
               ).font(.caption).foregroundStyle(.orange)
             }
             HStack {
-              Button("Reveal Preview") { m.reveal(p.url(build.previewPath)) }
-              Button("Resolve Export…") { m.reveal(p.url(build.exportPath)) }
-              Button("Open in Resolve") { Task { await m.openResolve() } }.disabled(
-                m.busy || p.currentBuild == nil)
+              Button("Reveal Preview") { m.reveal(p.url(build.previewPath)) }.buttonStyle(
+                QuietButtonStyle())
+              Button("Resolve Export…") { m.reveal(p.url(build.exportPath)) }.buttonStyle(
+                QuietButtonStyle())
+              Button("Open in Resolve") { Task { await m.openResolve() } }.buttonStyle(
+                QuietButtonStyle()
+              ).disabled(m.busy || p.currentBuild == nil)
             }
             Button("Approve Rough Cut v\(build.planVersion)") {
               Task {
@@ -49,14 +52,14 @@ struct ReviewView: View {
                   "roughCut.approve", label: "Rough-cut approval",
                   params: ["version": build.planVersion])
               }
-            }.buttonStyle(.borderedProminent).disabled(
+            }.buttonStyle(PrimaryActionButtonStyle()).disabled(
               m.busy || p.currentBuild == nil || p.status != "AWAITING_ROUGH_CUT_APPROVAL")
           }
           if let a = p.roughCutApproval {
             Label(
               "Rough cut v\(a.version) approved. Continue final finishing in Resolve.",
               systemImage: "checkmark.seal"
-            ).foregroundStyle(Color.studioAccent).font(.caption)
+            ).foregroundStyle(Color.studioSuccess).font(.caption)
           }
           Text(
             "Review pacing, factual accuracy, audio, and text fit. Technical QA checks decode, timing and asset completeness; it does not approve creative choices."
@@ -77,7 +80,7 @@ struct ReviewView: View {
                     Text(timestamp(Double(s.startFrame) / Double(plan.frameRate))).foregroundStyle(
                       .secondary)
                   }.font(.caption).frame(maxWidth: .infinity).padding(10)
-                }.buttonStyle(.bordered)
+                }.buttonStyle(QuietButtonStyle())
               }
             }
           }
@@ -92,7 +95,7 @@ struct ReviewView: View {
             Text(m.provider.uppercased()).font(.system(size: 9, design: .monospaced))
               .foregroundStyle(.secondary)
           }
-          Text("A proposal first. A focused rebuild after.").font(.title3)
+          Text("A proposal first. A focused rebuild after.").studioHeading(18)
           if m.provider == "mock" {
             Text(
               "Mock mode proposes a simple return to presenter footage. Select OpenAI in Settings for natural-language editorial interpretation, or edit a scene in the storyboard."
@@ -110,7 +113,7 @@ struct ReviewView: View {
                 params: ["request": request, "sceneId": sceneID])
               request = ""
             }
-          }.disabled(
+          }.buttonStyle(PrimaryActionButtonStyle()).disabled(
             m.busy || request.trimmingCharacters(in: .whitespaces).isEmpty || p.plan == nil)
           Divider()
           Text("Range revision").font(.headline)
@@ -125,7 +128,7 @@ struct ReviewView: View {
               range = ""
               request = ""
             }
-          }.disabled(
+          }.buttonStyle(QuietButtonStyle()).disabled(
             m.busy || range.trimmingCharacters(in: .whitespaces).isEmpty
               || request.trimmingCharacters(in: .whitespaces).isEmpty || p.latestBuild == nil)
           Divider()
@@ -158,14 +161,15 @@ struct ReviewView: View {
                         "revision.decide", label: "Revision applied",
                         params: ["patchId": r.id, "apply": true])
                     }
-                  }.disabled(m.busy || r.patch.previousVersion != p.plan?.version)
+                  }.buttonStyle(PrimaryActionButtonStyle()).disabled(
+                    m.busy || r.patch.previousVersion != p.plan?.version)
                   Button("Reject") {
                     Task {
                       await m.perform(
                         "revision.decide", label: "Revision rejected",
                         params: ["patchId": r.id, "apply": false])
                     }
-                  }.disabled(m.busy)
+                  }.buttonStyle(QuietButtonStyle()).disabled(m.busy)
                 }
               } else {
                 Text(r.status.capitalized).font(.caption).foregroundStyle(.secondary)
@@ -175,7 +179,7 @@ struct ReviewView: View {
           if p.plans.count > 1 {
             Button("Restore Previous Plan as New Version") {
               Task { await m.perform("plan.undo", label: "Plan restored") }
-            }.disabled(m.busy).font(.caption)
+            }.buttonStyle(QuietButtonStyle()).disabled(m.busy)
           }
         }.padding(24)
       }.frame(minWidth: 300, idealWidth: 340, maxWidth: 430)

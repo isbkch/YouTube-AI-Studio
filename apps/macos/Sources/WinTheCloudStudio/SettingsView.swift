@@ -14,12 +14,12 @@ struct SettingsView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
         HStack {
-          Text("Studio Settings").font(.largeTitle)
+          Text("Studio Settings").studioHeading(25)
           Spacer()
-          Button("Done") { dismiss() }
+          Button("Done") { dismiss() }.buttonStyle(QuietButtonStyle())
         }
         VStack(alignment: .leading, spacing: 14) {
-          Text("Director & transcription").font(.title3)
+          Text("Director & transcription").studioHeading(18)
           Picker("Director", selection: $m.provider) {
             Text("Mock · no API credits").tag("mock")
             Text("OpenAI · billed to your API account").tag("openai")
@@ -40,14 +40,16 @@ struct SettingsView: View {
                 keySaved = true
                 Task { await m.diagnose() }
               } catch { m.error = error.localizedDescription }
-            }.disabled(key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }.buttonStyle(QuietButtonStyle()).disabled(
+              key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             if keySaved {
               Label("Saved securely", systemImage: "checkmark.shield").font(.caption)
-                .foregroundStyle(Color.studioAccent)
+                .foregroundStyle(Color.studioSuccess)
             }
             Spacer()
-            Button("Apply Provider") { Task { await m.configureProvider() } }.disabled(
-              !m.runtime.connected || m.busy)
+            Button("Apply Provider") { Task { await m.configureProvider() } }.buttonStyle(
+              PrimaryActionButtonStyle()
+            ).disabled(!m.runtime.connected || m.busy)
           }
           Text(
             "Local whisper transcribes on this Mac with whisper.cpp — no credits, no uploads. OpenAI sends the approved script and transcript for planning, and extracted audio for transcription; the key is read from OPENAI_API_KEY in the repository .env or macOS Keychain, and is passed only to the private local runtime. Final Cut speech analysis can be imported directly in Transcript."
@@ -55,11 +57,12 @@ struct SettingsView: View {
         }.padding(20).studioCard(cornerRadius: 12)
         VStack(alignment: .leading, spacing: 14) {
           HStack {
-            Text("Environment").font(.title3)
+            Text("Environment").studioHeading(18)
             Spacer()
             Text(m.report?.overall ?? "Checking…").font(.caption).foregroundStyle(
-              Color.studioAccent)
-            Button("Check Again") { Task { await m.diagnose() } }.disabled(!m.runtime.connected)
+              Color.studioSuccess)
+            Button("Check Again") { Task { await m.diagnose() } }.buttonStyle(QuietButtonStyle())
+              .disabled(!m.runtime.connected)
           }
           RuntimeStatus(runtime: m.runtime)
           ForEach(m.report?.checks ?? []) { c in
@@ -89,10 +92,10 @@ struct SettingsView: View {
                 m.notice = r.available ? "Connected to Resolve \(r.version ?? "")." : r.reason
               } catch { m.error = error.localizedDescription }
             }
-          }.disabled(!m.runtime.connected)
+          }.buttonStyle(QuietButtonStyle()).disabled(!m.runtime.connected)
         }.padding(20).studioCard(cornerRadius: 12)
         VStack(alignment: .leading, spacing: 14) {
-          Text("Creator profile & explicit preferences").font(.title3)
+          Text("Creator profile & explicit preferences").studioHeading(18)
           Text(
             "Defaults apply to newly created projects. Existing projects retain the profile used for their production decisions."
           ).font(.caption).foregroundStyle(.secondary)
@@ -112,7 +115,7 @@ struct SettingsView: View {
                 updateJSON()
               } catch { m.error = error.localizedDescription }
             }
-          }.disabled(
+          }.buttonStyle(QuietButtonStyle()).disabled(
             preference.trimmingCharacters(in: .whitespaces).isEmpty || !m.runtime.connected)
           DisclosureGroup("Edit creator profile JSON") {
             TextEditor(text: $creatorJSON).font(.system(size: 11, design: .monospaced)).frame(
@@ -125,7 +128,7 @@ struct SettingsView: View {
                   updateJSON()
                 } catch { m.error = error.localizedDescription }
               }
-            }
+            }.buttonStyle(QuietButtonStyle())
           }
         }.padding(20).studioCard(cornerRadius: 12)
         if let error = m.error { Banner(text: error, isError: true) { m.error = nil } }

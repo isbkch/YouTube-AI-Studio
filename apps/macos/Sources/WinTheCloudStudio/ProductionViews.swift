@@ -33,7 +33,7 @@ struct StoryboardView: View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .top) {
         VStack(alignment: .leading, spacing: 7) {
-          Text("Make the production decisions visible.").font(.title2)
+          Text("Make the production decisions visible.").studioHeading(20)
           Text(
             p.plan?.director.summary ?? "Generate a plan from the approved script and transcript."
           ).font(.caption).foregroundStyle(.secondary).lineLimit(3)
@@ -45,19 +45,20 @@ struct StoryboardView: View {
               .secondary)
             if p.planApproval?.version == plan.version {
               Label("Storyboard approved", systemImage: "checkmark.circle.fill").font(.caption)
-                .foregroundStyle(Color.studioAccent)
+                .foregroundStyle(Color.studioSuccess)
             } else {
               Button("Approve Storyboard v\(plan.version)") {
                 Task {
                   await m.perform(
                     "plan.approve", label: "Storyboard approval", params: ["version": plan.version])
                 }
-              }.disabled(m.busy || p.status != "AWAITING_STORYBOARD_APPROVAL")
+              }.buttonStyle(QuietButtonStyle()).disabled(
+                m.busy || p.status != "AWAITING_STORYBOARD_APPROVAL")
             }
             Button("Build Rough Cut") {
               m.tab = "Production"
               Task { await m.perform("build", label: "Production") }
-            }.buttonStyle(.borderedProminent).disabled(
+            }.buttonStyle(PrimaryActionButtonStyle()).disabled(
               m.busy || p.planApproval?.version != plan.version)
           }
         }
@@ -106,9 +107,8 @@ struct SceneCard: View {
             Text(scene.visual.graphic?.template.uppercased() ?? "PRESENTER").font(
               .system(size: 10, weight: .semibold)
             ).tracking(2).foregroundStyle(Color.studioAccent)
-            Text(scene.visual.graphic?.parameters.title ?? scene.visual.description).font(
-              .system(size: 22, weight: .medium)
-            ).lineLimit(3)
+            Text(scene.visual.graphic?.parameters.title ?? scene.visual.description)
+              .studioHeading(20).lineLimit(3)
             if let nodes = scene.visual.graphic?.parameters.nodes, !nodes.isEmpty {
               Text(nodes.joined(separator: " → ")).font(.caption).foregroundStyle(.secondary)
             }
@@ -151,7 +151,7 @@ struct SceneCard: View {
             systemImage: scene.visual.graphic == nil ? "person.crop.rectangle" : "rectangle.3.group"
           ).font(.caption).foregroundStyle(.secondary)
           Spacer()
-          Button("Inspect / Edit", action: edit).controlSize(.small)
+          Button("Inspect / Edit", action: edit).buttonStyle(QuietButtonStyle())
         }
       }.padding(16)
     }.studioCard(cornerRadius: 12).clipShape(
@@ -175,7 +175,7 @@ struct SceneEditor: View {
       HStack {
         Text("Direct \(scene.id)").font(.title2)
         Spacer()
-        Button("Done") { dismiss() }
+        Button("Done") { dismiss() }.buttonStyle(QuietButtonStyle())
       }
       Text(scene.narration).font(.callout).foregroundStyle(.secondary).lineLimit(5)
       Picker("Visual", selection: $template) {
@@ -258,7 +258,7 @@ struct SceneEditor: View {
             m.tab = "Review"
             dismiss()
           }
-        }.buttonStyle(.borderedProminent).disabled(
+        }.buttonStyle(PrimaryActionButtonStyle()).disabled(
           m.busy || (template != "Presenter" && title.isEmpty))
       }
     }.padding(28).frame(width: 650, height: 600).textFieldStyle(.roundedBorder).onAppear {
@@ -293,6 +293,7 @@ struct ProductionView: View {
           }
           Spacer()
           Button("Build / Retry") { Task { await m.perform("build", label: "Production") } }
+            .buttonStyle(QuietButtonStyle())
             .disabled(m.busy || p.planApproval?.version != p.plan?.version || p.plan == nil)
         }
         if !m.busy
@@ -300,7 +301,7 @@ struct ProductionView: View {
         {
           Button("Recover Interrupted Work") {
             Task { await m.perform("project.recover", label: "Recovery") }
-          }
+          }.buttonStyle(QuietButtonStyle())
           Text(
             "Recovery checks for an active owner before unlocking interrupted work. Completed assets remain available."
           ).font(.caption).foregroundStyle(.secondary)
@@ -338,9 +339,11 @@ struct ProductionView: View {
         }
         if let build = p.currentBuild {
           HStack {
-            Button("Review Rough Cut") { m.tab = "Review" }
-            Button("Reveal QA Report") { m.reveal(p.url(build.qaPath)) }
-            Button("Reveal Resolve Export") { m.reveal(p.url(build.exportPath)) }
+            Button("Review Rough Cut") { m.tab = "Review" }.buttonStyle(QuietButtonStyle())
+            Button("Reveal QA Report") { m.reveal(p.url(build.qaPath)) }.buttonStyle(
+              QuietButtonStyle())
+            Button("Reveal Resolve Export") { m.reveal(p.url(build.exportPath)) }.buttonStyle(
+              QuietButtonStyle())
           }
         }
         CostView(p: p)

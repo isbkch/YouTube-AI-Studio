@@ -9,7 +9,7 @@ struct OverviewView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 28) {
         VStack(alignment: .leading, spacing: 10) {
-          Text("Your direction. A deliberate production.").font(.system(size: 27, weight: .medium))
+          Text("Your direction. A deliberate production.").studioHeading(25)
           Text(
             p.description.isEmpty
               ? "Build a clear explanation, then decide where visuals help." : p.description
@@ -46,9 +46,11 @@ struct OverviewView: View {
             .callout
           ).foregroundStyle(.secondary)
           HStack {
-            Button("Open Script") { m.tab = "Script" }
-            Button("Review Storyboard") { m.tab = "Storyboard" }.disabled(p.plan == nil)
-            Button("Watch Rough Cut") { m.tab = "Review" }.disabled(p.latestBuild == nil)
+            Button("Open Script") { m.tab = "Script" }.buttonStyle(QuietButtonStyle())
+            Button("Review Storyboard") { m.tab = "Storyboard" }.buttonStyle(QuietButtonStyle())
+              .disabled(p.plan == nil)
+            Button("Watch Rough Cut") { m.tab = "Review" }.buttonStyle(QuietButtonStyle())
+              .disabled(p.latestBuild == nil)
           }
         }.padding(22).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
         CostView(p: p)
@@ -67,7 +69,7 @@ struct GateCard: View {
         Text(number).font(.system(size: 14, design: .monospaced)).foregroundStyle(.secondary)
         Spacer()
         Image(systemName: complete ? "checkmark.circle.fill" : "circle.dashed").foregroundStyle(
-          complete ? Color.studioAccent : .secondary)
+          complete ? Color.studioSuccess : .secondary)
       }
       Text(title).font(.headline)
       Text(detail).font(.caption).foregroundStyle(.secondary).frame(height: 32, alignment: .top)
@@ -116,7 +118,7 @@ struct ScriptView: View {
     VStack(alignment: .leading, spacing: 18) {
       HStack {
         VStack(alignment: .leading, spacing: 6) {
-          Text("The script is the creative contract.").font(.title2)
+          Text("The script is the creative contract.").studioHeading(20)
           Text(
             p.scriptApproval.map {
               "Approved version \($0.version). Every saved change requires approval."
@@ -128,7 +130,7 @@ struct ScriptView: View {
           if let url = m.chooseFile(types: [.plainText]) {
             draft = (try? String(contentsOf: url, encoding: .utf8)) ?? draft
           }
-        }.disabled(!editable || m.busy)
+        }.buttonStyle(QuietButtonStyle()).disabled(!editable || m.busy)
       }
       TextEditor(text: $draft).font(.system(size: 16)).lineSpacing(7).scrollContentBackground(
         .hidden
@@ -141,7 +143,7 @@ struct ScriptView: View {
         Spacer()
         Button("Save New Version") {
           Task { await m.perform("script.save", label: "Script saved", params: ["text": draft]) }
-        }.disabled(
+        }.buttonStyle(QuietButtonStyle()).disabled(
           !editable || m.busy || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || draft == p.scripts.last?.text)
         Button("Approve Script v\(p.scripts.last?.version ?? 1)") {
@@ -150,7 +152,7 @@ struct ScriptView: View {
               "script.approve", label: "Script approval",
               params: ["version": p.scripts.last?.version ?? 1])
           }
-        }.buttonStyle(.borderedProminent).disabled(
+        }.buttonStyle(PrimaryActionButtonStyle()).disabled(
           m.busy || p.status != "AWAITING_SCRIPT_APPROVAL" || draft != p.scripts.last?.text)
       }
     }.padding(28).task(id: p.scripts.last?.version) { draft = p.scripts.last?.text ?? "" }
@@ -166,7 +168,7 @@ struct MediaView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
-        Text("A-roll, safely on disk.").font(.title2)
+        Text("A-roll, safely on disk.").studioHeading(20)
         VStack(spacing: 14) {
           Image(systemName: "square.and.arrow.down").font(.system(size: 34, weight: .light))
             .foregroundStyle(Color.studioAccent)
@@ -180,13 +182,15 @@ struct MediaView: View {
               ? "Approve the script first."
               : "Select or drop several clips at once; each is imported in order. Originals are preserved."
           ).font(.caption).foregroundStyle(.secondary)
-          Button("Choose A-roll…") { Task { await m.importVideo() } }.disabled(!canImport || m.busy)
+          Button("Choose A-roll…") { Task { await m.importVideo() } }.buttonStyle(
+            QuietButtonStyle()
+          ).disabled(!canImport || m.busy)
         }.frame(maxWidth: .infinity).padding(45).studioCard(cornerRadius: 14).overlay(
           RoundedRectangle(cornerRadius: 14).strokeBorder(
             Color.studioAccent.opacity(targeted ? 0.6 : 0.35),
             style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
         ).background(
-          targeted ? Color.studioAccent.opacity(0.06) : .clear,
+          targeted ? Color.studioAccentSoft : .clear,
           in: RoundedRectangle(cornerRadius: 14)
         )
         .dropDestination(for: URL.self) { urls, _ in
@@ -214,11 +218,15 @@ struct MediaView: View {
                   ? "Audio track detected" : "No audio track · import a transcript manually"
               ).font(.caption).foregroundStyle(.secondary)
               Button("Reveal Imported Original") { m.reveal(p.url(r.path)) }
+                .buttonStyle(QuietButtonStyle())
             }
             Spacer()
           }.padding(20).studioCard(cornerRadius: 12)
         }
-        if !p.recordings.isEmpty { Button("Continue to Transcript →") { m.tab = "Transcript" } }
+        if !p.recordings.isEmpty {
+          Button("Continue to Transcript →") { m.tab = "Transcript" }.buttonStyle(
+            QuietButtonStyle())
+        }
       }.padding(30)
     }
   }
@@ -230,7 +238,7 @@ struct TranscriptView: View {
     VStack(alignment: .leading, spacing: 20) {
       HStack {
         VStack(alignment: .leading, spacing: 6) {
-          Text("Words, anchored to each clip.").font(.title2)
+          Text("Words, anchored to each clip.").studioHeading(20)
           Text(
             p.recordings.isEmpty
               ? "Import A-roll first."
@@ -240,12 +248,13 @@ struct TranscriptView: View {
         Spacer()
         Button("Import Final Cut Analysis…") {
           Task { await m.importFCPTranscripts() }
-        }.disabled(p.status != "MEDIA_IMPORTED" || m.busy)
-        Button("Load Transcript…") { Task { await m.loadTranscript() } }.disabled(
-          p.status != "MEDIA_IMPORTED" || m.busy)
+        }.buttonStyle(QuietButtonStyle()).disabled(p.status != "MEDIA_IMPORTED" || m.busy)
+        Button("Load Transcript…") { Task { await m.loadTranscript() } }.buttonStyle(
+          QuietButtonStyle()
+        ).disabled(p.status != "MEDIA_IMPORTED" || m.busy)
         Button(m.provider == "mock" ? "Mock Transcribe" : "Transcribe with OpenAI") {
           Task { await m.perform("transcript.generate", label: "Transcription") }
-        }.disabled(
+        }.buttonStyle(QuietButtonStyle()).disabled(
           p.status != "MEDIA_IMPORTED" || m.busy || p.pendingRecordings.isEmpty)
       }
       ScrollView {
@@ -303,17 +312,18 @@ struct TranscriptView: View {
         }.padding(16).studioCard(cornerRadius: 12)
       }
       HStack {
-        Button("Draft A-Roll Cut") { Task { await m.draftAroll() } }.disabled(
-          !p.pendingRecordings.isEmpty || m.busy)
+        Button("Draft A-Roll Cut") { Task { await m.draftAroll() } }.buttonStyle(
+          QuietButtonStyle()
+        ).disabled(!p.pendingRecordings.isEmpty || m.busy)
         Spacer()
-        Button("Import Plan…") { Task { await m.importPlan() } }.disabled(
-          !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
+        Button("Import Plan…") { Task { await m.importPlan() } }.buttonStyle(QuietButtonStyle())
+          .disabled(!p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
         Button("Generate Storyboard") {
           Task {
             await m.perform("plan.generate", label: "Director planning")
             m.tab = "Storyboard"
           }
-        }.buttonStyle(.borderedProminent).disabled(
+        }.buttonStyle(PrimaryActionButtonStyle()).disabled(
           !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
       }
     }.padding(28)
