@@ -205,7 +205,7 @@ struct StudioView: View {
           VStack(spacing: 20) {
             Image(systemName: "film.stack").font(.system(size: 50, weight: .ultraLight))
               .foregroundStyle(Color.studioAccent)
-            Text("A production studio for your ideas.").studioHeading(28)
+            Text("A production studio for your YouTube channel.").studioHeading(28)
             Text("Approve the script. Record your A-roll. Direct the edit.").foregroundStyle(
               .secondary)
             Button("Create a Project") { newProject = true }.buttonStyle(PrimaryActionButtonStyle())
