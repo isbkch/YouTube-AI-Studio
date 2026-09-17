@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { alignScript } from "../packages/orchestrator/src/alignment.ts";
+import {
+  ALIGNMENT_ALGORITHM,
+  alignScript,
+} from "../packages/orchestrator/src/alignment.ts";
 import {
   buildEditDecision,
   quantizeEditFrames,
@@ -195,6 +198,78 @@ test("recordings without word timings are skipped instead of cut on synthetic ti
   assert.deepEqual(tight.scenes, plain.scenes, "edges must stay untouched");
   assert.deepEqual(tight.stats.tightening.skippedRecordings, [rec.id]);
   assert.equal(tight.stats.tightening.gapsCut, 0);
+});
+
+test("tightening a bridged scene hugs its proven words without claiming the gap or its neighbors", () => {
+  const rec = recording("rec-bridge", 60);
+  const row = (
+    index: number,
+    text: string,
+    match: { recordingId: string; start: number; end: number } | null,
+  ) => ({
+    id: `sent-${String(index + 1).padStart(3, "0")}`,
+    index,
+    text,
+    heading: null,
+    match: match ? { ...match, score: 0.9, segmentIds: [] } : null,
+    alternates: [],
+  });
+  const alignment = {
+    schemaVersion: "2.0.0",
+    algorithm: ALIGNMENT_ALGORITHM,
+    createdAt: new Date().toISOString(),
+    scriptVersion: 1,
+    transcriptHash: hash("transcripts"),
+    sentences: [
+      row(0, "The first claim is matched.", {
+        recordingId: rec.id,
+        start: 2,
+        end: 4,
+      }),
+      row(1, "The bridged sentence is spoken here.", null),
+      row(2, "The last claim is matched.", {
+        recordingId: rec.id,
+        start: 10,
+        end: 12,
+      }),
+    ],
+    stats: {
+      sentences: 3,
+      matched: 2,
+      unmatched: 1,
+      averageScore: 0.8,
+      perRecording: [],
+    },
+  } as Parameters<typeof buildEditDecision>[0];
+  const transcript = transcriptWithWords(rec.id, [
+    { start: 0, text: "The first claim is matched." },
+    { start: 4.5, text: "The bridged sentence is spoken here." },
+    { start: 10, text: "The last claim is matched." },
+  ]);
+  // The bridged row claims the whole gap [3.9, 10.1]; tightening must trim to
+  // the proven words (4.5–6.66) — never absorb the next sentence's first word
+  // at 10.0, and never trip the span coverage check with the artificial claim.
+  const edit = buildEditDecision(alignment, [transcript], "balanced", "tight");
+  const bridgedScene = edit.scenes.find((s) =>
+    /bridged sentence/i.test(s.narration),
+  )!;
+  assert.equal(bridgedScene.selection.bridged, true);
+  assert.ok(
+    Math.abs(bridgedScene.start - 4.4) < 0.05,
+    `hug the first word, got ${bridgedScene.start}`,
+  );
+  assert.ok(
+    bridgedScene.end < 7 && bridgedScene.end > 6.6,
+    `hug the last word plus pad, got ${bridgedScene.end}`,
+  );
+  const sameTake = edit.scenes.filter((s) => s.recordingId === rec.id);
+  for (const a of sameTake)
+    for (const b of sameTake)
+      if (a !== b)
+        assert.ok(
+          a.end <= b.start || b.end <= a.start,
+          `tightened bridged scene overlaps ${b.id}`,
+        );
 });
 
 test("v4.3 plans migrate to v4.4 recording the natural tightening level", () => {
