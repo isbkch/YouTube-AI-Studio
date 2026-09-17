@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { copyFile, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -1538,6 +1538,7 @@ export class Studio {
           x.planApproval = null;
           x.roughCutApproval = null;
           x.finalRender = null;
+          x.finalRenderEngine = null;
           x.publishApproval = null;
           x.status = transition(x.status, "AWAITING_STORYBOARD_APPROVAL");
         }
@@ -1573,6 +1574,7 @@ export class Studio {
         x.planApproval = null;
         x.roughCutApproval = null;
         x.finalRender = null;
+        x.finalRenderEngine = null;
         x.publishApproval = null;
         x.status = transition(x.status, "AWAITING_STORYBOARD_APPROVAL");
         this.store.event(p.id, {
@@ -1584,7 +1586,7 @@ export class Studio {
     });
   }
   async approveRoughCut(projectId: string, version: number) {
-    return this.locked(projectId, async (p) => {
+    const updated = await this.locked(projectId, async (p) => {
       const plan = p.plans.at(-1)!;
       if (
         plan.version !== version ||
@@ -1609,16 +1611,31 @@ export class Studio {
         this.store.event(x.id, { event: "roughCut.approved", version });
       });
     });
+    // Rough-cut approval is the last human gate before publication: start the
+    // final render autonomously, falling back to FFmpeg when Resolve cannot
+    // finish. Failures never roll the approval back. Runs after the project
+    // lock releases.
+    void this.renderFinal(projectId, { autonomous: true }).catch((err) => {
+      this.store.event(projectId, {
+        event: "final.autoFailed",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    });
+    return updated;
   }
   /**
    * Headless finishing through Resolve: import the current timeline, apply an
    * optional checked-in Fusion macro, and render with a validated preset.
+   * Runs autonomously after rough-cut approval; an autonomous run falls back
+   * to the verified rough-cut bytes when Resolve cannot finish.
    */
   async renderFinal(
     projectId: string,
     options: {
       preset?: (typeof FINAL_RENDER_PRESETS)[number];
       macroId?: string;
+      /** Allow the FFmpeg fallback when Resolve cannot finish. */
+      autonomous?: boolean;
       signal?: AbortSignal;
     } = {},
   ) {
@@ -1646,54 +1663,79 @@ export class Studio {
         dir,
         `renders/final-v${plan.version}-${slug}.mp4`,
       );
-      let produced: string | null = null;
+      let relative: string | null = null;
+      let engine: "resolve" | "ffmpeg" = "resolve";
       await this.operation(
         p,
         "final-render",
         `Resolve • final render (${preset}${options.macroId ? ` + ${options.macroId}` : ""})`,
         async (signal) => {
-          const result = await resolveCommand(
-            "render",
-            await safePath(dir, build.exportPath),
-            `WTS Final ${p.title.slice(0, 60)} ${plan.version} ${Date.now()}`,
-            output,
-            preset,
-            options.macroId,
-            signal ?? options.signal,
-          );
-          if (!result.available)
-            throw new StudioError(
-              "EXTERNAL_TOOL",
-              result.reason ?? "Resolve is unavailable for final rendering.",
-              "Check Resolve and its render queue, then retry.",
-              true,
+          const finishWithFFmpeg = async () => {
+            // The approved rough cut is already the full-resolution 1080p30
+            // H.264 master with the mixed bed; its verified bytes are the
+            // fallback deliverable, never a silent re-edit.
+            const fallback = await safePath(
+              dir,
+              `renders/final-v${plan.version}-ffmpeg.mp4`,
             );
-          if (!result.output)
-            throw new StudioError(
-              "EXTERNAL_TOOL",
-              `Resolve render did not produce ${path.basename(output)} (status ${result.renderStatus ?? "unknown"}).`,
-              "Check the Resolve render queue, then retry.",
-              true,
+            await copyFile(await safePath(dir, build.previewPath), fallback);
+            await verifyOutput(
+              fallback,
+              plan.durationFrames / plan.frameRate,
+              signal,
             );
-          await verifyOutput(
-            result.output,
-            plan.durationFrames / plan.frameRate,
-            signal,
-          );
-          produced = result.output;
+            return fallback;
+          };
+          let produced: string | null = null;
+          try {
+            const result = await resolveCommand(
+              "render",
+              await safePath(dir, build.exportPath),
+              `WTS Final ${p.title.slice(0, 60)} ${plan.version} ${Date.now()}`,
+              output,
+              preset,
+              options.macroId,
+              signal ?? options.signal,
+            );
+            if (!result.available)
+              throw new StudioError(
+                "EXTERNAL_TOOL",
+                result.reason ?? "Resolve is unavailable for final rendering.",
+                "Check Resolve and its render queue, then retry.",
+                true,
+              );
+            if (!result.output)
+              throw new StudioError(
+                "EXTERNAL_TOOL",
+                `Resolve render did not produce ${path.basename(output)} (status ${result.renderStatus ?? "unknown"}).`,
+                "Check the Resolve render queue, then retry.",
+                true,
+              );
+            await verifyOutput(
+              result.output,
+              plan.durationFrames / plan.frameRate,
+              signal,
+            );
+            produced = result.output;
+          } catch (err) {
+            if (signal?.aborted || options.signal?.aborted) throw err;
+            if (!options.autonomous) throw err;
+            engine = "ffmpeg";
+            produced = await finishWithFFmpeg();
+          }
+          relative = path.relative(dir, produced!);
         },
         options.signal,
       );
-      const relative = produced!
-        ? path.relative(dir, produced!)
-        : `renders/final-v${plan.version}-${slug}.mp4`;
       return this.store.update(p.id, (x) => {
         x.finalRender = relative;
+        x.finalRenderEngine = engine;
         this.store.event(p.id, {
           event: "final.rendered",
           planVersion: plan.version,
           preset,
           macro: options.macroId ?? null,
+          engine,
         });
       });
     });

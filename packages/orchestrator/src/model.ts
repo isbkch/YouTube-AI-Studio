@@ -177,6 +177,8 @@ export interface Project {
     completedAt: string;
   }[];
   finalRender: string | null;
+  /** Which engine produced `finalRender`; null when no final render exists. */
+  finalRenderEngine: "resolve" | "ffmpeg" | null;
   publication: { videoId: string; url: string; publishedAt: string } | null;
   publishApproval: Approval | null;
   usage: Usage[];

@@ -282,6 +282,7 @@ struct ProductionScene: Decodable, Identifiable {
   let narration: String
   let transcriptSegmentIds: [String]?
   let audio: SceneAudio?
+  let musicIntensity: Double?
   let transition: String?
   let camera: Camera
   let visual: Visual
@@ -402,6 +403,7 @@ struct Project: Decodable, Identifiable {
   let revisions: [Revision]
   let builds: [Build]
   let finalRender: String?
+  let finalRenderEngine: String?
   let usage: [Usage]
   let directory: String?
   let assets: [Asset]?

@@ -380,6 +380,8 @@ VISUALS: most scenes stay presenter footage. Use the catalog only where the narr
 
 CAMERA: framing wide/medium/close with punchIn 1.0–1.35. Punch-in sparingly for emphasis, not rhythm.
 
+MUSIC INTENSITY: every scene may set musicIntensity 0–1 (default 1) — how loud the future music bed should sit under that scene (0 = silent). Lower it under dense explanations, raise it under transitions or energy peaks; vary it only when it serves the story.
+
 CONTRACT: preserve the supplied id/projectId/version/scriptVersion/createdAt/transcriptHash exactly. Every graphic uses engine "remotion", templateVersion "1.0.0", and exactly the parameters its catalog entry lists. Leave scene broll empty and audioDesign unset — a separate visual-direction pass owns generated B-roll, music and SFX after this plan is approved. Explain decisions in rationale concisely, never private reasoning.`;
 export class DirectorAgent {
   constructor(private provider: AIProvider) {}
@@ -396,7 +398,7 @@ export class DirectorAgent {
         ...input,
         contract: {
           id: id("plan"),
-          schemaVersion: "4.0.0",
+          schemaVersion: "4.1.0",
           projectId: input.projectId,
           version: input.version,
           scriptVersion: input.script.version,
@@ -801,6 +803,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
             },
         broll: [],
         audio: { gainDb: 0 },
+        musicIntensity: graphic ? 0.6 : 1,
         transition: "cut",
         enabled: true,
         rationale: suggestion
@@ -817,7 +820,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     for (const s of edit.scenes)
       for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
     return validatePlan({
-      schemaVersion: "4.0.0",
+      schemaVersion: "4.1.0",
       id: id("plan"),
       projectId: input.projectId,
       version: input.version,
@@ -934,6 +937,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
             },
         broll: [],
         audio: { gainDb: 0 },
+        musicIntensity: template ? 0.5 : 1,
         transition: "cut",
         enabled: true,
         rationale: template
@@ -946,7 +950,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     timelineFrame += total;
   }
   return validatePlan({
-    schemaVersion: "4.0.0",
+    schemaVersion: "4.1.0",
     id: id("plan"),
     projectId: input.projectId,
     version: input.version,

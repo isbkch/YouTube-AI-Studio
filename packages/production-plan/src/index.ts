@@ -379,6 +379,13 @@ export const sceneSchema = z.strictObject({
   /** Generated-asset overlays; presenter footage keeps playing underneath. */
   broll: z.array(brollEntrySchema).max(2).default([]),
   audio: z.strictObject({ gainDb: z.number().min(-24).max(12) }),
+  /**
+   * Per-scene music bed level as a linear multiplier on top of the plan-level
+   * music gain: effective gainDb = music.gainDb + 20·log10(intensity). 1 is
+   * the plan default, 0 silences the bed for the scene. The Director proposes
+   * it; the creator may edit it.
+   */
+  musicIntensity: z.number().min(0).max(1).default(1),
   transition: z.literal("cut"),
   enabled: z.boolean(),
   rationale: z.string().max(1000),
@@ -386,7 +393,7 @@ export const sceneSchema = z.strictObject({
   selection: selectionSchema.nullable().default(null),
 });
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("4.0.0"),
+  schemaVersion: z.literal("4.1.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -481,7 +488,10 @@ export function migratePlan(input: unknown): unknown {
   if (plan.schemaVersion === "3.0.0")
     // v4 adds review metadata only; per-scene selection and plan
     // scriptCoverage are filled by schema defaults on parse.
-    return { ...plan, schemaVersion: "4.0.0" };
+    return migratePlan({ ...plan, schemaVersion: "4.0.0" });
+  if (plan.schemaVersion === "4.0.0")
+    // v4.1 adds per-scene music intensity; filled by the schema default.
+    return { ...plan, schemaVersion: "4.1.0" };
   return input;
 }
 
@@ -875,6 +885,11 @@ export const operationSchema = z.discriminatedUnion("type", [
     gainDb: sceneSchema.shape.audio.shape.gainDb,
   }),
   z.strictObject({
+    type: z.literal("updateMusicIntensity"),
+    ...opScene,
+    intensity: sceneSchema.shape.musicIntensity,
+  }),
+  z.strictObject({
     type: z.literal("splitScene"),
     ...opScene,
     atFrame: frame.min(1),
@@ -989,6 +1004,9 @@ export function applyPatch(
         break;
       case "updateAudio":
         s.audio.gainDb = op.gainDb;
+        break;
+      case "updateMusicIntensity":
+        s.musicIntensity = op.intensity;
         break;
       case "splitScene": {
         if (

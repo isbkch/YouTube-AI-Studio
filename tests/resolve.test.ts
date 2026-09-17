@@ -16,6 +16,9 @@ class Project:
     polls = 0
     started = False
     def GetName(self): return "Test project"
+    def SetSetting(self, key, value):
+        assert (key, value) in [("timelineFrameRate", "30"), ("timelineResolutionWidth", "1920"), ("timelineResolutionHeight", "1080")], (key, value)
+        return True
     def GetMediaPool(self): return self
     def ImportTimelineFromFile(self, file, options):
         assert file == timeline

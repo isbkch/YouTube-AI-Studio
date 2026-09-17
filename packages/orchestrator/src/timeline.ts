@@ -224,30 +224,55 @@ export function makeTimeline(
   const tracks: Timeline["tracks"] = [video, overlays, insets, audioTrack];
   if (audio.music && audio.design.music) {
     const m = audio.design.music;
+    // Contiguous per-scene music clips carry the per-scene intensity; adjacent
+    // scenes with equal intensity merge into one clip. Intensity 0 pins the
+    // bed at the clip gain floor rather than dropping the lane.
+    const musicClips: Timeline["tracks"][number]["clips"] = [];
+    let runStart = 0;
+    let runEnd = 0;
+    let runGain = Number.NaN;
+    const flush = () => {
+      if (!Number.isNaN(runGain))
+        musicClips.push({
+          id: `music-bed-${runStart}`,
+          sceneId:
+            plan.scenes.find((s) => s.startFrame === runStart)?.id ??
+            plan.scenes[0].id,
+          assetId: "music",
+          path: audio.music!.path,
+          startFrame: runStart,
+          sourceInFrame: 0,
+          durationFrames: runEnd - runStart,
+          // A looped bed is as long as the timeline it was mixed into.
+          sourceDurationFrames: Math.max(
+            audio.music!.sourceDurationFrames,
+            plan.durationFrames,
+          ),
+          punchIn: 1,
+          gainDb: runGain,
+          inset: null,
+          kind: "music",
+        });
+    };
+    for (const s of plan.scenes) {
+      const gain = Math.max(
+        -48,
+        m.gainDb + 20 * Math.log10(Math.max(s.musicIntensity, 1e-4)),
+      );
+      if (gain === runGain) runEnd = s.startFrame + s.durationFrames;
+      else {
+        flush();
+        runStart = s.startFrame;
+        runEnd = s.startFrame + s.durationFrames;
+        runGain = gain;
+      }
+    }
+    flush();
     tracks.push({
       id: "a2",
       kind: "audio",
       name: "Music bed",
-      clips: [
-        {
-          id: "music-bed",
-          sceneId: plan.scenes[0].id,
-          assetId: "music",
-          path: audio.music.path,
-          startFrame: 0,
-          sourceInFrame: 0,
-          durationFrames: plan.durationFrames,
-          // A looped bed is as long as the timeline it was mixed into.
-          sourceDurationFrames: Math.max(
-            audio.music.sourceDurationFrames,
-            plan.durationFrames,
-          ),
-          punchIn: 1,
-          gainDb: m.gainDb,
-          inset: null,
-          kind: "music",
-        },
-      ],
+      clips: musicClips,
     });
   }
   // SFX one-shots never share a lane; pack greedily into ordered lanes.

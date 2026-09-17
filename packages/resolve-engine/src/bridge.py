@@ -39,8 +39,8 @@ def main():
             raise ValueError("Expected an existing FCPXML or OTIO file")
         manager, project = fresh_project(resolve, project_name)
         project.SetSetting("timelineFrameRate", "30")
-        project.SetSetting("timelineResolutionWidth", "1280")
-        project.SetSetting("timelineResolutionHeight", "720")
+        project.SetSetting("timelineResolutionWidth", "1920")
+        project.SetSetting("timelineResolutionHeight", "1080")
         timeline = project.GetMediaPool().ImportTimelineFromFile(file_path, {"timelineName": project_name, "importSourceClips": True})
         if timeline is None:
             raise RuntimeError("Resolve did not accept the timeline. The newly created project was left for inspection.")
@@ -60,6 +60,9 @@ def main():
     if macro_path is not None and (not os.path.isfile(macro_path) or os.path.splitext(macro_path)[1] != ".setting"):
         raise ValueError("Fusion macro must be a checked-in .setting file")
     manager, project = fresh_project(resolve, project_name)
+    project.SetSetting("timelineFrameRate", "30")
+    project.SetSetting("timelineResolutionWidth", "1920")
+    project.SetSetting("timelineResolutionHeight", "1080")
     timeline = project.GetMediaPool().ImportTimelineFromFile(file_path, {"timelineName": project_name, "importSourceClips": True})
     if timeline is None:
         raise RuntimeError("Resolve did not accept the timeline. The newly created project was left for inspection.")
