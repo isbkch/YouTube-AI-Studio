@@ -1,6 +1,6 @@
-# yt-ai-studio
+# YouTube-AI-Studio
 
-[![CI](https://github.com/isbkch/yt-ai-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/isbkch/yt-ai-studio/actions/workflows/ci.yml)
+[![CI](https://github.com/isbkch/YouTube-AI-Studio/actions/workflows/ci.yml/badge.svg)](https://github.com/isbkch/YouTube-AI-Studio/actions/workflows/ci.yml)
 [![License: ELv2](https://img.shields.io/badge/License-Elastic%20License%202.0-blue.svg)](LICENSE)
 
 A native macOS production dashboard for technical YouTube videos. The creator approves the script, reviews the storyboard, and directs the rough cut. A local TypeScript runtime validates the production plan and executes trusted media workers.
@@ -9,7 +9,7 @@ A native macOS production dashboard for technical YouTube videos. The creator ap
 
 ## From idea to published video
 
-| Stage      | What yt-ai-studio does                                                                                                                                       | What you control                                                                        |
+| Stage      | What YouTube-AI-Studio does                                                                                                                                       | What you control                                                                        |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | Research   | Turns your idea into a brief with key points, labelled claims, counterpoints, and source citations.                                                          | Topic, audience, channel direction, and verification of facts and sources.              |
 | Script     | Builds a narrative outline and an A-roll/B-roll shooting script.                                                                                             | Voice, angle, target length, manual edits, and script approval.                         |
@@ -33,7 +33,7 @@ bun run demo
 bun run macos:demo
 ```
 
-`bun run macos:demo` builds and launches **dist/yt-ai-studio.app** with the demo library. Select the newest “Why Redundancy Is Not High Availability” project and open **Storyboard** or **Review**.
+`bun run macos:demo` builds and launches **dist/YouTube-AI-Studio.app** with the demo library. Select the newest “Why Redundancy Is Not High Availability” project and open **Storyboard** or **Review**.
 
 For your real projects:
 
@@ -41,7 +41,7 @@ For your real projects:
 bun run macos
 ```
 
-The normal library is `~/Movies/yt-ai-studio`. `WTS_HOME` or the app's Settings can select another library. The development app uses this checkout and its `node_modules`; retain both. This is an ad-hoc signed development build, not a notarized distribution bundle.
+The normal library is `~/Movies/YouTube-AI-Studio`. `WTS_HOME` or the app's Settings can select another library. The development app uses this checkout and its `node_modules`; retain both. This is an ad-hoc signed development build, not a notarized distribution bundle.
 
 ## The usable workflow
 
@@ -143,7 +143,7 @@ Always quote paths containing spaces. `render` is an alias for local rough-cut b
 
 ## Credentials
 
-Save the OpenAI key in the app's Settings. Swift uses Keychain Services with a device-local, unlocked-keychain item (`com.isbkch.yt-ai-studio` / `openai`). The app sends the key to its private child process only when OpenAI is selected; it never writes it to project files. The CLI retrieves the same item through the system Keychain utility. Mock is the default.
+Save the OpenAI key in the app's Settings. Swift uses Keychain Services with a device-local, unlocked-keychain item (`com.isbkch.YouTube-AI-Studio` / `openai`). The app sends the key to its private child process only when OpenAI is selected; it never writes it to project files. The CLI retrieves the same item through the system Keychain utility. Mock is the default.
 
 Credentials resolve from `OPENAI_API_KEY` in the repository `.env` first, then Keychain. The configurable Director model defaults to `gpt-5.4`; planning and revisions use the Responses API with strict structured outputs and `store: false`. Transcription has three providers: **mock** (imported fixtures), **whisper** (local whisper.cpp via `whisper-cli`, free and offline — the ggml model, default `~/.whisper-models/ggml-small.bin`, is downloaded automatically from the whisper.cpp repository on first use; `WTS_WHISPER_MODEL` points elsewhere), and **openai** (`whisper-1`, word+segment timestamps, 16 kHz mono MP3, 24 MB upload limit with an actionable error beyond it). Final Cut `.fcptranscript` import needs no provider at all.
 

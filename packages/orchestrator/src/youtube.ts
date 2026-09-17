@@ -36,7 +36,7 @@ export const youTubeCLIDir = (version = UPLOADER_VERSION) =>
   path.join(
     os.homedir(),
     ...(process.platform === "darwin" ? ["Library", "Caches"] : [".cache"]),
-    "com.isbkch.yt-ai-studio",
+    "com.isbkch.YouTube-AI-Studio",
     "tools",
     "youtubeuploader",
     version,
