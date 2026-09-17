@@ -529,6 +529,12 @@ export interface MusicMix {
   fadeInSec: number;
   fadeOutSec: number;
   loopable: boolean;
+  /**
+   * Optional time-varying intensity envelope (per-scene music intensity):
+   * gain overrides in dB for contiguous timeline spans. Gaps between segments
+   * keep the base gain. Empty/absent means constant `gainDb` across the mix.
+   */
+  segments?: { startSec: number; endSec: number; gainDb: number }[];
 }
 export interface SfxMix {
   file: string;
@@ -565,8 +571,19 @@ export async function mixAudio(options: {
       20,
       Math.max(2, Math.round((-6 - o.music.duckToDb) / 1.5)),
     );
+    const segments = o.music.segments ?? [];
+    const baseGainDb = o.music.gainDb;
+    // Per-scene intensity is a linear multiplier on the constant-gain bed.
+    // The volume expression is linear, not dB; 0 must stay effectively silent
+    // but non-zero (the filter rejects multipliers below 2^-6).
+    let intensity = segments.reduceRight<string>(
+      (inner, s) =>
+        `if(between(t,${s.startSec.toFixed(3)},${s.endSec.toFixed(3)}),${Math.max(0.001, Math.pow(10, (s.gainDb - baseGainDb) / 20)).toFixed(6)},${inner})`,
+      "1",
+    );
+    if (segments.length) intensity = `volume='${intensity}':eval=frame`;
     chains.push(
-      `[${musicIn}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:${o.duration.toFixed(3)},asetpts=N/SR/TB,apad,volume=${o.music.gainDb}dB,afade=t=in:st=0:d=${o.music.fadeInSec},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${o.music.fadeOutSec}[m0]`,
+      `[${musicIn}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:${o.duration.toFixed(3)},asetpts=N/SR/TB,apad,volume=${o.music.gainDb}dB${segments.length ? `,${intensity}` : ""},afade=t=in:st=0:d=${o.music.fadeInSec},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${o.music.fadeOutSec}[m0]`,
       `[0:a]asplit=2[duckkey][narration]`,
       `[m0][duckkey]sidechaincompress=threshold=0.02:ratio=${ratio}:attack=10:release=350[music]`,
     );

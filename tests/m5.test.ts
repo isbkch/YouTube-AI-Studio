@@ -25,6 +25,7 @@ import {
   type ProviderResult,
   type StructuredRequest,
 } from "../packages/agents/src/index.ts";
+import { executable, runBinary } from "../packages/media/src/index.ts";
 import { fixture } from "./fixtures.ts";
 import {
   validatePlan,
@@ -439,4 +440,57 @@ test("planChapters and chapterStamp follow YouTube's chapter rules", async () =>
     assert.equal(chapterStamp(0), "0:00");
     assert.equal(chapterStamp(860), "14:20");
     assert.equal(chapterStamp(3723), "1:02:03");
+  }));
+
+test("rough-cut approval starts the autonomous final render with an FFmpeg fallback", async () =>
+  temporary(async (root, store) => {
+    const p = await finishedProject(store);
+    // A real decodable preview: the fallback delivers these verified bytes.
+    const preview = path.join(store.dir(p), "renders/rough-cut-v1.mp4");
+    const duration = validatePlan(p.plans[0]).durationFrames / 30;
+    const ffmpeg = await executable("ffmpeg");
+    await runBinary(ffmpeg, [
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=black:s=128x80:r=30",
+      "-f",
+      "lavfi",
+      "-i",
+      "anullsrc=r=48000:cl=stereo",
+      "-t",
+      String(duration),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-y",
+      preview,
+    ]);
+    store.update(p.id, (x) => {
+      x.roughCutApproval = null;
+      x.finalRender = null;
+      x.finalRenderEngine = null;
+      x.status = "AWAITING_ROUGH_CUT_APPROVAL";
+    });
+    // Point Resolve at a path with no scripting interpreter: autonomous
+    // finishing must still deliver a verified final through FFmpeg.
+    const oldApp = process.env.WTS_RESOLVE_APP;
+    process.env.WTS_RESOLVE_APP = path.join(root, "Missing Resolve.app");
+    try {
+      const studio = new Studio(store);
+      const approved = await studio.approveRoughCut(p.id, 1);
+      assert.equal(approved.status, "READY_TO_RENDER");
+      for (let i = 0; i < 150 && !store.get(p.id).finalRender; i++)
+        await new Promise((r) => setTimeout(r, 100));
+      const after = store.get(p.id);
+      assert.equal(after.finalRender, "renders/final-v1-ffmpeg.mp4");
+      assert.equal(after.finalRenderEngine, "ffmpeg");
+      assert.ok(existsSync(path.join(store.dir(after), after.finalRender)));
+    } finally {
+      if (oldApp === undefined) delete process.env.WTS_RESOLVE_APP;
+      else process.env.WTS_RESOLVE_APP = oldApp;
+    }
   }));

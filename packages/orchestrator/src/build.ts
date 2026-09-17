@@ -720,6 +720,19 @@ export async function buildProject(
         label: "Mix music bed and SFX under narration",
         dependencies: ["assembly"],
         run: async (ctx) => {
+          // Per-scene intensity becomes a contiguous gain envelope on the
+          // music bed: effective gain = music.gainDb + 20·log10(intensity).
+          const musicSegments = plan.scenes
+            .filter((s) => s.musicIntensity !== 1)
+            .map((s) => ({
+              startSec: s.startFrame / plan.frameRate,
+              endSec: (s.startFrame + s.durationFrames) / plan.frameRate,
+              gainDb: Math.max(
+                design.music!.gainDb - 42,
+                design.music!.gainDb +
+                  20 * Math.log10(Math.max(s.musicIntensity, 0.001)),
+              ),
+            }));
           const mixKey = hash({
             concat: concatOutput.key,
             music: musicTrack
@@ -727,6 +740,7 @@ export async function buildProject(
                   hash: musicTrack.hash,
                   ...design.music,
                   durationSeconds: plan.durationFrames / plan.frameRate,
+                  segments: musicSegments,
                 }
               : null,
             sfx: sfxTracks.map((s) => ({
@@ -734,7 +748,7 @@ export async function buildProject(
               atFrame: s.event.atFrame,
               gainDb: s.event.gainDb,
             })),
-            renderer: "mix-v1-sidechain",
+            renderer: "mix-v2-sidechain-intensity",
           });
           const c = await cachedFile(dir, mixKey, previewPath, async (temp) => {
             await mixAudio({
@@ -752,6 +766,7 @@ export async function buildProject(
                       loopable: library.tracks.find(
                         (t) => t.trackId === design.music!.trackId,
                       )!.loopable,
+                      segments: musicSegments,
                     }
                   : null,
               sfx: sfxTracks.map((s) => ({

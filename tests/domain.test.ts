@@ -632,5 +632,5 @@ test("committed demo plan and Director output share valid transcript provenance"
   assert.equal(plan.transcriptHash, hash([t]));
   assert.deepEqual(plan, director);
   assert.ok(plan.scenes.length >= 1);
-  assert.equal(plan.schemaVersion, "4.0.0");
+  assert.equal(plan.schemaVersion, "4.1.0");
 });

@@ -908,6 +908,27 @@
             "properties": {
               "type": {
                 "type": "string",
+                "const": "updateMusicIntensity"
+              },
+              "sceneId": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
+              },
+              "intensity": {
+                "default": 1,
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": ["type", "sceneId", "intensity"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
                 "const": "splitScene"
               },
               "sceneId": {

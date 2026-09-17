@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "4.0.0"
+      "const": "4.1.0"
     },
     "id": {
       "type": "string",
@@ -1016,6 +1016,12 @@
             "required": ["gainDb"],
             "additionalProperties": false
           },
+          "musicIntensity": {
+            "default": 1,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
           "transition": {
             "type": "string",
             "const": "cut"
@@ -1103,6 +1109,7 @@
           "visual",
           "broll",
           "audio",
+          "musicIntensity",
           "transition",
           "enabled",
           "rationale",

@@ -385,7 +385,7 @@ struct FinalRenderView: View {
         Spacer()
       }
       Text(
-        "Render the approved cut headlessly through Resolve, optionally with a checked-in Fusion macro. Requires Resolve with external scripting enabled."
+        "Approving the rough cut starts the final render autonomously: Resolve first, with an automatic FFmpeg fallback when Resolve cannot finish. The pickers below override the engine for a manual re-render."
       ).font(.caption).foregroundStyle(.secondary)
       HStack {
         Picker("Preset", selection: $preset) {
@@ -402,8 +402,11 @@ struct FinalRenderView: View {
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(
           m.busy || !["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].contains(p.status))
         if let f = p.finalRender, let url = p.url(f) {
-          Label(URL(fileURLWithPath: f).lastPathComponent, systemImage: "checkmark.seal")
-            .font(.caption).foregroundStyle(Color.studioSuccess)
+          Label(
+            URL(fileURLWithPath: f).lastPathComponent
+              + (p.finalRenderEngine.map { " · \($0)" } ?? ""),
+            systemImage: "checkmark.seal"
+          ).font(.caption).foregroundStyle(Color.studioSuccess)
           Button("Reveal") { m.reveal(url) }.buttonStyle(QuietButtonStyle())
         }
       }

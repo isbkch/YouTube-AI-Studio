@@ -76,7 +76,7 @@ const withBroll = (broll: BRollEntry[], plan = fixture()): ProductionPlan =>
 test("v2 plans upgrade through v3 to v4 with defaulted broll and audio design", () => {
   const v2 = { ...fixture(), schemaVersion: "2.0.0" as const };
   const upgraded = validatePlan(migratePlan(v2));
-  assert.equal(upgraded.schemaVersion, "4.0.0");
+  assert.equal(upgraded.schemaVersion, "4.1.0");
   assert.deepEqual(upgraded.scenes[0].broll, []);
   assert.deepEqual(upgraded.audioDesign, { music: null, sfx: [] });
 });
@@ -106,7 +106,7 @@ test("legacy v2 chapter omissions migrate without changing the saved edit or its
   );
   assert.deepEqual(migrated, {
     ...saved,
-    schemaVersion: "4.0.0",
+    schemaVersion: "4.1.0",
     scriptCoverage: null,
     scenes: scenes.map((s) => ({
       ...s,
@@ -370,4 +370,47 @@ test("timeline carries B-roll insets, music and SFX lanes into FCPXML", () => {
   assert.match(xml, /audioRole="effects"/);
   assert.match(xml, /adjust-transform position="-?\d+(\.\d+)? -?\d+(\.\d+)?"/);
   assert.ok(xml.includes("broll-1-inset"));
+});
+
+test("per-scene music intensity becomes contiguous music clips with scaled gains", () => {
+  const base = fixture();
+  const scenes = [1, 0.5, 0, 1].map((musicIntensity, i) => ({
+    ...base.scenes[0],
+    id: `scene-${i + 1}`,
+    startFrame: i * 90,
+    musicIntensity,
+  }));
+  const plan = validatePlan({ ...base, durationFrames: 360, scenes });
+  const t = makeTimeline(plan, [recording], new Map(), new Map(), {
+    design: {
+      music: {
+        trackId: "ambient-1",
+        gainDb: -24,
+        duckToDb: -18,
+        fadeInSec: 1,
+        fadeOutSec: 2,
+      },
+      sfx: [],
+    },
+    music: { path: "cache/library-ambient.mp3", sourceDurationFrames: 3600 },
+    sfx: [],
+  });
+  const bed = t.tracks.find((x) => x.id === "a2")!;
+  assert.deepEqual(
+    bed.clips.map((c) => [c.startFrame, c.durationFrames]),
+    [
+      [0, 90],
+      [90, 90],
+      [180, 90],
+      [270, 90],
+    ],
+  );
+  assert.equal(bed.clips[0].gainDb, -24);
+  assert.ok(
+    Math.abs(bed.clips[1].gainDb - (-24 + 20 * Math.log10(0.5))) < 1e-9,
+  );
+  assert.equal(bed.clips[2].gainDb, -48);
+  assert.equal(bed.clips[3].gainDb, -24);
+  const xml = toFCPXML(t, "/Projects/Demo");
+  assert.equal(xml.match(/audioRole="music"/g)!.length, 4);
 });

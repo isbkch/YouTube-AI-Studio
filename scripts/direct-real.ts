@@ -363,6 +363,7 @@ try {
           },
       broll: [],
       audio: { gainDb: 0 },
+      musicIntensity: 1,
       transition: "cut" as const,
       enabled: true,
       rationale: s.heading
@@ -379,7 +380,7 @@ try {
   for (const s of edit.scenes)
     for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
   const plan = validatePlan({
-    schemaVersion: "4.0.0",
+    schemaVersion: "4.1.0",
     id: id("plan"),
     projectId,
     version: p.plans.length + 1,

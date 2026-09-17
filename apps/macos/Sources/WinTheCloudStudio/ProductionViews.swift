@@ -191,6 +191,7 @@ struct SceneCard: View {
           "src \(scene.sourceInFrame)–\(scene.sourceInFrame + scene.durationFrames) f"
             + " · \(scene.transcriptSegmentIds?.count ?? 0) seg"
             + " · \(String(format: "%.1f", scene.audio?.gainDb ?? 0)) dB"
+            + (scene.musicIntensity.map { String(format: " · music %.0f%%", $0 * 100) } ?? "")
             + (scene.selection.map { String(format: " · match %.2f", $0.score) } ?? "")
             + (scene.selection?.bridged == true ? " · bridged" : "")
         ).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
@@ -478,7 +479,7 @@ struct SceneEditor: View {
       Toggle("Enable visual instruction (A-roll remains when disabled)", isOn: $enabled)
       DisclosureGroup("Source & transcript provenance") {
         Text(
-          "Recording: \(scene.camera.recordingId)\nSource frames: \(scene.sourceInFrame)–\(scene.sourceInFrame + scene.durationFrames) at \(p.plan?.frameRate ?? 30) fps\nTranscript segments: \(scene.transcriptSegmentIds?.joined(separator: ", ") ?? "none")\nAudio gain: \(String(format: "%.1f", scene.audio?.gainDb ?? 0)) dB\nTransition: \(scene.transition ?? "cut")\(selectionDetail)"
+          "Recording: \(scene.camera.recordingId)\nSource frames: \(scene.sourceInFrame)–\(scene.sourceInFrame + scene.durationFrames) at \(p.plan?.frameRate ?? 30) fps\nTranscript segments: \(scene.transcriptSegmentIds?.joined(separator: ", ") ?? "none")\nAudio gain: \(String(format: "%.1f", scene.audio?.gainDb ?? 0)) dB\nMusic intensity: \(String(format: "%.0f", (scene.musicIntensity ?? 1) * 100))%\nTransition: \(scene.transition ?? "cut")\(selectionDetail)"
         ).font(.system(size: 10, design: .monospaced)).textSelection(.enabled).frame(
           maxWidth: .infinity, alignment: .leading)
       }

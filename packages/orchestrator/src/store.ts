@@ -128,6 +128,7 @@ export class Store {
       revisions: [],
       builds: [],
       finalRender: null,
+      finalRenderEngine: null,
       publication: null,
       publishApproval: null,
       usage: [],

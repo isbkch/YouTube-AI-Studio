@@ -9,7 +9,7 @@ The export uses 720p/30fps proxies for reliable rough-cut timing, including foot
 1. Create or open the intended Resolve project.
 2. Choose **File → Import → Timeline…** (Shift-Command-O on this installation).
 3. Select the `.fcpxml` in the project's `renders` directory.
-4. Keep source-clip import and sizing information enabled. The importer should report **1280×720, 30 fps**.
+4. Keep source-clip import and sizing information enabled. The importer should report **1920×1080, 30 fps**.
 5. Inspect V1 presenter clips, V2 generated graphics, A1 narration and scene timing.
 
 Verified on the installed Resolve 21.1: the generated demo imported into the isolated **WTS MVP Export Verification** project, showed a **00:01:12:00** timeline, loaded all media, displayed the architecture animation over preserved A-roll, and showed narration waveforms. The project was saved. This was a manual import verification through Resolve's UI; the production adapter itself does not automate the UI.
@@ -18,10 +18,11 @@ Verified on the installed Resolve 21.1: the generated demo imported into the iso
 
 The installed vendor documentation confirms `ProjectManager.CreateProject`, `MediaPool.ImportTimelineFromFile` (AAF/EDL/XML/FCPXML/DRT/ADL/OTIO), timeline track inspection, and render APIs. Resolve 21.1 bundles a Python interpreter at `Contents/Applications/ResolvePython` with its scripting module available out of the box.
 
-The trusted `bridge.py` supports two allowlisted actions:
+The trusted `bridge.py` supports three allowlisted actions:
 
 - `probe`: connect and report product/version.
 - `import`: create a uniquely named project, import a supplied generated timeline, save it and return track/duration information. It refuses to overwrite an existing named project.
+- `render`: create a uniquely named project, import the FCPXML timeline, optionally apply a checked-in Fusion macro to every V1 clip, render with a validated preset and verify the produced file.
 
 ```sh
 bun run wts resolve probe
@@ -32,4 +33,4 @@ External scripting requires a running, fully loaded Resolve instance and an edit
 
 OTIO preserves three tracks, rational times, file references and metadata. Generic OTIO has no universal mapping for the camera punch-in/audio-gain instructions; those remain metadata, so use FCPXML for these properties. OTIO was decoded with the upstream library and confirmed to contain three tracks and 72 seconds; it has not been independently imported into Resolve during this run.
 
-Resolve exposes render settings/queue APIs, but this MVP does not call them. Final finishing/render remains in Resolve under human control. The local FFmpeg preview remains useful with Resolve closed or unavailable.
+Resolve exposes render settings/queue APIs, and `render` drives them headlessly: approving the rough cut starts the final render autonomously (Resolve first; an automatic FFmpeg fallback delivers the verified rough-cut bytes when Resolve cannot finish, recorded with `finalRenderEngine: "ffmpeg"`). A manual re-render with a specific preset or Fusion macro remains available.

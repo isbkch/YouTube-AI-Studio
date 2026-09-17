@@ -2,7 +2,7 @@ import { hash } from "../packages/shared/src/index.ts";
 import type { ProductionPlan } from "../packages/production-plan/src/index.ts";
 export function fixture(): ProductionPlan {
   return {
-    schemaVersion: "4.0.0",
+    schemaVersion: "4.1.0",
     id: "plan-1",
     projectId: "project-1",
     version: 1,
@@ -25,6 +25,7 @@ export function fixture(): ProductionPlan {
         visual: { type: "presenter", description: "Presenter", graphic: null },
         broll: [],
         audio: { gainDb: 0 },
+        musicIntensity: 0.5,
         transition: "cut",
         enabled: true,
         rationale: "Give this thought room.",
