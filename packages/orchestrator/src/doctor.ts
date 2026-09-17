@@ -6,7 +6,11 @@ import { executable, runBinary } from "../../media/src/index.ts";
 import { defaultRoot } from "./store.ts";
 import { resolveApp } from "../../resolve-engine/src/index.ts";
 import { defaultWhisperModel } from "../../agents/src/whisper.ts";
-import { envCredential, loadDotEnv } from "../../shared/src/index.ts";
+import {
+  envCredential,
+  geminiEnvCredential,
+  loadDotEnv,
+} from "../../shared/src/index.ts";
 import { readLibrary } from "./library.ts";
 import { youTubeCLI } from "./youtube.ts";
 export interface Check {
@@ -38,9 +42,18 @@ export async function openAICredential(): Promise<string> {
   loadDotEnv();
   const fromEnv = envCredential();
   if (fromEnv) return fromEnv;
-  return keychainCredential();
+  return keychainCredential("openai");
 }
-export async function keychainCredential() {
+/** Gemini key resolution follows the same order under its own Keychain item. */
+export async function geminiCredential(): Promise<string> {
+  loadDotEnv();
+  const fromEnv = geminiEnvCredential();
+  if (fromEnv) return fromEnv;
+  return keychainCredential("gemini");
+}
+export async function keychainCredential(
+  account: "openai" | "gemini" = "openai",
+) {
   const result = await runBinary(
     "/usr/bin/security",
     [
@@ -48,7 +61,7 @@ export async function keychainCredential() {
       "-s",
       "com.winthecloud.studio",
       "-a",
-      "openai",
+      account,
       "-w",
     ],
     { timeoutMs: 10000 },
@@ -204,13 +217,36 @@ export async function doctor(root = defaultRoot()) {
     guidance:
       "Set OPENAI_API_KEY in .env or save a key in the app’s Settings. Mock and local whisper need no key.",
   });
+  const geminiKey = await geminiCredential().catch(() => "");
   checks.push({
-    name: "Image generation",
-    status: (await hasCredential()) ? "AVAILABLE" : "NOT FOUND",
-    version: process.env.WTS_IMAGE_MODEL || "gpt-image-1",
+    name: "Gemini credentials",
+    status: geminiKey ? "AVAILABLE" : "NOT FOUND",
+    version: geminiEnvCredential()
+      ? "GEMINI_API_KEY (.env/environment)"
+      : "macOS Keychain",
     required: false,
     guidance:
-      "Shares the OpenAI credential: enables GPT-image B-roll. The mock provider renders deterministic gradient stills without credits.",
+      "Set GEMINI_API_KEY in .env or save a key in the app’s Settings. Enables Gemini image B-roll and Lyria music beds; the mock providers need no key.",
+  });
+  checks.push({
+    name: "Image generation",
+    status: (await hasCredential()) || geminiKey ? "AVAILABLE" : "NOT FOUND",
+    version: geminiKey
+      ? (await hasCredential())
+        ? "openai gpt-image-1 · gemini gemini-3.1-flash-image"
+        : `gemini ${process.env.WTS_GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image"}`
+      : `openai ${process.env.WTS_IMAGE_MODEL || "gpt-image-1"}`,
+    required: false,
+    guidance:
+      "Choose the Images provider in Settings: OpenAI (gpt-image-1) or Gemini (Nano Banana) share their account keys; the mock provider renders deterministic gradient stills without credits.",
+  });
+  checks.push({
+    name: "Music generation",
+    status: geminiKey ? "AVAILABLE" : "NOT FOUND",
+    version: process.env.WTS_GEMINI_MUSIC_MODEL || "lyria-3-clip-preview",
+    required: false,
+    guidance:
+      "Choose the Music provider in Settings: Gemini generates Lyria instrumental beds (~30 s loopable clips); the mock provider synthesizes deterministic beds locally; the default uses your library tracks only.",
   });
   try {
     const cli = await youTubeCLI();

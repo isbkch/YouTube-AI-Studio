@@ -16,11 +16,16 @@ import {
   brollStillKey,
 } from "../packages/image-engine/src/index.ts";
 import {
+  buildMusicPrompt,
+  musicBedKey,
+} from "../packages/music-engine/src/index.ts";
+import { mockVisualPass } from "../packages/agents/src/index.ts";
+import {
   makeTimeline,
   toFCPXML,
 } from "../packages/orchestrator/src/timeline.ts";
 import type { Recording, Asset } from "../packages/orchestrator/src/model.ts";
-import { hash } from "../packages/shared/src/index.ts";
+import { hash, defaultCreator } from "../packages/shared/src/index.ts";
 
 const recording: Recording = {
   id: "recording-1",
@@ -76,7 +81,7 @@ const withBroll = (broll: BRollEntry[], plan = fixture()): ProductionPlan =>
 test("v2 plans upgrade through v3 to v4 with defaulted broll and audio design", () => {
   const v2 = { ...fixture(), schemaVersion: "2.0.0" as const };
   const upgraded = validatePlan(migratePlan(v2));
-  assert.equal(upgraded.schemaVersion, "4.1.0");
+  assert.equal(upgraded.schemaVersion, "4.2.0");
   assert.deepEqual(upgraded.scenes[0].broll, []);
   assert.deepEqual(upgraded.audioDesign, { music: null, sfx: [] });
 });
@@ -106,7 +111,7 @@ test("legacy v2 chapter omissions migrate without changing the saved edit or its
   );
   assert.deepEqual(migrated, {
     ...saved,
-    schemaVersion: "4.1.0",
+    schemaVersion: "4.2.0",
     scriptCoverage: null,
     scenes: scenes.map((s) => ({
       ...s,
@@ -187,6 +192,7 @@ test("audio design resolves against the creator library only", () => {
   const plan = withBroll([]);
   plan.audioDesign = {
     music: {
+      source: "library",
       trackId: "ambient-1",
       gainDb: -24,
       duckToDb: -18,
@@ -196,10 +202,18 @@ test("audio design resolves against the creator library only", () => {
     sfx: [{ id: "sfx-1", atFrame: 45, trackId: "whoosh-1", gainDb: -8 }],
   };
   assert.doesNotThrow(() => validateAudioDesign(plan, tracks));
-  plan.audioDesign.music!.trackId = "whoosh-1";
+  plan.audioDesign.music = {
+    source: "library",
+    trackId: "whoosh-1",
+    gainDb: -24,
+    duckToDb: -18,
+    fadeInSec: 1,
+    fadeOutSec: 2,
+  };
   assert.throws(() => validateAudioDesign(plan, tracks), /not in the library/);
   const late = { ...plan, audioDesign: { ...plan.audioDesign } };
   late.audioDesign.music = {
+    source: "library",
     trackId: "ambient-1",
     gainDb: -24,
     duckToDb: -18,
@@ -210,6 +224,89 @@ test("audio design resolves against the creator library only", () => {
     { id: "sfx-2", atFrame: 85, trackId: "whoosh-1", gainDb: -8 },
   ];
   assert.throws(() => validatePlan(late), /too close to the end/);
+});
+
+test("generated music beds resolve only against a configured music engine", () => {
+  const tracks = [
+    { trackId: "ambient-1", kind: "music" as const, duration: 120 },
+  ];
+  const plan = withBroll([]);
+  plan.audioDesign = {
+    music: {
+      source: "generated",
+      brief:
+        "Calm instrumental bed for a technical explainer: warm pads, light pulse.",
+      gainDb: -26,
+      duckToDb: -38,
+      fadeInSec: 1.5,
+      fadeOutSec: 3,
+    },
+    sfx: [],
+  };
+  assert.throws(
+    () => validateAudioDesign(plan, tracks),
+    /no music generation engine/,
+  );
+  assert.doesNotThrow(() =>
+    validateAudioDesign(plan, tracks, { musicGeneration: true }),
+  );
+  // The brief is a generation prompt, not editorial copy: it must be stated.
+  plan.audioDesign.music = {
+    source: "generated",
+    brief: "short",
+    gainDb: -26,
+    duckToDb: -38,
+    fadeInSec: 1.5,
+    fadeOutSec: 3,
+  };
+  assert.throws(() => validatePlan(plan), /brief/);
+  // A library bed never carries a brief; a generated bed never carries a trackId.
+  assert.throws(
+    () =>
+      validatePlan({
+        ...plan,
+        audioDesign: {
+          music: {
+            source: "library",
+            brief: "should not be here",
+            trackId: "ambient-1",
+            gainDb: -24,
+            duckToDb: -18,
+            fadeInSec: 1,
+            fadeOutSec: 2,
+          } as never,
+          sfx: [],
+        },
+      }),
+    /unrecognized/i,
+  );
+});
+
+test("v4.1 library beds migrate to the explicit source field", () => {
+  const legacy = {
+    ...fixture(),
+    schemaVersion: "4.1.0" as const,
+    audioDesign: {
+      music: {
+        trackId: "ambient-1",
+        gainDb: -24,
+        duckToDb: -18,
+        fadeInSec: 1,
+        fadeOutSec: 2,
+      },
+      sfx: [],
+    },
+  };
+  const migrated = validatePlan(legacy);
+  assert.equal(migrated.schemaVersion, "4.2.0");
+  assert.ok(
+    migrated.audioDesign.music &&
+      migrated.audioDesign.music.source === "library" &&
+      migrated.audioDesign.music.trackId === "ambient-1",
+  );
+  const saved = structuredClone(legacy);
+  validatePlan(legacy);
+  assert.deepEqual(legacy, saved, "migration never rewrites the saved plan");
 });
 
 test("setBroll and setAudioDesign patch operations flow through approval validation", () => {
@@ -305,6 +402,112 @@ test("execution rejects B-roll engines that are not configured", () => {
   assert.doesNotThrow(() => validateEngines(withBroll([]), null));
 });
 
+test("execution rejects generated music beds without a music engine", () => {
+  const plan = withBroll([]);
+  plan.audioDesign = {
+    music: {
+      source: "generated",
+      brief:
+        "Calm instrumental bed for a technical explainer: warm pads, light pulse.",
+      gainDb: -26,
+      duckToDb: -38,
+      fadeInSec: 1.5,
+      fadeOutSec: 3,
+    },
+    sfx: [],
+  };
+  assert.throws(() => validateEngines(plan, null, null, null), /music/i);
+  assert.doesNotThrow(() =>
+    validateEngines(plan, null, null, {
+      name: "music_generation",
+      model: "deterministic-v1",
+      clipSeconds: 30,
+      generate: async () => {
+        throw new Error("unused");
+      },
+    }),
+  );
+});
+
+test("the mock visual pass prefers a library bed and generates one only when the engine is advertised", () => {
+  const plan = fixture();
+  const base = {
+    plan,
+    budget: { maxGeneratedStills: 2 },
+    creator: defaultCreator,
+  };
+  const libraryTrack = {
+    trackId: "ambient-1",
+    title: "Ambient",
+    mood: ["calm"],
+    energy: 1,
+    bpm: null,
+    loopable: true,
+    duration: 96,
+  };
+  const withLibrary = mockVisualPass({
+    ...base,
+    capabilities: {
+      "gpt-image": null,
+      blender: null,
+      musicGeneration: { model: "lyria-3-clip-preview", clipSeconds: 30 },
+      musicTracks: [libraryTrack],
+      sfxTracks: [],
+    },
+  });
+  assert.equal(withLibrary.music!.source, "library");
+  const generated = mockVisualPass({
+    ...base,
+    capabilities: {
+      "gpt-image": null,
+      blender: null,
+      musicGeneration: { model: "lyria-3-clip-preview", clipSeconds: 30 },
+      musicTracks: [],
+      sfxTracks: [],
+    },
+  });
+  assert.equal(generated.music!.source, "generated");
+  const bed = generated.music!;
+  assert.equal(bed.source, "generated");
+  assert.match(bed.brief, /instrumental bed/i);
+  const withoutEngine = mockVisualPass({
+    ...base,
+    capabilities: {
+      "gpt-image": null,
+      blender: null,
+      musicGeneration: null,
+      musicTracks: [],
+      sfxTracks: [],
+    },
+  });
+  assert.equal(withoutEngine.music, null);
+});
+
+test("music prompts assemble from trusted wording and bed keys track brief and model only", () => {
+  const prompt = buildMusicPrompt({
+    brief: "Calm bed for a technical explainer, warm pads, light pulse.",
+  });
+  assert.match(prompt, /Calm bed for a technical explainer/);
+  assert.match(prompt, /Instrumental background music only/);
+  assert.match(prompt, /seamless loop/);
+  const music = { brief: "Steady pulse under narration." };
+  assert.equal(
+    musicBedKey(music, { model: "lyria-3-clip-preview" }),
+    musicBedKey(music, { model: "lyria-3-clip-preview" }),
+  );
+  assert.notEqual(
+    musicBedKey(music, { model: "lyria-3-clip-preview" }),
+    musicBedKey(music, { model: "deterministic-v1" }),
+  );
+  assert.notEqual(
+    musicBedKey(music, { model: "lyria-3-clip-preview" }),
+    musicBedKey(
+      { brief: "Different brief entirely." },
+      { model: "lyria-3-clip-preview" },
+    ),
+  );
+});
+
 test("timeline carries B-roll insets, music and SFX lanes into FCPXML", () => {
   const plan = withBroll([entry()]);
   const clipAsset: Asset = {
@@ -345,6 +548,7 @@ test("timeline carries B-roll insets, music and SFX lanes into FCPXML", () => {
     {
       design: {
         music: {
+          source: "library",
           trackId: "ambient-1",
           gainDb: -24,
           duckToDb: -18,
@@ -384,6 +588,7 @@ test("per-scene music intensity becomes contiguous music clips with scaled gains
   const t = makeTimeline(plan, [recording], new Map(), new Map(), {
     design: {
       music: {
+        source: "library",
         trackId: "ambient-1",
         gainDb: -24,
         duckToDb: -18,

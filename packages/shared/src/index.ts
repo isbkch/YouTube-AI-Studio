@@ -62,6 +62,102 @@ export function envCredential(): string | null {
   const key = process.env.OPENAI_API_KEY?.trim();
   return key ? key : null;
 }
+/** The Gemini API key from the environment (incl. `.env`), or null. Never logged. */
+export function geminiEnvCredential(): string | null {
+  loadDotEnv();
+  const key = (
+    process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY
+  )?.trim();
+  return key ? key : null;
+}
+
+/**
+ * One call against the Gemini Interactions API (image and music generation
+ * share it). Returns the model's output content blocks; callers pick the
+ * block type they trust (ADR 007: response data, never executable content).
+ */
+export interface GeminiContentBlock {
+  type: string;
+  text?: string;
+  data?: string;
+  mime_type?: string;
+}
+export async function geminiInteractions(options: {
+  apiKey: string;
+  model: string;
+  body: Record<string, unknown>;
+  signal?: AbortSignal;
+  transport?: { fetch?: typeof globalThis.fetch };
+}): Promise<{ blocks: GeminiContentBlock[] }> {
+  if (!options.apiKey.trim())
+    throw new StudioError(
+      "CONFIGURATION",
+      "Gemini credentials are not configured.",
+      "Save a Gemini API key in Settings (macOS Keychain) or set GEMINI_API_KEY in .env.",
+    );
+  const fetchImpl = options.transport?.fetch ?? globalThis.fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      "https://generativelanguage.googleapis.com/v1beta/interactions",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": options.apiKey,
+        },
+        body: JSON.stringify({ model: options.model, ...options.body }),
+        signal: options.signal,
+      },
+    );
+  } catch (e) {
+    throw new StudioError(
+      "API",
+      e instanceof Error ? e.message : "Gemini request failed.",
+      "Check network access and credentials, then retry.",
+      true,
+    );
+  }
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { message?: string; status?: string };
+    steps?: {
+      type?: string;
+      content?: { type?: string }[];
+    }[];
+  } | null;
+  if (!response.ok) {
+    const status = payload?.error?.status ?? String(response.status);
+    throw new StudioError(
+      "API",
+      `Gemini request failed (${status}): ${payload?.error?.message ?? response.statusText}`,
+      "Check the model name and credentials, then retry.",
+      response.status >= 500 || response.status === 429,
+    );
+  }
+  const blocks: GeminiContentBlock[] = [];
+  for (const step of payload?.steps ?? [])
+    if (step.type === "model_output" && Array.isArray(step.content))
+      blocks.push(...(step.content as GeminiContentBlock[]));
+  return { blocks };
+}
+/** First block of the requested type, or a retryable failure when absent. */
+export function geminiBlock(
+  blocks: GeminiContentBlock[],
+  type: "image" | "audio",
+): { data: string; mime: string } {
+  const block = blocks.find((b) => b.type === type && b.data);
+  if (!block?.data)
+    throw new StudioError(
+      "API",
+      `The Gemini response contained no ${type} data.`,
+      "Retry the generation; verified outputs are reused.",
+      true,
+    );
+  return { data: block.data, mime: block.mime_type ?? defaultGeminiMime(type) };
+}
+function defaultGeminiMime(type: "image" | "audio") {
+  return type === "image" ? "image/png" : "audio/mpeg";
+}
 export function canonical(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;

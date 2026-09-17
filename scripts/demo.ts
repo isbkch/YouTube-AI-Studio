@@ -12,6 +12,7 @@ import {
 } from "../packages/media/src/index.ts";
 import { renderPlaceholder } from "../packages/remotion-engine/src/index.ts";
 import { MockImageProvider } from "../packages/image-engine/src/index.ts";
+import { MockMusicProvider } from "../packages/music-engine/src/index.ts";
 import {
   atomicJSON,
   defaultCreator,
@@ -22,35 +23,8 @@ const repo = fileURLToPath(new URL("..", import.meta.url));
 /** Deterministic, fully local demo library — nothing copyrighted ships. */
 async function synthesizeLibrary(root: string) {
   const dir = path.join(root, "library");
-  const music = path.join(dir, "music", "ambient-demo.mp3");
   const sfx = path.join(dir, "sfx", "whoosh-demo.mp3");
-  await mkdir(path.dirname(music), { recursive: true });
   await mkdir(path.dirname(sfx), { recursive: true });
-  try {
-    await inspect(music);
-  } catch {
-    await ffmpeg([
-      "-f",
-      "lavfi",
-      "-i",
-      "sine=frequency=110:duration=96",
-      "-f",
-      "lavfi",
-      "-i",
-      "sine=frequency=165:duration=96",
-      "-f",
-      "lavfi",
-      "-i",
-      "sine=frequency=220:duration=96",
-      "-filter_complex",
-      "[0:a]volume=0.22[a0];[1:a]volume=0.15[a1];[2:a]volume=0.10[a2];[a0][a1][a2]amix=inputs=3:normalize=0,tremolo=f=0.15:d=0.5,aformat=sample_rates=48000:channel_layouts=stereo",
-      "-c:a",
-      "libmp3lame",
-      "-b:a",
-      "128k",
-      music,
-    ]);
-  }
   try {
     await inspect(sfx);
   } catch {
@@ -68,22 +42,11 @@ async function synthesizeLibrary(root: string) {
       sfx,
     ]);
   }
+  // Music is intentionally absent: with a music engine configured, the demo's
+  // visual pass must propose a generated bed instead of citing library tracks.
   await atomicJSON(path.join(dir, "library.json"), {
     schemaVersion: "1.0.0",
     tracks: [
-      {
-        trackId: "ambient-demo",
-        title: "Ambient Demo Bed",
-        kind: "music",
-        file: "music/ambient-demo.mp3",
-        mood: ["calm", "technical"],
-        energy: 1,
-        bpm: null,
-        loopable: true,
-        duration: 96,
-        license:
-          "Synthesized by the demo harness; no third-party rights involved.",
-      },
       {
         trackId: "whoosh-demo",
         title: "Demo Whoosh",
@@ -215,6 +178,9 @@ export async function demo(
     }
   });
   studio.images = new MockImageProvider();
+  // The demo library ships SFX only, so the visual pass exercises the
+  // generated music bed (deterministic local synthesis) end to end.
+  studio.music = new MockMusicProvider();
   try {
     const p = store.create(
       "Why Redundancy Is Not High Availability",
@@ -372,11 +338,22 @@ export async function demo(
       .assets(p.id)
       .filter((a) => a.type === "broll-clip");
     const mixAssets = store.assets(p.id).filter((a) => a.type === "audio-mix");
+    const bedAssets = store.assets(p.id).filter((a) => a.type === "music-bed");
     assert.equal(stillAssets.length, treated.length);
     assert.equal(clipAssets.length, treated.length);
     assert.equal(mixAssets.length, 1);
+    assert.equal(
+      bedAssets.length,
+      1,
+      "the generated music bed was rendered and registered as an asset",
+    );
     const mixed = store.get(p.id).plans.at(-1)!.audioDesign;
     assert.ok(mixed.music, "the demo bed was selected and mixed in");
+    assert.equal(
+      mixed.music.source,
+      "generated",
+      "with no library music and a music engine configured, the pass generates the bed",
+    );
     const current = store.get(p.id),
       latest = current.builds.at(-1)!;
     const cutSeconds = plan.durationFrames / plan.frameRate;
@@ -421,7 +398,7 @@ export async function demo(
         treatedScenes: treatmentOps.length,
         generatedStills: stillAssets.length,
         motionClips: clipAssets.length,
-        musicBed: mixed.music!.trackId,
+        musicBed: `generated:${studio.music?.model ?? "mock"}`,
         sfxCount: mixed.sfx.length,
         visualQA: qa.visual?.reviewedBy ?? null,
       },

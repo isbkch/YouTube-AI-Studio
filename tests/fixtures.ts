@@ -2,7 +2,7 @@ import { hash } from "../packages/shared/src/index.ts";
 import type { ProductionPlan } from "../packages/production-plan/src/index.ts";
 export function fixture(): ProductionPlan {
   return {
-    schemaVersion: "4.1.0",
+    schemaVersion: "4.2.0",
     id: "plan-1",
     projectId: "project-1",
     version: 1,

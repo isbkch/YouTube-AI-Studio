@@ -63,6 +63,11 @@ import {
   buildBlenderSpec,
   type BlenderProvider,
 } from "../../blender-engine/src/index.ts";
+import {
+  buildMusicPrompt,
+  musicBedKey,
+  type MusicProvider,
+} from "../../music-engine/src/index.ts";
 import { Store } from "./store.ts";
 import { transition, type Asset } from "./model.ts";
 import { JobGraph, type Task, type TaskContext } from "./jobs.ts";
@@ -83,6 +88,8 @@ export interface BuildContext {
   images: ImageProvider | null;
   /** 3D B-roll engine; null rejects blender entries (ADR 008). */
   blender: BlenderProvider | null;
+  /** Music-bed generation engine; null rejects generated beds. */
+  music: MusicProvider | null;
   /** Structured-output provider for automated visual QA; null skips review. */
   provider: AIProvider | null;
 }
@@ -136,7 +143,12 @@ export async function buildProject(
   projectId: string,
   signal?: AbortSignal,
   onJob?: (job: import("./model.ts").Job) => void,
-  context: BuildContext = { images: null, blender: null, provider: null },
+  context: BuildContext = {
+    images: null,
+    blender: null,
+    music: null,
+    provider: null,
+  },
 ) {
   let p = store.get(projectId);
   const release = store.acquire(p.id);
@@ -188,15 +200,22 @@ export async function buildProject(
       throw new StudioError("CONFLICT", "Approved script content changed.");
     validateSources(plan, p.recordings, p.transcripts);
     // Engine capability gates (ADR 007): unavailable engines fail the build
-    // before any pixels are spent, and audio design must resolve in-library.
-    validateEngines(plan, context.images, context.blender);
+    // before any pixels are spent, and the audio design must resolve in-library
+    // (generated beds resolve against the configured music engine instead).
+    validateEngines(plan, context.images, context.blender, context.music);
     const library = await readLibrary(store.root);
-    validateAudioDesign(plan, trackRefs(library.tracks));
+    validateAudioDesign(plan, trackRefs(library.tracks), {
+      musicGeneration: !!context.music,
+    });
     const design = plan.audioDesign;
-    const musicTrack = design.music
+    const generatedMusic =
+      design.music?.source === "generated" ? design.music : null;
+    const libraryMusic =
+      design.music?.source === "library" ? design.music : null;
+    const musicTrack = libraryMusic
       ? await resolveTrack(
           store.root,
-          library.tracks.find((t) => t.trackId === design.music!.trackId)!,
+          library.tracks.find((t) => t.trackId === libraryMusic.trackId)!,
         )
       : null;
     const sfxTracks = [] as {
@@ -666,6 +685,55 @@ export async function buildProject(
         },
       });
     }
+    /** Set by the music task; assembly and mix read it after their dependency. */
+    const musicBed = { key: "", file: "", duration: 0 };
+    if (generatedMusic) {
+      const engine = context.music!;
+      const bedKey = musicBedKey(generatedMusic, engine);
+      musicBed.key = bedKey;
+      tasks.push({
+        id: "music",
+        type: "music",
+        label: `Generate music bed • ${engine.model}`,
+        dependencies: [],
+        run: async (ctx) => {
+          const c = await cachedFile(
+            dir,
+            bedKey,
+            `cache/music-${bedKey}.mp3`,
+            async (temp) => {
+              const result = await engine.generate({
+                prompt: buildMusicPrompt(generatedMusic),
+                signal: ctx.signal,
+              });
+              await writeFile(temp, result.data);
+              store.update(p.id, (x) => {
+                x.usage.push(result.usage);
+              });
+            },
+          );
+          // Trust but verify: the bed must be real, audible audio before it
+          // reaches the mix, and its probed duration feeds the timeline.
+          const meta = await inspect(await safePath(dir, c.path));
+          if (!meta.hasAudio)
+            throw new StudioError(
+              "EXTERNAL_TOOL",
+              "The generated music bed has no audio stream.",
+              "Retry the build; verified outputs are reused.",
+              true,
+            );
+          musicBed.file = c.path;
+          musicBed.duration = meta.duration;
+          persistAsset(ctx, "music-bed", bedKey, c, null, {
+            generator: engine.name,
+            parameters: { brief: generatedMusic.brief, model: engine.model },
+          });
+          ctx.log(
+            `${c.reused ? "Reused" : "Generated"} music bed via ${engine.model} (${meta.duration.toFixed(1)}s).`,
+          );
+        },
+      });
+    }
     const signature = hash({
       plan,
       templateSourceHash,
@@ -698,9 +766,17 @@ export async function buildProject(
           ? `cache/concat-${concatKey}.mp4`
           : previewPath;
         // Copy referenced library tracks into the project so every timeline
-        // path stays project-relative (and survives library reorganization).
+        // path stays project-relative (and survives library reorganization);
+        // generated beds already live in the project cache.
         const audio: TimelineAudio = { design, music: null, sfx: [] };
-        if (musicTrack && design.music) {
+        if (generatedMusic) {
+          audio.music = {
+            path: musicBed.file,
+            sourceDurationFrames: Math.floor(
+              musicBed.duration * plan.frameRate,
+            ),
+          };
+        } else if (musicTrack && design.music) {
           const ext = path.extname(musicTrack.file) || ".m4a";
           const c = await cachedFile(
             dir,
@@ -806,14 +882,21 @@ export async function buildProject(
             }));
           const mixKey = hash({
             concat: concatOutput.key,
-            music: musicTrack
+            music: generatedMusic
               ? {
-                  hash: musicTrack.hash,
-                  ...design.music,
+                  bed: musicBed.key,
+                  ...generatedMusic,
                   durationSeconds: plan.durationFrames / plan.frameRate,
                   segments: musicSegments,
                 }
-              : null,
+              : musicTrack
+                ? {
+                    hash: musicTrack.hash,
+                    ...design.music,
+                    durationSeconds: plan.durationFrames / plan.frameRate,
+                    segments: musicSegments,
+                  }
+                : null,
             sfx: sfxTracks.map((s) => ({
               hash: s.resolved.hash,
               atFrame: s.event.atFrame,
@@ -827,16 +910,20 @@ export async function buildProject(
               output: temp,
               duration: plan.durationFrames / plan.frameRate,
               music:
-                musicTrack && design.music
+                generatedMusic || (musicTrack && design.music)
                   ? {
-                      file: musicTrack.file,
-                      gainDb: design.music.gainDb,
-                      duckToDb: design.music.duckToDb,
-                      fadeInSec: design.music.fadeInSec,
-                      fadeOutSec: design.music.fadeOutSec,
-                      loopable: library.tracks.find(
-                        (t) => t.trackId === design.music!.trackId,
-                      )!.loopable,
+                      file: generatedMusic
+                        ? await safePath(dir, musicBed.file)
+                        : musicTrack!.file,
+                      gainDb: design.music!.gainDb,
+                      duckToDb: design.music!.duckToDb,
+                      fadeInSec: design.music!.fadeInSec,
+                      fadeOutSec: design.music!.fadeOutSec,
+                      // Generated beds are synthesized to loop seamlessly; a
+                      // library bed loops only when its manifest says so.
+                      loopable: generatedMusic
+                        ? true
+                        : musicTrack!.track.loopable,
                       segments: musicSegments,
                     }
                   : null,

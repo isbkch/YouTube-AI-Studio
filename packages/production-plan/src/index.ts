@@ -354,16 +354,36 @@ export const sfxEventSchema = z.strictObject({
   trackId: z.string().min(1).max(120),
   gainDb: z.number().min(-24).max(0),
 });
+/** Shared mixing controls for a music bed, whatever its source. */
+const musicControls = {
+  gainDb: z.number().min(-42).max(-6),
+  duckToDb: z.number().min(-48).max(-6),
+  fadeInSec: z.number().min(0).max(5),
+  fadeOutSec: z.number().min(0).max(5),
+};
+/** A bed taken from the creator-managed library; trackId must resolve there. */
+export const libraryMusicSchema = z.strictObject({
+  source: z.literal("library"),
+  trackId: z.string().min(1).max(120),
+  ...musicControls,
+});
+/**
+ * A bed synthesized by a configured music-generation engine. The brief is a
+ * generation prompt: mood/energy/instrumentation grounded in the video, never
+ * artist names or copyrighted works. Requires the music engine at build time.
+ */
+export const generatedMusicSchema = z.strictObject({
+  source: z.literal("generated"),
+  brief: z.string().min(10).max(1200),
+  ...musicControls,
+});
+export const musicDesignSchema = z.discriminatedUnion("source", [
+  libraryMusicSchema,
+  generatedMusicSchema,
+]);
+export type MusicDesign = z.infer<typeof musicDesignSchema>;
 export const audioDesignSchema = z.strictObject({
-  music: z
-    .strictObject({
-      trackId: z.string().min(1).max(120),
-      gainDb: z.number().min(-42).max(-6),
-      duckToDb: z.number().min(-48).max(-6),
-      fadeInSec: z.number().min(0).max(5),
-      fadeOutSec: z.number().min(0).max(5),
-    })
-    .nullable(),
+  music: musicDesignSchema.nullable(),
   sfx: z.array(sfxEventSchema).max(50),
 });
 export type AudioDesign = z.infer<typeof audioDesignSchema>;
@@ -462,7 +482,7 @@ export const sceneSchema = z.strictObject({
   selection: selectionSchema.nullable().default(null),
 });
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("4.1.0"),
+  schemaVersion: z.literal("4.2.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -560,7 +580,27 @@ export function migratePlan(input: unknown): unknown {
     return migratePlan({ ...plan, schemaVersion: "4.0.0" });
   if (plan.schemaVersion === "4.0.0")
     // v4.1 adds per-scene music intensity; filled by the schema default.
-    return { ...plan, schemaVersion: "4.1.0" };
+    return migratePlan({ ...plan, schemaVersion: "4.1.0" });
+  if (plan.schemaVersion === "4.1.0")
+    // v4.2 makes the music bed's source explicit; existing beds are library
+    // tracks, and generated beds carry a brief instead of a trackId.
+    return {
+      ...plan,
+      schemaVersion: "4.2.0",
+      audioDesign: {
+        sfx: [],
+        ...(plan as { audioDesign?: { sfx?: unknown[] } }).audioDesign,
+        music:
+          (plan as { audioDesign?: { music?: unknown } }).audioDesign?.music ==
+          null
+            ? null
+            : {
+                source: "library",
+                ...(plan as { audioDesign: { music: object } }).audioDesign
+                  .music,
+              },
+      },
+    };
   return input;
 }
 
@@ -738,28 +778,39 @@ export function validatePlan(input: unknown): ProductionPlan {
 }
 
 /**
- * Audio design references the creator-managed media library. Every track must
- * exist with the right kind before a plan can build (ADR 007 capability rule).
+ * Audio design references the creator-managed media library, or — for
+ * generated beds — a configured music engine. Every reference must resolve
+ * before a plan can build (ADR 007 capability rule).
  */
 export function validateAudioDesign(
   plan: ProductionPlan,
   tracks: { trackId: string; kind: "music" | "sfx"; duration: number }[],
+  options: { musicGeneration?: boolean } = {},
 ) {
   const byId = new Map(tracks.map((t) => [t.trackId, t]));
   const music = plan.audioDesign.music;
   if (music) {
-    const track = byId.get(music.trackId);
-    if (!track || track.kind !== "music")
-      throw new StudioError(
-        "INVALID_PLAN",
-        `Music track ${music.trackId} is not in the library.`,
-        "Add the track to the library manifest or remove the music bed.",
-      );
-    if (music.fadeInSec + music.fadeOutSec >= track.duration)
-      throw new StudioError(
-        "INVALID_PLAN",
-        "Music fades are longer than the track.",
-      );
+    if (music.source === "generated") {
+      if (!options.musicGeneration)
+        throw new StudioError(
+          "UNSUPPORTED",
+          "The music bed is generated, but no music generation engine is configured.",
+          "Choose a Music provider in Settings (or --music), or re-run the visual pass against the library.",
+        );
+    } else {
+      const track = byId.get(music.trackId);
+      if (!track || track.kind !== "music")
+        throw new StudioError(
+          "INVALID_PLAN",
+          `Music track ${music.trackId} is not in the library.`,
+          "Add the track to the library manifest or remove the music bed.",
+        );
+      if (music.fadeInSec + music.fadeOutSec >= track.duration)
+        throw new StudioError(
+          "INVALID_PLAN",
+          "Music fades are longer than the track.",
+        );
+    }
   }
   for (const s of plan.audioDesign.sfx) {
     const track = byId.get(s.trackId);

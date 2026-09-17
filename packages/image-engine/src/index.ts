@@ -3,7 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import OpenAI from "openai";
 import { performance } from "node:perf_hooks";
-import { hash, now, StudioError, type Usage } from "../../shared/src/index.ts";
+import {
+  geminiBlock,
+  geminiInteractions,
+  hash,
+  now,
+  StudioError,
+  type Usage,
+} from "../../shared/src/index.ts";
 import { ffmpeg } from "../../media/src/index.ts";
 import {
   BROLL_INSET_HEIGHT_RATIO,
@@ -32,14 +39,19 @@ export interface ImageProvider {
   generate(request: ImageRequest): Promise<ImageResult>;
 }
 
+/** Transport/identity injection shared by the image adapters. */
+export interface ImageTransport {
+  fetch?: typeof globalThis.fetch;
+  /** Overrides WTS_IMAGE_MODEL / the provider default for this instance. */
+  model?: string;
+}
 export class OpenAIImageProvider implements ImageProvider {
   readonly name = "image_generation";
-  readonly model = process.env.WTS_IMAGE_MODEL || "gpt-image-1";
+  readonly model: string;
   private client: OpenAI;
-  constructor(
-    apiKey: string,
-    transport: { fetch?: typeof globalThis.fetch } = {},
-  ) {
+  constructor(apiKey: string, transport: ImageTransport = {}) {
+    this.model =
+      transport.model || process.env.WTS_IMAGE_MODEL || "gpt-image-1";
     if (!apiKey.trim())
       throw new StudioError(
         "CONFIGURATION",
@@ -50,7 +62,7 @@ export class OpenAIImageProvider implements ImageProvider {
       apiKey,
       maxRetries: 2,
       timeout: 300000,
-      ...transport,
+      ...(transport.fetch ? { fetch: transport.fetch } : {}),
     });
   }
   async generate(request: ImageRequest): Promise<ImageResult> {
@@ -79,6 +91,71 @@ export class OpenAIImageProvider implements ImageProvider {
       usage: {
         agent: this.name,
         provider: "openai",
+        model: this.model,
+        inputTokens: 0,
+        outputTokens: 0,
+        audioSeconds: 0,
+        imageCount: 1,
+        costUSD: null,
+        elapsedMs: performance.now() - started,
+        createdAt: now(),
+      },
+    };
+  }
+}
+
+/** B-roll source boxes map onto the aspect ratios the Gemini API accepts. */
+const GEMINI_ASPECT: Record<ImageSize, string> = {
+  "1024x1024": "1:1",
+  "1536x1024": "3:2",
+  "1024x1536": "2:3",
+};
+/**
+ * Gemini (Nano Banana) stills through the Interactions API. Shares the Gemini
+ * credential with music generation; quality maps low/medium → 1K, high → 2K.
+ */
+export class GeminiImageProvider implements ImageProvider {
+  readonly name = "image_generation";
+  readonly model: string;
+  private transport: ImageTransport;
+  constructor(
+    private apiKey: string,
+    transport: ImageTransport = {},
+  ) {
+    this.transport = transport;
+    this.model =
+      transport.model ||
+      process.env.WTS_GEMINI_IMAGE_MODEL ||
+      "gemini-3.1-flash-image";
+    if (!apiKey.trim())
+      throw new StudioError(
+        "CONFIGURATION",
+        "Gemini image generation needs Gemini credentials.",
+        "Save a Gemini API key in Settings (macOS Keychain) or set GEMINI_API_KEY in .env.",
+      );
+  }
+  async generate(request: ImageRequest): Promise<ImageResult> {
+    const started = performance.now();
+    const { blocks } = await geminiInteractions({
+      apiKey: this.apiKey,
+      model: this.model,
+      signal: request.signal,
+      transport: this.transport,
+      body: {
+        input: [{ type: "text", text: request.prompt.slice(0, 3200) }],
+        response_format: {
+          type: "image",
+          aspect_ratio: GEMINI_ASPECT[request.size],
+          image_size: request.quality === "high" ? "2K" : "1K",
+        },
+      },
+    });
+    const image = geminiBlock(blocks, "image");
+    return {
+      data: Buffer.from(image.data, "base64"),
+      usage: {
+        agent: this.name,
+        provider: "gemini",
         model: this.model,
         inputTokens: 0,
         outputTokens: 0,

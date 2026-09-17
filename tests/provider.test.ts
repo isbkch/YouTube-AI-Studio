@@ -6,8 +6,25 @@ import {
   PackagingAgent,
   ResearchAgent,
 } from "../packages/agents/src/index.ts";
-import { OpenAIImageProvider } from "../packages/image-engine/src/index.ts";
+import {
+  GeminiImageProvider,
+  OpenAIImageProvider,
+} from "../packages/image-engine/src/index.ts";
+import {
+  buildMusicPrompt,
+  GeminiMusicProvider,
+} from "../packages/music-engine/src/index.ts";
 import { defaultCreator } from "../packages/shared/src/index.ts";
+
+/** Minimal Gemini Interactions API response carrying one generated block. */
+const geminiResponse = (block: Record<string, unknown>) =>
+  new Response(
+    JSON.stringify({
+      id: "resp_gemini",
+      steps: [{ type: "model_output", content: [block] }],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
 
 test("OpenAI adapter uses Responses strict structured output and records usage without a network call", async () => {
   let body: Record<string, unknown> = {};
@@ -146,6 +163,93 @@ test("OpenAI image adapter refuses empty image payloads as retryable", async () 
     }),
     /no image data/,
   );
+});
+
+test("Gemini image adapter rides the Interactions API and maps sizes to aspect ratios", async () => {
+  let url = "";
+  let headers: Record<string, string> = {};
+  let body: Record<string, unknown> = {};
+  const provider = new GeminiImageProvider("gemini-test-key", {
+    model: "gemini-3.1-flash-image",
+    fetch: async (request, options) => {
+      url = String(request);
+      headers = Object.fromEntries(
+        new Headers((options as RequestInit | undefined)?.headers),
+      );
+      body = JSON.parse(String(options?.body));
+      return geminiResponse({
+        type: "image",
+        data: Buffer.from("gemini-png-bytes").toString("base64"),
+        mime_type: "image/png",
+      });
+    },
+  });
+  const result = await provider.generate({
+    prompt: "A quiet datacenter corridor, no text",
+    size: "1536x1024",
+    quality: "high",
+  });
+  assert.ok(url.endsWith("/v1beta/interactions"));
+  assert.equal(headers["x-goog-api-key"], "gemini-test-key");
+  assert.equal(body.model, "gemini-3.1-flash-image");
+  const format = body.response_format as {
+    type: string;
+    aspect_ratio: string;
+    image_size: string;
+  };
+  assert.equal(format.type, "image");
+  assert.equal(format.aspect_ratio, "3:2");
+  assert.equal(format.image_size, "2K");
+  assert.equal(result.data.toString(), "gemini-png-bytes");
+  assert.equal(result.usage.provider, "gemini");
+  assert.equal(result.usage.imageCount, 1);
+  assert.equal(result.usage.agent, "image_generation");
+});
+
+test("Gemini image adapter surfaces empty payloads as retryable failures", async () => {
+  const provider = new GeminiImageProvider("gemini-test-key", {
+    fetch: async () => geminiResponse({ type: "text", text: "no image" }),
+  });
+  await assert.rejects(
+    provider.generate({
+      prompt: "The model answered in prose",
+      size: "1024x1024",
+      quality: "low",
+    }),
+    /no image data/,
+  );
+});
+
+test("Gemini music adapter requests Lyria clips and returns audio bytes with trusted wording", async () => {
+  let body: Record<string, unknown> = {};
+  const provider = new GeminiMusicProvider("gemini-test-key", {
+    model: "lyria-3-clip-preview",
+    fetch: async (_request, options) => {
+      body = JSON.parse(String(options?.body));
+      return geminiResponse({
+        type: "audio",
+        data: Buffer.from("mp3-bytes").toString("base64"),
+      });
+    },
+  });
+  const result = await provider.generate({
+    prompt: buildMusicPrompt({
+      brief: "Calm instrumental bed for a technical explainer, warm pads.",
+    }),
+  });
+  assert.equal(body.model, "lyria-3-clip-preview");
+  const input = body.input as { type: string; text: string }[];
+  assert.equal(input[0].type, "text");
+  assert.match(input[0].text, /Instrumental background music only/);
+  assert.equal(result.data.toString(), "mp3-bytes");
+  assert.equal(result.usage.agent, "music_generation");
+  assert.equal(result.usage.provider, "gemini");
+  assert.equal(result.usage.audioSeconds, 30);
+});
+
+test("Gemini providers refuse to construct without credentials", () => {
+  assert.throws(() => new GeminiImageProvider("  "), /Gemini credentials/);
+  assert.throws(() => new GeminiMusicProvider(""), /Gemini credentials/);
 });
 test("vision review attaches labeled frames as multimodal input", async () => {
   let body: Record<string, unknown> = {};

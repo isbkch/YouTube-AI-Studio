@@ -398,7 +398,7 @@ export class DirectorAgent {
         ...input,
         contract: {
           id: id("plan"),
-          schemaVersion: "4.1.0",
+          schemaVersion: "4.2.0",
           projectId: input.projectId,
           version: input.version,
           scriptVersion: input.script.version,
@@ -498,6 +498,8 @@ export class DirectorAgent {
 export interface VisualPassCapabilities {
   "gpt-image": { model: string } | null;
   blender: { engine: "blender"; version: string } | null;
+  /** Music-bed generation engine; null restricts beds to library tracks. */
+  musicGeneration: { model: string; clipSeconds: number } | null;
   musicTracks: {
     trackId: string;
     title: string;
@@ -525,7 +527,7 @@ WHERE AND HOW LONG: startFrame and durationFrames are relative to the scene and 
 
 INTEGRATION WITH NARRATION: default to placement "inset" so the presenter stays visible while the image illustrates alongside the speech; keep insets within the safe rectangle (x + width ≤ 1, y + height ≤ 1 where height ≈ width × 1.07 at 16:9). Use "fullframe" only when narration explicitly tours a scene and the presenter's face adds nothing — never on scenes that already have a graphic. Motion is subtle: zoom-in to reveal, zoom-out to settle, pans for wide images.
 
-MUSIC: propose a bed only when the video's tone genuinely benefits and the library has a fitting track (cite its trackId exactly). gainDb −42…−6, duckToDb below gainDb, short fades. SFX sparingly — chapter starts or decisive moments, atFrame away from the final 12 frames, citing exact library trackIds. Empty arrays are a valid, common answer.
+MUSIC: propose a bed only when the video's tone genuinely benefits. Prefer a fitting library track when one exists (cite its trackId exactly). When the musicGeneration capability is present and the library has no fitting track, you may propose a generated bed instead: source "generated" (no trackId) and a brief of at most a few sentences describing mood, energy, instrumentation and tempo grounded in the video's subject — plain descriptive words only, never artist names, song titles or copyrighted works; clips run about clipSeconds and loop seamlessly. Either way gainDb −42…−6, duckToDb below gainDb, short fades. SFX sparingly — chapter starts or decisive moments, atFrame away from the final 12 frames, citing exact library trackIds. Empty arrays are a valid, common answer.
 
 3D B-ROLL (when the blender capability is present): the catalog lists checked-in Blender templates — NetworkFlow, ServerRack, OrbitRings, CascadeGrid, DataTunnel, TerrainSweep — for stylized deterministic 3D motion. Choose them when the narration describes structure, scale or motion (request paths, capacity, orbits, cascades, depth); prefer gpt-image for places and physical machines. Parameters are strict numbers and short labels from the narration — never invented named entities. When the blender capability is absent, do not propose engine "blender" entries at all.
 
@@ -684,18 +686,32 @@ export function mockVisualPass(input: VisualPassInput): VisualPass {
         "Deterministic mock treatment: narration names something a generated still can illustrate while the presenter keeps talking.",
     });
   }
-  const bed = input.capabilities.musicTracks[0];
-  return {
-    summary: `Deterministic visual pass: ${treatments.length} inset treatment(s)${bed ? `, music bed ${bed.trackId}` : ""}. This is a mock, not AI interpretation.`,
-    music: bed
+  const libraryBed = input.capabilities.musicTracks[0];
+  const generation = input.capabilities.musicGeneration;
+  // Library-first, like the instructed pass: the mock only falls back to a
+  // generated bed when synthesis is advertised and the library cannot serve one.
+  const bed = libraryBed
+    ? {
+        source: "library" as const,
+        trackId: libraryBed.trackId,
+        gainDb: -26,
+        duckToDb: -38,
+        fadeInSec: 1.5,
+        fadeOutSec: 3,
+      }
+    : generation
       ? {
-          trackId: bed.trackId,
+          source: "generated" as const,
+          brief: `Calm instrumental bed for a technical explainer: warm synth pads, a light steady pulse, no melodic hooks (${generation.clipSeconds}s seamless loop).`,
           gainDb: -26,
           duckToDb: -38,
           fadeInSec: 1.5,
           fadeOutSec: 3,
         }
-      : null,
+      : null;
+  return {
+    summary: `Deterministic visual pass: ${treatments.length} inset treatment(s)${bed ? `, ${bed.source} music bed` : ""}. This is a mock, not AI interpretation.`,
+    music: bed,
     sfx: [],
     treatments,
   };
@@ -869,7 +885,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     for (const s of edit.scenes)
       for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
     return validatePlan({
-      schemaVersion: "4.1.0",
+      schemaVersion: "4.2.0",
       id: id("plan"),
       projectId: input.projectId,
       version: input.version,
@@ -999,7 +1015,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     timelineFrame += total;
   }
   return validatePlan({
-    schemaVersion: "4.1.0",
+    schemaVersion: "4.2.0",
     id: id("plan"),
     projectId: input.projectId,
     version: input.version,

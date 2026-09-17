@@ -1,22 +1,12 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
-import { Store } from "./store.ts";
+import { Store, type ProviderSelection } from "./store.ts";
 import { Studio, readJSONFile, parseTimeRange } from "./studio.ts";
-import { doctor, openAICredential } from "./doctor.ts";
+import { doctor } from "./doctor.ts";
 import { inspect } from "../../media/src/index.ts";
-import {
-  MockAIProvider,
-  OpenAIProvider,
-  type AIProvider,
-  type Transcriber,
-} from "../../agents/src/index.ts";
-import { WhisperCLIProvider } from "../../agents/src/whisper.ts";
-import {
-  MockImageProvider,
-  OpenAIImageProvider,
-} from "../../image-engine/src/index.ts";
 import { validatePlan } from "../../production-plan/src/index.ts";
+import { applyProviderSelection, resolveCredentials } from "./providers.ts";
 import { errorInfo, loadDotEnv, StudioError } from "../../shared/src/index.ts";
 import {
   FINAL_RENDER_PRESETS,
@@ -26,8 +16,10 @@ loadDotEnv();
 const { positionals: a, values: v } = parseArgs({
   allowPositionals: true,
   options: {
-    provider: { type: "string", default: "mock" },
-    transcriber: { type: "string", default: "mock" },
+    provider: { type: "string" },
+    transcriber: { type: "string" },
+    images: { type: "string" },
+    music: { type: "string" },
     model: { type: "string", default: process.env.WTS_MODEL || "gpt-5.4" },
     description: { type: "string", default: "" },
     duration: { type: "string", default: "900" },
@@ -79,6 +71,7 @@ bun run wts resolve probe | resolve import <absolute.fcpxml> "New project name"
 All approvals refer to an exact version. Publishing uploads through the local
 YouTube CLI (youtubeuploader; WTS_YOUTUBEUPLOADER_PATH / WTS_YOUTUBE_ARGS) only after packaging approval.
 Providers: mock (default, no credits) · whisper (local whisper.cpp) · openai (.env OPENAI_API_KEY or Keychain).
+Generated media: --images mock|openai|gemini and --music library|mock|gemini (library is the default; gemini needs GEMINI_API_KEY or the Keychain item). Saved Settings selections apply when no flag is given.
 WTS_HOME overrides ~/Movies/WinTheCloud Studio. Quote paths with spaces.
 `;
 const abort = new AbortController();
@@ -113,27 +106,50 @@ try {
         "packaging",
       ].includes(a[0]) ||
       (a[0] === "script" && a[1] === "draft");
-    const needsKey = needsAI && v.provider === "openai";
-    let provider: AIProvider = new MockAIProvider();
-    if (needsKey)
-      provider = new OpenAIProvider(await openAICredential(), v.model);
-    let transcriber: Transcriber | undefined;
-    if (v.transcriber === "whisper") transcriber = new WhisperCLIProvider();
-    else if (v.transcriber === "openai" && needsAI)
-      transcriber = new OpenAIProvider(await openAICredential(), v.model);
-    const studio = new Studio(store, provider, transcriber, (event) => {
+    // Flags win over the persisted Settings selection; without either, the
+    // free defaults apply (and images follow the Director provider, as the
+    // CLI always did).
+    const stored = store.providerSelection();
+    const director = (v.provider ??
+      stored.director) as ProviderSelection["director"];
+    const transcription = (v.transcriber ??
+      stored.transcription) as ProviderSelection["transcription"];
+    const images = (v.images ??
+      (v.provider && v.provider !== "openai" ? "mock" : undefined) ??
+      (stored.images === "mock" && director === "openai"
+        ? "openai"
+        : stored.images)) as ProviderSelection["images"];
+    const music = (v.music ?? stored.music) as ProviderSelection["music"];
+    const studio = new Studio(store, undefined, undefined, (event) => {
       const job = (event as { job?: { status: string; label: string } }).job;
       if (job)
         process.stderr.write(JSON.stringify({ event: "job", ...job }) + "\n");
     });
-    if (v.provider === "openai") {
-      try {
-        studio.images = new OpenAIImageProvider(await openAICredential());
-      } catch {
-        studio.images = null;
-      }
-    } else if (["visuals", "build", "render"].includes(a[0]))
-      studio.images = new MockImageProvider();
+    applyProviderSelection(
+      studio,
+      {
+        director,
+        transcription,
+        images,
+        music,
+        directorModel: v.provider ? v.model! : stored.directorModel,
+        imageModel: stored.imageModel,
+        musicModel: stored.musicModel,
+      },
+      await resolveCredentials(),
+      // Commands that actually run engines fail loudly when a billed engine
+      // lacks its key — exactly like --provider openai always has. Everything
+      // else falls back to the free engines.
+      {
+        lenient: !(
+          (needsAI || ["visuals", "build", "render"].includes(a[0])) &&
+          (director === "openai" ||
+            transcription === "openai" ||
+            images !== "mock" ||
+            music === "gemini")
+        ),
+      },
+    );
     let result: unknown;
     if (a[0] === "project" && a[1] === "create")
       result = store.create(a[2], v.description, Number(v.duration));

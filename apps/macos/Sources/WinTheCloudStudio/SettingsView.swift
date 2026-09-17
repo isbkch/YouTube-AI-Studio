@@ -5,6 +5,8 @@ struct SettingsView: View {
   @Environment(\.dismiss) var dismiss
   @State private var key = ""
   @State private var keySaved = false
+  @State private var geminiKey = ""
+  @State private var geminiKeySaved = false
   @State private var creator: Creator?
   @State private var preference = ""
   @State private var creatorJSON = ""
@@ -53,6 +55,51 @@ struct SettingsView: View {
           }
           Text(
             "Local whisper transcribes on this Mac with whisper.cpp — no credits, no uploads. OpenAI sends the approved script and transcript for planning, and extracted audio for transcription; the key is read from OPENAI_API_KEY in the repository .env or macOS Keychain, and is passed only to the private local runtime. Final Cut speech analysis can be imported directly in Transcript."
+          ).font(.caption).foregroundStyle(.secondary)
+        }.padding(20).studioCard(cornerRadius: 12)
+        VStack(alignment: .leading, spacing: 14) {
+          Text("Generated media — images & music").studioHeading(18)
+          Picker("Images", selection: $m.imageProvider) {
+            Text("Mock · gradient stills, free").tag("mock")
+            Text("OpenAI · gpt-image").tag("openai")
+            Text("Gemini · Nano Banana").tag("gemini")
+          }.pickerStyle(.segmented)
+          Picker("Music", selection: $m.musicProvider) {
+            Text("Library · no generation").tag("library")
+            Text("Mock · synthesized bed, free").tag("mock")
+            Text("Gemini · Lyria clips").tag("gemini")
+          }.pickerStyle(.segmented)
+          TextField(
+            "Image model (optional — defaults: gpt-image-1 / gemini-3.1-flash-image)",
+            text: $m.imageModelName)
+          TextField(
+            "Music model (optional — default: lyria-3-clip-preview)", text: $m.musicModelName)
+          SecureField(
+            "Gemini API key (optional — .env GEMINI_API_KEY also works)", text: $geminiKey
+          )
+          .onChange(of: geminiKey) { _ in geminiKeySaved = false }
+          HStack {
+            Button("Save Gemini Key in Keychain") {
+              do {
+                try Keychain.save(
+                  geminiKey.trimmingCharacters(in: .whitespacesAndNewlines), account: "gemini")
+                geminiKey = ""
+                geminiKeySaved = true
+                Task { await m.diagnose() }
+              } catch { m.error = error.localizedDescription }
+            }.buttonStyle(QuietButtonStyle()).disabled(
+              geminiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if geminiKeySaved {
+              Label("Saved securely", systemImage: "checkmark.shield").font(.caption)
+                .foregroundStyle(Color.studioSuccess)
+            }
+            Spacer()
+            Button("Apply Providers") { Task { await m.configureProvider() } }.buttonStyle(
+              PrimaryActionButtonStyle()
+            ).disabled(!m.runtime.connected || m.busy)
+          }
+          Text(
+            "Each generation type uses the provider chosen here, independently of the Director. The visual pass advertises the image engine for generated B-roll and the music engine for the bed; Gemini generates Lyria instrumental clips (~30 s, looped seamlessly) from a brief the pass grounds in your video. OpenAI image generation shares the OpenAI key above; Gemini reads GEMINI_API_KEY in .env or its own Keychain item. With Music set to Library, beds come only from your library tracks."
           ).font(.caption).foregroundStyle(.secondary)
         }.padding(20).studioCard(cornerRadius: 12)
         VStack(alignment: .leading, spacing: 14) {

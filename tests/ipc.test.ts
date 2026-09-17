@@ -99,6 +99,31 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
       (await call("request.cancel", { requestId: "absent" })).error,
       undefined,
     );
+    // Generated-media providers are chosen per type and persist in the library.
+    const initial = await call("provider.settings");
+    assert.equal((initial.result as { images: string }).images, "mock");
+    assert.equal((initial.result as { music: string }).music, "library");
+    const configured = await call("provider.configure", {
+      provider: "mock",
+      transcriptionProvider: "mock",
+      imageProvider: "mock",
+      musicProvider: "mock",
+      musicModel: "lyria-3-clip-preview",
+    });
+    const applied = configured.result as {
+      images: string;
+      music: string;
+      musicModel: string;
+    };
+    assert.equal(applied.images, "mock");
+    assert.equal(applied.music, "mock");
+    assert.equal(applied.musicModel, "deterministic-v1");
+    const stored = (await call("provider.settings")).result as {
+      music: string;
+      musicModel: string;
+    };
+    assert.equal(stored.music, "mock");
+    assert.equal(stored.musicModel, "lyria-3-clip-preview");
     assert.equal(errors.includes("sk-"), false);
   } finally {
     clearTimeout(timer);

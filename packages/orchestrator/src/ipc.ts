@@ -2,14 +2,9 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 import { readFile } from "node:fs/promises";
 import { Studio } from "./studio.ts";
-import { Store } from "./store.ts";
-import { doctor, openAICredential } from "./doctor.ts";
-import { MockAIProvider, OpenAIProvider } from "../../agents/src/index.ts";
-import { WhisperCLIProvider } from "../../agents/src/whisper.ts";
-import {
-  MockImageProvider,
-  OpenAIImageProvider,
-} from "../../image-engine/src/index.ts";
+import { Store, type ProviderSelection } from "./store.ts";
+import { doctor } from "./doctor.ts";
+import { applyProviderSelection, resolveCredentials } from "./providers.ts";
 import {
   errorInfo,
   loadDotEnv,
@@ -28,6 +23,18 @@ const send = (value: unknown) =>
 console.log = (...args: unknown[]) => console.error(...args);
 const store = new Store();
 const studio = new Studio(store, undefined, undefined, send);
+// Apply the persisted provider selection (Settings) with lenient fallbacks so
+// a vanished credential can never keep the runtime from starting.
+try {
+  applyProviderSelection(
+    studio,
+    store.providerSelection(),
+    await resolveCredentials(),
+    { lenient: true },
+  );
+} catch {
+  /* Free defaults from the Studio constructor remain active. */
+}
 const active = new Map<string, AbortController>();
 const envelope = z.strictObject({
   id: z.string().max(100),
@@ -177,6 +184,8 @@ async function dispatch(
       return studio.addPreference(
         z.object({ text: z.string() }).parse(params).text,
       );
+    case "provider.settings":
+      return store.providerSelection();
     case "provider.configure": {
       const p = z
         .object({
@@ -187,34 +196,43 @@ async function dispatch(
           model: z.string().max(100).default("gpt-5.4"),
           apiKey: z.string().max(500).optional(),
           whisperModel: z.string().max(1000).optional(),
+          imageProvider: z.enum(["mock", "openai", "gemini"]).optional(),
+          musicProvider: z.enum(["library", "mock", "gemini"]).optional(),
+          imageModel: z.string().max(100).optional(),
+          musicModel: z.string().max(100).optional(),
+          geminiApiKey: z.string().max(500).optional(),
         })
         .parse(params);
-      let credentialSource: "env" | "keychain" | "session" | "none" = "none";
-      const key = p.apiKey || (await openAICredential());
-      if (p.apiKey) credentialSource = "session";
-      else if (process.env.OPENAI_API_KEY?.trim()) credentialSource = "env";
-      else if (key) credentialSource = "keychain";
-      if (p.provider === "openai") {
-        studio.provider = new OpenAIProvider(key || "", p.model);
-        try {
-          studio.images = new OpenAIImageProvider(key || "");
-        } catch {
-          studio.images = null; // Key exists but was rejected; plans fail closed.
-        }
-      } else {
-        studio.provider = new MockAIProvider();
-        studio.images = new MockImageProvider();
-      }
-      studio.transcription =
-        p.transcriptionProvider === "whisper"
-          ? new WhisperCLIProvider(p.whisperModel)
-          : p.transcriptionProvider === "openai"
-            ? new OpenAIProvider(key || "", p.model)
-            : new MockAIProvider();
+      const previous = store.providerSelection();
+      const selection: ProviderSelection = {
+        director: p.provider,
+        transcription: p.transcriptionProvider,
+        // Older clients coupled images to the Director provider; without an
+        // explicit Images choice, preserve that pairing.
+        images:
+          p.imageProvider ?? (p.provider === "openai" ? "openai" : "mock"),
+        music: p.musicProvider ?? "library",
+        directorModel: p.model,
+        imageModel: p.imageModel?.trim() ?? previous.imageModel,
+        musicModel: p.musicModel?.trim() ?? previous.musicModel,
+      };
+      store.setProviderSelection(selection);
+      const credentials = await resolveCredentials({
+        openAI: p.apiKey || undefined,
+        gemini: p.geminiApiKey || undefined,
+      });
+      const applied = applyProviderSelection(studio, selection, credentials, {
+        whisperModel: p.whisperModel,
+      });
       return {
-        provider: studio.provider.name,
-        transcription: studio.transcription.name,
-        credentialSource,
+        provider: applied.director,
+        transcription: applied.transcription,
+        images: applied.images,
+        music: applied.music,
+        imageModel: applied.imageModel,
+        musicModel: applied.musicModel,
+        openAICredentialSource: applied.openAICredentialSource,
+        geminiCredentialSource: applied.geminiCredentialSource,
       };
     }
     case "resolve.probe":
