@@ -590,7 +590,8 @@ struct Creator: Codable {
     subjects = try c.decode([String].self, forKey: .subjects)
     // Profiles persisted before the knob existed decode as the default.
     let density = try c.decodeIfPresent(String.self, forKey: .visualDensity)
-    visualDensity = ["minimal", "balanced", "rich"].contains(density ?? "")
+    visualDensity =
+      ["minimal", "balanced", "rich"].contains(density ?? "")
       ? density! : "balanced"
     brand = try c.decode(Brand.self, forKey: .brand)
     preferences = try c.decode([Preference].self, forKey: .preferences)
