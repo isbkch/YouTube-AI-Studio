@@ -27,6 +27,10 @@ import UniformTypeIdentifiers
   @Published var transcriptionProvider =
     UserDefaults.standard.string(forKey: "transcriptionProvider") ?? "mock"
   @Published var modelName = UserDefaults.standard.string(forKey: "modelName") ?? "gpt-5.4"
+  @Published var imageProvider = UserDefaults.standard.string(forKey: "imageProvider") ?? "mock"
+  @Published var musicProvider = UserDefaults.standard.string(forKey: "musicProvider") ?? "library"
+  @Published var imageModelName = UserDefaults.standard.string(forKey: "imageModelName") ?? ""
+  @Published var musicModelName = UserDefaults.standard.string(forKey: "musicModelName") ?? ""
   private var activeRequest: String?
   private var lastRefresh = Date.distantPast
   init() {
@@ -38,7 +42,7 @@ import UniformTypeIdentifiers
   }
   func load() async {
     await refresh()
-    if provider != "mock" || transcriptionProvider != "mock" { await configureProvider() }
+    await configureProvider()
     await diagnose()
   }
   func refresh() async {
@@ -97,20 +101,37 @@ import UniformTypeIdentifiers
         "provider": provider,
         "transcriptionProvider": transcriptionProvider,
         "model": modelName,
+        "imageProvider": imageProvider,
+        "musicProvider": musicProvider,
+        "imageModel": imageModelName,
+        "musicModel": musicModelName,
       ]
-      if provider == "openai" || transcriptionProvider == "openai" {
+      if provider == "openai" || transcriptionProvider == "openai" || imageProvider == "openai" {
         args["apiKey"] = try Keychain.read() ?? ""
+      }
+      if imageProvider == "gemini" || musicProvider == "gemini" {
+        args["geminiApiKey"] = try Keychain.read("gemini") ?? ""
       }
       let _: AnyResponse = try await runtime.call("provider.configure", args)
       UserDefaults.standard.set(provider, forKey: "provider")
       UserDefaults.standard.set(transcriptionProvider, forKey: "transcriptionProvider")
       UserDefaults.standard.set(modelName, forKey: "modelName")
+      UserDefaults.standard.set(imageProvider, forKey: "imageProvider")
+      UserDefaults.standard.set(musicProvider, forKey: "musicProvider")
+      UserDefaults.standard.set(imageModelName, forKey: "imageModelName")
+      UserDefaults.standard.set(musicModelName, forKey: "musicModelName")
     } catch {
       self.error = error.localizedDescription
       provider = "mock"
       transcriptionProvider = "mock"
+      imageProvider = "mock"
+      musicProvider = "library"
       let _: AnyResponse? = try? await runtime.call(
-        "provider.configure", ["provider": "mock", "transcriptionProvider": "mock"])
+        "provider.configure",
+        [
+          "provider": "mock", "transcriptionProvider": "mock",
+          "imageProvider": "mock", "musicProvider": "library",
+        ])
     }
   }
   func chooseFile(types: [UTType]) -> URL? {

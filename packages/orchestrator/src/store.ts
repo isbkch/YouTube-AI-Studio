@@ -9,6 +9,7 @@ import {
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { z } from "zod";
 import {
   atomicJSON,
   defaultCreator,
@@ -21,6 +22,25 @@ import {
 } from "../../shared/src/index.ts";
 import type { CreatorProfile } from "../../shared/src/index.ts";
 import type { Asset, Job, Project } from "./model.ts";
+export const providerSelectionSchema = z.strictObject({
+  director: z.enum(["mock", "openai"]),
+  transcription: z.enum(["mock", "whisper", "openai"]),
+  images: z.enum(["mock", "openai", "gemini"]),
+  music: z.enum(["library", "mock", "gemini"]),
+  directorModel: z.string().max(100),
+  imageModel: z.string().max(100),
+  musicModel: z.string().max(100),
+});
+export type ProviderSelection = z.infer<typeof providerSelectionSchema>;
+export const defaultProviderSelection = (): ProviderSelection => ({
+  director: "mock",
+  transcription: "mock",
+  images: "mock",
+  music: "library",
+  directorModel: "",
+  imageModel: "",
+  musicModel: "",
+});
 export const defaultRoot = () =>
   process.env.WTS_HOME ||
   path.join(os.homedir(), "Movies", "WinTheCloud Studio");
@@ -220,6 +240,42 @@ export class Store {
         "INSERT INTO settings VALUES('creator',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data",
       )
       .run(JSON.stringify(profile));
+  }
+  /**
+   * Which provider serves each generation type. Settings UI selections persist
+   * here so the app, CLI and runtime agree; model overrides are optional
+   * strings ("" = provider default, then environment, then built-in default).
+   */
+  providerSelection(): ProviderSelection {
+    const row = this.db
+      .prepare("SELECT data FROM settings WHERE key='providers'")
+      .get() as { data: string } | undefined;
+    const defaults = defaultProviderSelection();
+    if (!row) return defaults;
+    let stored: unknown;
+    try {
+      stored = JSON.parse(row.data);
+    } catch {
+      return defaults;
+    }
+    if (typeof stored !== "object" || stored === null) return defaults;
+    const source = stored as Record<string, unknown>;
+    const merged = { ...defaults };
+    // Tolerate partial or stale rows key by key: one unknown value must not
+    // discard the creator's remaining selections.
+    for (const key of Object.keys(defaults) as (keyof ProviderSelection)[]) {
+      const field = providerSelectionSchema.shape[key].safeParse(source[key]);
+      if (field.success) (merged as Record<string, unknown>)[key] = field.data;
+    }
+    return merged;
+  }
+  setProviderSelection(selection: ProviderSelection) {
+    const stored = providerSelectionSchema.parse(selection);
+    this.db
+      .prepare(
+        "INSERT INTO settings VALUES('providers',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data",
+      )
+      .run(JSON.stringify(stored));
   }
   acquire(projectId: string): () => void {
     const token = id("lock");

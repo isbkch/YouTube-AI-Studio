@@ -156,10 +156,10 @@ import SwiftUI
 
 enum Keychain {
   static let service = "com.winthecloud.studio"
-  static func read() throws -> String? {
+  static func read(_ account: String = "openai") throws -> String? {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-      kSecAttrAccount as String: "openai", kSecReturnData as String: true,
+      kSecAttrAccount as String: account, kSecReturnData as String: true,
       kSecMatchLimit as String: kSecMatchLimitOne,
     ]
     var result: CFTypeRef?
@@ -168,10 +168,10 @@ enum Keychain {
     guard status == errSecSuccess, let data = result as? Data else { throw failure(status) }
     return String(data: data, encoding: .utf8)
   }
-  static func save(_ key: String) throws {
+  static func save(_ key: String, account: String = "openai") throws {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-      kSecAttrAccount as String: "openai",
+      kSecAttrAccount as String: account,
     ]
     let data = Data(key.utf8)
     let status = SecItemUpdate(

@@ -1352,42 +1352,94 @@
                   "music": {
                     "anyOf": [
                       {
-                        "type": "object",
-                        "properties": {
-                          "trackId": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 120
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "source": {
+                                "type": "string",
+                                "const": "library"
+                              },
+                              "trackId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "gainDb": {
+                                "type": "number",
+                                "minimum": -42,
+                                "maximum": -6
+                              },
+                              "duckToDb": {
+                                "type": "number",
+                                "minimum": -48,
+                                "maximum": -6
+                              },
+                              "fadeInSec": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 5
+                              },
+                              "fadeOutSec": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 5
+                              }
+                            },
+                            "required": [
+                              "source",
+                              "trackId",
+                              "gainDb",
+                              "duckToDb",
+                              "fadeInSec",
+                              "fadeOutSec"
+                            ],
+                            "additionalProperties": false
                           },
-                          "gainDb": {
-                            "type": "number",
-                            "minimum": -42,
-                            "maximum": -6
-                          },
-                          "duckToDb": {
-                            "type": "number",
-                            "minimum": -48,
-                            "maximum": -6
-                          },
-                          "fadeInSec": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 5
-                          },
-                          "fadeOutSec": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 5
+                          {
+                            "type": "object",
+                            "properties": {
+                              "source": {
+                                "type": "string",
+                                "const": "generated"
+                              },
+                              "brief": {
+                                "type": "string",
+                                "minLength": 10,
+                                "maxLength": 1200
+                              },
+                              "gainDb": {
+                                "type": "number",
+                                "minimum": -42,
+                                "maximum": -6
+                              },
+                              "duckToDb": {
+                                "type": "number",
+                                "minimum": -48,
+                                "maximum": -6
+                              },
+                              "fadeInSec": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 5
+                              },
+                              "fadeOutSec": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 5
+                              }
+                            },
+                            "required": [
+                              "source",
+                              "brief",
+                              "gainDb",
+                              "duckToDb",
+                              "fadeInSec",
+                              "fadeOutSec"
+                            ],
+                            "additionalProperties": false
                           }
-                        },
-                        "required": [
-                          "trackId",
-                          "gainDb",
-                          "duckToDb",
-                          "fadeInSec",
-                          "fadeOutSec"
-                        ],
-                        "additionalProperties": false
+                        ]
                       },
                       {
                         "type": "null"

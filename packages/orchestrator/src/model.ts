@@ -112,6 +112,7 @@ export interface Asset {
     | "audio"
     | "generated-image"
     | "broll-clip"
+    | "music-bed"
     | "audio-mix";
   sceneId: string | null;
   productionPlanVersion: number;

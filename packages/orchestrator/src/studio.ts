@@ -58,6 +58,7 @@ import {
   verifyOutput,
 } from "../../media/src/index.ts";
 import type { ImageProvider } from "../../image-engine/src/index.ts";
+import type { MusicProvider } from "../../music-engine/src/index.ts";
 import {
   RealBlenderProvider,
   type BlenderProvider,
@@ -96,6 +97,8 @@ export class Studio {
   public transcription: Transcriber;
   /** Still-image generation engine; null fails B-roll plans closed (ADR 007). */
   public images: ImageProvider | null = null;
+  /** Music-bed generation engine; null restricts beds to library tracks. */
+  public music: MusicProvider | null = null;
   /** 3D B-roll engine; probed lazily, injectable for tests (ADR 008). */
   public blender: BlenderProvider | null = null;
   private blenderProbed = false;
@@ -1072,6 +1075,7 @@ export class Studio {
       {
         images: this.images,
         blender: await this.blenderEngine(),
+        music: this.music,
         provider: this.provider,
       },
     );
@@ -1407,10 +1411,12 @@ export class Studio {
         this.images,
         library,
         await this.blenderEngine(),
+        this.music,
       );
       const visualCapabilities: VisualPassCapabilities = {
         "gpt-image": capabilities["gpt-image"],
         blender: capabilities.blender,
+        musicGeneration: capabilities.musicGeneration,
         musicTracks: library.tracks
           .filter((t) => t.kind === "music")
           .map((t) => ({
@@ -1488,10 +1494,18 @@ export class Studio {
             operations,
           };
           // Fail closed before approval: engines must be configured and the
-          // audio design must resolve in the creator's library.
+          // audio design must resolve in the creator's library (or, for
+          // generated beds, against a configured music engine).
           const next = applyPatch(plan, this.validateProposal(p, proposal));
-          validateEngines(next, this.images, await this.blenderEngine());
-          validateAudioDesign(next, trackRefs(library.tracks));
+          validateEngines(
+            next,
+            this.images,
+            await this.blenderEngine(),
+            this.music,
+          );
+          validateAudioDesign(next, trackRefs(library.tracks), {
+            musicGeneration: !!this.music,
+          });
           this.store.update(p.id, (x) => {
             x.usage.push(result.usage);
           });
