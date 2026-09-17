@@ -464,6 +464,7 @@ struct QAStillVerdict: Decodable, Identifiable {
 struct QAAnomalies: Decodable {
   let black: [QABlackInterval]?
   let frozen: [QAFreezeInterval]?
+  let note: String?
 }
 struct QABlackInterval: Decodable {
   let start: Double
@@ -480,11 +481,43 @@ struct QAVisual: Decodable {
   let stills: [QAStillVerdict]?
   let anomalies: QAAnomalies?
 }
+struct QAMetadata: Decodable {
+  let duration: Double?
+  let width: Int?
+  let height: Int?
+  let codec: String?
+  let frameRate: Double?
+  let hasAudio: Bool?
+  let audioCodec: String?
+  let bytes: Int?
+  let frames: Int?
+}
+struct QAAudio: Decodable {
+  let silenceThresholdDb: Double?
+  let minimumSilenceSeconds: Double?
+  let silenceStarts: [Double]?
+  let meanVolumeDb: Double?
+  let maxVolumeDb: Double?
+  let note: String?
+}
+struct QACoverage: Decodable, Identifiable {
+  var id: String { recordingId }
+  let recordingId: String
+  let name: String
+  let durationSeconds: Double
+  let keptSeconds: Double
+}
 struct QAReport: Decodable {
   let status: String
+  let checkedAt: String?
   let warnings: [String]?
   let attention: [String]?
   let humanChecks: [String]?
+  let coverageNote: String?
+  let checks: [String]?
+  let metadata: QAMetadata?
+  let audio: QAAudio?
+  let coverage: [QACoverage]?
   let visual: QAVisual?
 }
 struct FinalOptions: Decodable {
