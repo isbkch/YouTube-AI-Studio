@@ -965,6 +965,20 @@ export class Studio {
                 alignment,
               },
               signal,
+              async (candidate) => {
+                // Keep returned output and billed usage even when validation
+                // rejects it. A retry must not erase the evidence of failure.
+                const file = `logs/director-${id("candidate")}.json`;
+                await this.store.artifact(p, file, candidate);
+                this.store.update(p.id, (x) => {
+                  x.usage.push(candidate.usage);
+                });
+                this.store.event(p.id, {
+                  event: "director.candidate",
+                  path: file,
+                  model: candidate.usage.model,
+                });
+              },
             );
             await this.store.artifact(
               p,
@@ -973,7 +987,6 @@ export class Studio {
             );
             this.store.update(p.id, (x) => {
               x.plans.push(result.output);
-              x.usage.push(result.usage);
               x.status = transition(x.status, "AWAITING_STORYBOARD_APPROVAL");
             });
             this.store.event(p.id, {
