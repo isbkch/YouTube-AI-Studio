@@ -174,6 +174,7 @@ const packagingInput = (p: { id: string; title: string }): PackagingInput => ({
     targetMinutes: [12, 18],
     subjects: ["cloud architecture"],
     visualDensity: "balanced",
+    silenceTightening: "natural",
     brand: {
       background: "#101b29",
       foreground: "#f2f4ed",

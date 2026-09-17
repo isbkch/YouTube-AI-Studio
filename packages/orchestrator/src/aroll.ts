@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   now,
   StudioError,
+  type SilenceTightening,
   type VisualDensity,
 } from "../../shared/src/index.ts";
 import { tokenize, type Alignment } from "./alignment.ts";
@@ -46,7 +47,13 @@ export interface EditScene {
 /** Transcripts used to prove bridged sentences are actually spoken. */
 export interface BridgeTranscript {
   recordingId: string;
-  segments: { start: number; end: number; text: string }[];
+  segments: {
+    start: number;
+    end: number;
+    text: string;
+    /** Word timings when the provider supplied them; drive silence tightening. */
+    words?: { start: number; end: number; text: string }[];
+  }[];
 }
 
 const selectionShape = z.strictObject({
@@ -65,7 +72,7 @@ const selectionShape = z.strictObject({
 });
 
 export const editDecisionSchema = z.strictObject({
-  schemaVersion: z.literal("1.1.0"),
+  schemaVersion: z.literal("1.2.0"),
   createdAt: z.iso.datetime(),
   scenes: z.array(
     z.strictObject({
@@ -102,6 +109,12 @@ export const editDecisionSchema = z.strictObject({
     droppedSentences: z.number().int().nonnegative(),
     recordingsUsed: z.array(z.string()),
     suggestedGraphics: z.number().int().nonnegative(),
+    tightening: z.strictObject({
+      level: z.enum(["natural", "tight", "punchy"]),
+      gapsCut: z.number().int().nonnegative(),
+      secondsRemoved: z.number().nonnegative(),
+      skippedRecordings: z.array(z.string()),
+    }),
   }),
 });
 export type EditDecision = z.infer<typeof editDecisionSchema>;
@@ -113,6 +126,19 @@ const EMPHASIS_PUNCH = 1.1;
 const BRIDGE_TOKEN_RATIO = 0.5;
 // Scene edges may cut into alignment padding, never into claimed speech.
 const SPAN_TOLERANCE = 0.2;
+// Silence tightening (see buildEditDecision): interior word gaps wider than
+// splitGap cut the scene there, and edges trim to headPad/tailPad around the
+// spoken words. Match spans carry 0.14/0.3 s alignment pads and the coverage
+// check tolerates eating SPAN_TOLERANCE (0.2 s) into a claim, so headPad may
+// trim at most 0.14 s and tailPad must stay >= 0.1 s — tightened edges can
+// consume padding but never claimed speech.
+const TIGHTENING_LEVELS = {
+  tight: { splitGap: 1.0, headPad: 0.1, tailPad: 0.2 },
+  punchy: { splitGap: 0.6, headPad: 0.07, tailPad: 0.12 },
+} as const;
+// A tightening split must leave reviewable scenes on both sides (24 frames
+// at 30 fps, the same edge margin the range-revision splitter enforces).
+const MIN_TIGHT_HALF = 0.8;
 
 function numbersIn(text: string): number[] {
   return [...text.matchAll(/\b(\d+(?:\.\d+)?)\b/g)]
@@ -297,6 +323,7 @@ export function buildEditDecision(
   alignment: Alignment,
   transcripts: BridgeTranscript[] = [],
   density: VisualDensity = "balanced",
+  tightening: SilenceTightening = "natural",
 ): EditDecision {
   const latest = new Map<string, BridgeTranscript>();
   for (const t of transcripts) latest.set(t.recordingId, t);
@@ -449,13 +476,96 @@ export function buildEditDecision(
     g.start = Math.min(g.start, ...g.sentences.map((s) => s.match!.start));
     g.end = Math.max(g.end, ...g.sentences.map((s) => s.match!.end));
   }
+  // Silence tightening: with word timings from the transcripts, cut scenes at
+  // interior word gaps and trim edges to the spoken words. Recordings without
+  // word timings keep their aligned edges — synthetic even-distribution times
+  // must never become cut points. "natural" is the identity transform.
+  let gapsCut = 0;
+  let secondsRemoved = 0;
+  const skippedTightening = new Set<string>();
+  let result: typeof merged = merged;
+  if (tightening !== "natural") {
+    const level = TIGHTENING_LEVELS[tightening];
+    const wordTimeline = new Map<string, { start: number; end: number }[]>();
+    for (const t of latest.values())
+      wordTimeline.set(
+        t.recordingId,
+        t.segments.flatMap((s) => s.words ?? []),
+      );
+    const wordBounds = (recordingId: string, start: number, end: number) => {
+      const words = wordTimeline.get(recordingId) ?? [];
+      let first: number | null = null;
+      let last: number | null = null;
+      for (const w of words) {
+        if (w.end < start || w.start > end) continue;
+        if (first === null || w.start < first) first = w.start;
+        if (last === null || w.end > last) last = w.end;
+      }
+      return first !== null && last !== null ? { first, last } : null;
+    };
+    result = [];
+    for (const g of merged) {
+      const bounds = g.sentences.map((s) =>
+        wordBounds(g.recordingId, s.match!.start, s.match!.end),
+      );
+      if (bounds.some((b) => b === null)) {
+        skippedTightening.add(g.recordingId);
+        result.push(g);
+        continue;
+      }
+      // Greedy left-to-right: a pause wide enough to cut, with reviewable
+      // scenes on both sides, becomes a scene boundary.
+      const final = bounds.at(-1)!;
+      const parts: {
+        first: number;
+        last: number;
+        sentences: typeof g.sentences;
+      }[] = [];
+      let cur = {
+        first: bounds[0]!.first,
+        last: bounds[0]!.last,
+        sentences: [g.sentences[0]],
+      };
+      parts.push(cur);
+      for (let i = 1; i < g.sentences.length; i++) {
+        const b = bounds[i]!;
+        const pads = level.headPad + level.tailPad;
+        if (
+          b.first - cur.last > level.splitGap &&
+          cur.last - cur.first + pads >= MIN_TIGHT_HALF &&
+          final.last - b.first + pads >= MIN_TIGHT_HALF
+        ) {
+          gapsCut++;
+          cur = { first: b.first, last: b.last, sentences: [g.sentences[i]] };
+          parts.push(cur);
+        } else {
+          cur.last = Math.max(cur.last, b.last);
+          cur.sentences.push(g.sentences[i]);
+        }
+      }
+      for (const part of parts)
+        result.push({
+          recordingId: g.recordingId,
+          start: Math.max(0, part.first - level.headPad),
+          end: part.last + level.tailPad,
+          sentences: part.sentences,
+        });
+      secondsRemoved +=
+        g.end -
+        g.start -
+        parts.reduce(
+          (t, p) => t + (p.last - p.first) + level.headPad + level.tailPad,
+          0,
+        );
+    }
+  }
   // A cut must never present the same source seconds twice, whatever order
   // takes appear in. Work per recording in source order: trim each range to
   // the start of the next, and when one range swallows another, keep the one
   // with more content and record the other's sentences as dropped.
   const collided = new Set<(typeof merged)[number]>();
   const perRecording = new Map<string, typeof merged>();
-  for (const g of merged) {
+  for (const g of result) {
     const list = perRecording.get(g.recordingId) ?? [];
     list.push(g);
     perRecording.set(g.recordingId, list);
@@ -480,7 +590,7 @@ export function buildEditDecision(
         s.index,
         "Its matched speech overlaps another scene from the same take.",
       );
-  const kept = merged.filter((g) => !collided.has(g));
+  const kept = result.filter((g) => !collided.has(g));
   for (const g of kept) {
     const minStart = Math.min(...g.sentences.map((s) => s.match!.start));
     const maxEnd = Math.max(...g.sentences.map((s) => s.match!.end));
@@ -568,7 +678,7 @@ export function buildEditDecision(
     return s;
   });
   return editDecisionSchema.parse({
-    schemaVersion: "1.1.0",
+    schemaVersion: "1.2.0",
     createdAt: now(),
     scenes: withGraphics,
     dropped: rows
@@ -587,6 +697,12 @@ export function buildEditDecision(
         .length,
       recordingsUsed: [...new Set(withGraphics.map((s) => s.recordingId))],
       suggestedGraphics: withGraphics.filter((s) => s.suggestedGraphic).length,
+      tightening: {
+        level: tightening,
+        gapsCut,
+        secondsRemoved: Math.max(0, Math.round(secondsRemoved * 1000) / 1000),
+        skippedRecordings: [...skippedTightening],
+      },
     },
   });
 }

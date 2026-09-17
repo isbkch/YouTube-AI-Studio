@@ -27,6 +27,7 @@ import {
   id,
   now,
   StudioError,
+  asSilenceTightening,
   asVisualDensity,
   type CreatorProfile,
   type Usage,
@@ -470,6 +471,7 @@ export class DirectorAgent {
     const plan = validatePlan({
       ...cut,
       visualDensity: density,
+      silenceTightening: asSilenceTightening(input.creator.silenceTightening),
       director: {
         provider: result.usage.provider,
         model: result.usage.model,
@@ -518,7 +520,7 @@ export class DirectorAgent {
         ...input,
         contract: {
           id: id("plan"),
-          schemaVersion: "4.3.0",
+          schemaVersion: "4.4.0",
           projectId: input.projectId,
           version: input.version,
           scriptVersion: input.script.version,
@@ -555,12 +557,16 @@ export class DirectorAgent {
     });
     await onCandidate?.(result);
     const plan = bindTranscriptSegments(
-      // The contract never asks the model for visualDensity; the runtime
-      // records the density this plan was directed at.
+      // The contract never asks the model for visualDensity or
+      // silenceTightening; the runtime records what this plan was directed
+      // and cut at.
       validatePlan(
         normalizePlan({
           ...result.output,
           visualDensity: asVisualDensity(input.creator.visualDensity),
+          silenceTightening: asSilenceTightening(
+            input.creator.silenceTightening,
+          ),
         }),
       ),
       input.transcripts,
@@ -973,8 +979,14 @@ function graphicFrom(template: string, parameters: Record<string, unknown>) {
 /** Mock direction: a real alignment-based cut when available, else the MVP demo pattern. */
 export function mockPlan(input: DirectorInput): ProductionPlan {
   const density = asVisualDensity(input.creator.visualDensity);
+  const tightening = asSilenceTightening(input.creator.silenceTightening);
   if (input.alignment && input.alignment.stats.matched > 0) {
-    const edit = buildEditDecision(input.alignment, input.transcripts, density);
+    const edit = buildEditDecision(
+      input.alignment,
+      input.transcripts,
+      density,
+      tightening,
+    );
     const quantized = quantizeEditFrames(edit.scenes, input.recordings, 30);
     let cursor = 0;
     const scenes: Scene[] = edit.scenes.map((s, i) => {
@@ -1027,7 +1039,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     for (const s of edit.scenes)
       for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
     return validatePlan({
-      schemaVersion: "4.3.0",
+      schemaVersion: "4.4.0",
       id: id("plan"),
       projectId: input.projectId,
       version: input.version,
@@ -1038,6 +1050,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
       resolution: { width: 1920, height: 1080 },
       durationFrames: cursor,
       visualDensity: density,
+      silenceTightening: tightening,
       director: {
         provider: "mock",
         model: "deterministic-v1",
@@ -1172,7 +1185,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     timelineFrame += total;
   }
   return validatePlan({
-    schemaVersion: "4.3.0",
+    schemaVersion: "4.4.0",
     id: id("plan"),
     projectId: input.projectId,
     version: input.version,
@@ -1183,6 +1196,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     resolution: { width: 1920, height: 1080 },
     durationFrames: timelineFrame,
     visualDensity: density,
+    silenceTightening: tightening,
     director: {
       provider: "mock",
       model: "deterministic-v1",

@@ -115,15 +115,26 @@ async function dispatch(
       return studio.computeAlignment(project.parse(params).projectId);
     case "alignment.get":
       return studio.alignment(project.parse(params).projectId);
-    case "aroll.draft":
-      return studio.draftAroll(project.parse(params).projectId);
+    case "aroll.draft": {
+      const p = project
+        .extend({
+          tightening: z.enum(["natural", "tight", "punchy"]).optional(),
+        })
+        .parse(params);
+      return studio.draftAroll(p.projectId, p.tightening);
+    }
     case "plan.generate": {
       const p = project
         .extend({
           density: z.enum(["minimal", "balanced", "rich"]).optional(),
+          tightening: z.enum(["natural", "tight", "punchy"]).optional(),
         })
         .parse(params);
-      return studio.generatePlan(p.projectId, { density: p.density }, signal);
+      return studio.generatePlan(
+        p.projectId,
+        { density: p.density, tightening: p.tightening },
+        signal,
+      );
     }
     case "plan.import": {
       const p = project.extend({ plan: z.unknown() }).parse(params);

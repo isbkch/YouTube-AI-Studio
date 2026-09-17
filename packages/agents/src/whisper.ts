@@ -179,6 +179,7 @@ export async function ensureWhisperModel(
   return modelPath;
 }
 
+/** One emitted whisper.cpp segment; with `-ml 1 -sow` each entry is a word. */
 interface WhisperJSON {
   transcription?: {
     offsets: { from: number; to: number };
@@ -197,7 +198,21 @@ async function runWhisperJSON(
     const prefix = path.join(dir, "t");
     await runBinary(
       binary,
-      ["-m", modelPath, "-f", wav, "-oj", "-of", prefix, "-np"],
+      // -ml 1 -sow asks for whole-word segments so transcripts carry real
+      // word timings (alignment and silence tightening depend on them).
+      [
+        "-m",
+        modelPath,
+        "-f",
+        wav,
+        "-oj",
+        "-of",
+        prefix,
+        "-np",
+        "-ml",
+        "1",
+        "-sow",
+      ],
       { signal },
     );
     return JSON.parse(await readFile(`${prefix}.json`, "utf8")) as WhisperJSON;
@@ -252,14 +267,49 @@ export class WhisperCLIProvider implements Transcriber {
       binary,
       request.signal,
     );
-    const segments = (json.transcription || [])
-      .map((s, i) => ({
-        id: `segment-${i + 1}`,
-        start: s.offsets.from / 1000,
-        end: Math.min(s.offsets.to / 1000, request.recording.duration),
-        text: s.text.trim(),
+    // whisper.cpp emitted one segment per word; regroup into phrase segments
+    // so downstream sees natural segments plus the word timings inside them.
+    // A sentence end, a long pause, or the word cap starts the next segment.
+    const SEGMENT_PAUSE = 0.8;
+    const SEGMENT_WORDS = 14;
+    const words = (json.transcription || [])
+      .map((w) => ({
+        start: w.offsets.from / 1000,
+        end: Math.min(w.offsets.to / 1000, request.recording.duration),
+        text: w.text.trim(),
       }))
-      .filter((s) => s.text && s.end > s.start);
+      .filter((w) => w.text && w.end > w.start);
+    const segments: {
+      id: string;
+      start: number;
+      end: number;
+      text: string;
+      words: { start: number; end: number; text: string }[];
+    }[] = [];
+    let group: typeof words = [];
+    const flush = () => {
+      if (!group.length) return;
+      segments.push({
+        id: `segment-${segments.length + 1}`,
+        start: group[0].start,
+        end: group.at(-1)!.end,
+        text: group.map((w) => w.text).join(" "),
+        words: group,
+      });
+      group = [];
+    };
+    for (const w of words) {
+      const prev = group.at(-1);
+      if (
+        prev &&
+        (/[.!?…]$/.test(prev.text) ||
+          w.start - prev.end > SEGMENT_PAUSE ||
+          group.length >= SEGMENT_WORDS)
+      )
+        flush();
+      group.push(w);
+    }
+    flush();
     if (!segments.length)
       throw new StudioError(
         "EXTERNAL_TOOL",

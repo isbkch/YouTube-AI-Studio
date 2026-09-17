@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "4.3.0"
+      "const": "4.4.0"
     },
     "id": {
       "type": "string",
@@ -1300,6 +1300,11 @@
       "type": "string",
       "enum": ["minimal", "balanced", "rich"]
     },
+    "silenceTightening": {
+      "default": "natural",
+      "type": "string",
+      "enum": ["natural", "tight", "punchy"]
+    },
     "audioDesign": {
       "default": {
         "music": null,
@@ -1512,6 +1517,7 @@
     "director",
     "scenes",
     "visualDensity",
+    "silenceTightening",
     "audioDesign",
     "scriptCoverage"
   ],

@@ -50,8 +50,10 @@ import {
   now,
   safePath,
   StudioError,
+  asSilenceTightening,
   asVisualDensity,
   type CreatorProfile,
+  type SilenceTightening,
   type VisualDensity,
 } from "../../shared/src/index.ts";
 import {
@@ -911,14 +913,17 @@ export class Studio {
   }
   async generatePlan(
     projectId: string,
-    options: { density?: VisualDensity } = {},
+    options: { density?: VisualDensity; tightening?: SilenceTightening } = {},
     signal?: AbortSignal,
   ) {
     return this.locked(projectId, async (p) => {
-      // An explicit density overrides the project's snapshotted creator
-      // default; the resulting plan records whichever was used.
+      // An explicit density or tightening level overrides the project's
+      // snapshotted creator default; the plan records whichever was used.
       const density = asVisualDensity(
         options.density ?? p.creator.visualDensity,
+      );
+      const tightening = asSilenceTightening(
+        options.tightening ?? p.creator.silenceTightening,
       );
       const transcripts = p.recordings
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
@@ -971,7 +976,11 @@ export class Studio {
                 script: p.scripts.at(-1)!,
                 transcripts,
                 recordings: p.recordings,
-                creator: { ...p.creator, visualDensity: density },
+                creator: {
+                  ...p.creator,
+                  visualDensity: density,
+                  silenceTightening: tightening,
+                },
                 version: p.plans.length + 1,
                 targetDuration: p.targetDuration,
                 alignment,
@@ -1081,7 +1090,7 @@ export class Studio {
     });
   }
   /** Draft the deterministic A-roll edit for review; the Director refines it. */
-  async draftAroll(projectId: string) {
+  async draftAroll(projectId: string, tightening?: SilenceTightening) {
     const p = this.store.get(projectId);
     const alignment = await this.computeAlignment(projectId);
     return buildEditDecision(
@@ -1089,6 +1098,8 @@ export class Studio {
       p.recordings.map((r) =>
         p.transcripts.findLast((t) => t.recordingId === r.id)!,
       ),
+      asVisualDensity(p.creator.visualDensity),
+      asSilenceTightening(tightening ?? p.creator.silenceTightening),
     );
   }
   async approvePlan(projectId: string, version: number) {
@@ -2141,6 +2152,9 @@ export class Studio {
         visualDensity: z
           .enum(["minimal", "balanced", "rich"])
           .default("balanced"),
+        silenceTightening: z
+          .enum(["natural", "tight", "punchy"])
+          .default("natural"),
         brand: z.strictObject({
           background: z.string().regex(/^#[a-fA-F0-9]{6}$/),
           foreground: z.string().regex(/^#[a-fA-F0-9]{6}$/),

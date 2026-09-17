@@ -88,7 +88,7 @@ struct StudioView: View {
           Image(systemName: "rectangle.stack.badge.play.fill").font(.title2).foregroundStyle(
             Color.studioAccent)
           VStack(alignment: .leading, spacing: 3) {
-            Text("YouTube-AI-Studio").font(.system(size: 18, weight: .medium, design: .serif))
+            Text("YouTube AI").font(.system(size: 18, weight: .medium, design: .serif))
             Text("STUDIO").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(
               3
             ).foregroundStyle(.secondary)

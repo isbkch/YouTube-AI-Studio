@@ -488,8 +488,16 @@ export const sceneSchema = z.strictObject({
  * reads it as steering; revisions inherit it.
  */
 export const visualDensitySchema = z.enum(["minimal", "balanced", "rich"]);
+/**
+ * How aggressively the deterministic A-roll cut removes silence: "natural"
+ * keeps the aligned pacing as directed, "tight" and "punchy" drop interior
+ * word gaps and trim scene edges closer to the spoken words. Recorded so
+ * revisions and the UI show the pacing the plan was cut at; the deterministic
+ * editor applies it, never the model.
+ */
+export const silenceTighteningSchema = z.enum(["natural", "tight", "punchy"]);
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("4.3.0"),
+  schemaVersion: z.literal("4.4.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -510,6 +518,8 @@ export const planSchema = z.strictObject({
   scenes: z.array(sceneSchema).min(1).max(500),
   /** Density the plan was directed at; drives revisions and the UI display. */
   visualDensity: visualDensitySchema.default("balanced"),
+  /** Pacing the deterministic cut was tightened at; revisions inherit it. */
+  silenceTightening: silenceTighteningSchema.default("natural"),
   audioDesign: audioDesignSchema.default({ music: null, sfx: [] }),
   scriptCoverage: scriptCoverageSchema.nullable().default(null),
 });
@@ -614,6 +624,10 @@ export function migratePlan(input: unknown): unknown {
     // v4.3 records the visual density the plan was directed at; filled by the
     // schema default.
     return migratePlan({ ...plan, schemaVersion: "4.3.0" });
+  if (plan.schemaVersion === "4.3.0")
+    // v4.4 records the silence tightening the cut was made at; filled by the
+    // schema default.
+    return migratePlan({ ...plan, schemaVersion: "4.4.0" });
   return input;
 }
 
