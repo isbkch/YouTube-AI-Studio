@@ -40,15 +40,53 @@ export function splitScriptSentences(script: string): ScriptSentence[] {
   const sentences: ScriptSentence[] = [];
   let heading: string | null = null;
   let index = 0;
+  const quotedScript = /^\s*>\s*\S/m.test(script);
+  let fenced = false;
+  let spokenBlock = true;
+  const clean = (text: string) =>
+    text
+      .replace(/\*\*|__/g, "")
+      .replace(/(?<!\w)[*_]([^*_]+)[*_](?!\w)/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .trim();
   for (const rawLine of script.split(/\n/)) {
-    const line = rawLine.trim();
+    let line = rawLine.trim();
     if (!line) continue;
-    if (/^#{1,3}\s+/.test(line)) {
-      heading = line.replace(/^#{1,3}\s+/, "").slice(0, 120);
+    if (/^```/.test(line)) {
+      fenced = !fenced;
       continue;
     }
+    if (fenced) continue;
+    if (/^#{1,6}\s+/.test(line)) {
+      heading = clean(line.replace(/^#{1,6}\s+/, ""))
+        .replace(
+          /^\d{1,3}:\d{2}(?::\d{2})?\s*[–—-]\s*\d{1,3}:\d{2}(?::\d{2})?\s*[–—-]\s*/,
+          "",
+        )
+        .slice(0, 120);
+      spokenBlock = true;
+      continue;
+    }
+    const marker =
+      /^(a-?roll|b-?roll(?:\s*\/\s*screen)?|on\s+screen|screen\s+recording)$/i.exec(
+        clean(line),
+      );
+    if (marker) {
+      spokenBlock = /^(a|on)/i.test(marker[1]);
+      continue;
+    }
+    const quote = /^>+\s?(.*)$/.exec(line);
+    if (quotedScript && !quote) continue;
+    if (!spokenBlock) continue;
+    line = clean(quote ? quote[1] : line);
+    if (!line || /^[-*_]{3,}$/.test(line)) continue;
     // Short standalone lines without terminal punctuation act as section labels.
-    if (line.length <= 60 && !/[.!?]"?$/.test(line) && !/\s{3,}/.test(line)) {
+    if (
+      !quote &&
+      line.length <= 60 &&
+      !/[.!?]"?$/.test(line) &&
+      !/\s{3,}/.test(line)
+    ) {
       heading = line.slice(0, 120);
       continue;
     }
@@ -176,7 +214,7 @@ function bestSpan(
  * alongside the artifact so a library can detect alignments computed by an
  * older algorithm and recompute instead of silently reusing them.
  */
-export const ALIGNMENT_ALGORITHM = "smith-waterman-v3";
+export const ALIGNMENT_ALGORITHM = "smith-waterman-v4";
 
 export const alignmentSchema = z.strictObject({
   schemaVersion: z.literal("2.0.0"),

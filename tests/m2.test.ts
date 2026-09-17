@@ -96,6 +96,42 @@ test("script sentences split with headings; tokens normalize", () => {
   assert.equal(sentences[2].tokens.join(" "), "final question");
 });
 
+test("shooting-script markup never becomes narration or chapter titles", () => {
+  const sentences = splitScriptSentences(
+    [
+      "# Video title",
+      "**Target:** 15 minutes",
+      "## 0:00–0:50 — Cold open",
+      "**A-ROLL**",
+      "> First spoken sentence.",
+      ">",
+      "> **An emphasized sentence.**",
+      "> A spoken fragment:",
+      "**B-ROLL / SCREEN**",
+      "Draw an architecture.",
+      "> Unspoken visual direction.",
+      "```ts",
+      'console.log("not narration");',
+      "```",
+      "# 0:50–2:00 — The next section",
+      "> A final _spoken_ sentence.",
+    ].join("\n"),
+  );
+  assert.deepEqual(
+    sentences.map((s) => s.text),
+    [
+      "First spoken sentence.",
+      "An emphasized sentence.",
+      "A spoken fragment:",
+      "A final spoken sentence.",
+    ],
+  );
+  assert.deepEqual(
+    sentences.map((s) => s.heading),
+    ["Cold open", null, null, "The next section"],
+  );
+});
+
 test("alignment picks the best take per sentence and stays monotonic", () => {
   const good = recording("rec-good", 60, "take-a");
   const retake = recording("rec-retake", 60, "take-b");

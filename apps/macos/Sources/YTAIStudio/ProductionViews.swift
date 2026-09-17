@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MediaThumbnail: View {
   let url: URL
+  var seconds: Double = 1
   @State private var image: NSImage?
   var body: some View {
     ZStack {
@@ -13,13 +14,17 @@ struct MediaThumbnail: View {
       } else {
         Image(systemName: "play.rectangle").font(.largeTitle).foregroundStyle(.secondary)
       }
-    }.clipped().task(id: url) {
+    }.clipped().task(id: "\(url.absoluteString)@\(seconds)") {
+      image = nil
       let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
       generator.appliesPreferredTrackTransform = true
       generator.requestedTimeToleranceBefore = .zero
       generator.requestedTimeToleranceAfter = .zero
       generator.maximumSize = CGSize(width: 640, height: 360)
-      if let result = try? await generator.image(at: CMTime(seconds: 1, preferredTimescale: 600)) {
+      if let result = try? await generator.image(
+        at: CMTime(seconds: seconds, preferredTimescale: 600)),
+        !Task.isCancelled
+      {
         image = NSImage(cgImage: result.image, size: .zero)
       }
     }
@@ -137,6 +142,9 @@ struct SceneCard: View {
   let p: Project
   let scene: ProductionScene
   let edit: () -> Void
+  var previewOffset: Double {
+    min(1, Double(scene.durationFrames) / Double(p.plan?.frameRate ?? 30) / 2)
+  }
   var currentAsset: Asset? {
     p.assets?.last {
       $0.sceneId == scene.id && $0.type == "remotion-render"
@@ -147,11 +155,14 @@ struct SceneCard: View {
     VStack(alignment: .leading, spacing: 0) {
       ZStack(alignment: .bottomLeading) {
         if let a = currentAsset, let url = p.url(a.path) {
-          MediaThumbnail(url: url)
-        } else if scene.visual.graphic == nil || !scene.enabled, let r = p.recordings.first,
+          MediaThumbnail(url: url, seconds: previewOffset)
+        } else if scene.visual.graphic == nil || !scene.enabled,
+          let r = p.recordings.first(where: { $0.id == scene.camera.recordingId }),
           let url = p.url(r.proxyPath ?? r.path)
         {
-          MediaThumbnail(url: url)
+          MediaThumbnail(
+            url: url,
+            seconds: Double(scene.sourceInFrame) / Double(p.plan?.frameRate ?? 30) + previewOffset)
         } else {
           VStack(alignment: .leading, spacing: 16) {
             Text(scene.visual.graphic?.template.uppercased() ?? "PRESENTER").font(
