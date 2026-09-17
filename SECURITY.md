@@ -9,7 +9,7 @@ itself.
 ## Reporting a Vulnerability
 
 Please report suspected vulnerabilities privately via
-[GitHub security advisories](https://github.com/isbkch/yt-studio/security/advisories/new)
+[GitHub security advisories](https://github.com/isbkch/yt-ai-studio/security/advisories/new)
 ("Report a vulnerability"). Do not open public issues for security reports.
 
 Include what you can of: affected component or file, a minimal reproduction,
