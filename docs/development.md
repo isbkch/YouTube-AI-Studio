@@ -6,6 +6,8 @@ The local build was verified on macOS 27 arm64, Swift 6.4, Node 26.8.2, Bun 1.4.
 
 ## Useful loops
 
+TypeScript runs side by side: `@typescript/native` aliases TypeScript 7 and provides `tsc` for typechecking; `typescript` aliases the TypeScript 6.0 compatibility package for ESLint's compiler API. Keep the API dependency on 6.0 until typescript-eslint supports the newer API. This follows the [TypeScript migration guidance](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/#running-side-by-side-with-typescript-6.0).
+
 ```sh
 bun run check
 bun run test:integration
