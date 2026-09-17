@@ -451,8 +451,19 @@ struct TranscriptView: View {
         Button("Load Transcript…") { Task { await m.loadTranscript() } }.buttonStyle(
           QuietButtonStyle()
         ).disabled(p.status != "MEDIA_IMPORTED" || m.busy)
-        Button(m.provider == "mock" ? "Mock Transcribe" : "Transcribe with OpenAI") {
-          Task { await m.perform("transcript.generate", label: "Transcription") }
+        Button(
+          m.transcriptionProvider == "mock"
+            ? "Mock Transcribe"
+            : m.transcriptionProvider == "whisper"
+              ? "Transcribe Locally (whisper)" : "Transcribe with OpenAI"
+        ) {
+          Task {
+            // Apply the current Settings selection first so the label and the
+            // engine that runs can never diverge (e.g. picking Local whisper
+            // but transcribing with OpenAI because Apply was never pressed).
+            await m.configureProvider()
+            await m.perform("transcript.generate", label: "Transcription")
+          }
         }.buttonStyle(QuietButtonStyle()).disabled(
           p.status != "MEDIA_IMPORTED" || m.busy || p.pendingRecordings.isEmpty)
       }
