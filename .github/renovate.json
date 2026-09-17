@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "schedule": ["before 6am on Monday"],
+  "packageRules": [
+    {
+      "description": "Remotion packages must move in lockstep with the renderer identity recorded in graphicKey.",
+      "matchPackageNames": [
+        "remotion",
+        "@remotion/bundler",
+        "@remotion/renderer"
+      ],
+      "groupName": "remotion"
+    },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "dev dependencies",
+      "prPriority": -1
+    },
+    {
+      "matchDepTypes": ["dependencies"],
+      "matchPackageNames": ["!remotion", "!@remotion/**"],
+      "groupName": "runtime dependencies"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    }
+  ]
+}
