@@ -64,6 +64,19 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
     assert.equal((snap.result as { status: string }).status, "READY_TO_RECORD");
     const unsupported = await call("execute.shell", { command: "echo unsafe" });
     assert.equal((unsupported.error as { kind: string }).kind, "UNSUPPORTED");
+    // Deleting removes the project (no recordings imported here) and later
+    // snapshots fail cleanly instead of resurrecting it.
+    const deleted = await call("project.delete", { projectId: p.id });
+    assert.equal(
+      (deleted.result as { recordingsRemoved: number }).recordingsRemoved,
+      0,
+    );
+    assert.ok((await call("project.get", { projectId: p.id })).error);
+    const listed = (await call("projects.list")).result as { id: string }[];
+    assert.equal(
+      listed.some((x) => x.id === p.id),
+      false,
+    );
     // Milestone 4 — the pre-production agent chain over private IPC.
     const pp = (
       await call("project.create", {

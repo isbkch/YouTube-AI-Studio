@@ -181,6 +181,30 @@ export class Store {
     this.snapshot(p);
     return p;
   }
+  /**
+   * Remove a project and every dependent row (jobs, assets, events, locks) in
+   * one transaction and return the deleted document. Files are the caller's
+   * responsibility: `Studio.deleteProject` removes the project directory.
+   */
+  delete(projectId: string): Project {
+    const p = this.get(projectId);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const sql of [
+        "DELETE FROM events WHERE project_id=?",
+        "DELETE FROM jobs WHERE project_id=?",
+        "DELETE FROM assets WHERE project_id=?",
+        "DELETE FROM locks WHERE project_id=?",
+        "DELETE FROM projects WHERE id=?",
+      ])
+        this.db.prepare(sql).run(p.id);
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+    return p;
+  }
   private snapshot(p: Project) {
     const dir = this.dir(p);
     const temp = path.join(dir, `project.${id("tmp")}.json`);

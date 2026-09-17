@@ -63,6 +63,8 @@ async function dispatch(
     }
     case "project.recover":
       return studio.recover(project.parse(params).projectId);
+    case "project.delete":
+      return studio.deleteProject(project.parse(params).projectId);
     case "project.get":
       return studio.snapshot(project.parse(params).projectId);
     case "script.save": {

@@ -92,9 +92,10 @@ bun run wts final render <project-id>   # Resolve finishing
 bun run wts packaging <project-id>       # titles/description/chapters/metadata
 bun run wts packaging approve <project-id> --version 1
 bun run wts publish <project-id>          # YouTube CLI upload, after approval
+bun run wts project delete <project-id> --yes  # remove the project workspace
 ```
 
-Always quote paths containing spaces. `render` is an alias for local rough-cut build, not a final Resolve delivery render. Ctrl-C cancels work and retains completed cache entries.
+Always quote paths containing spaces. `render` is an alias for local rough-cut build, not a final Resolve delivery render. Ctrl-C cancels work and retains completed cache entries. Deleting a project (also available as Delete Project in the app) removes its scripts, plans, renders, database rows and the imported copies of your recordings from the library — the original files you imported from are never touched.
 
 ## Credentials
 
