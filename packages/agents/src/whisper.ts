@@ -1,8 +1,18 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
+import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
+import { pipeline } from "node:stream/promises";
 import { executable, ffmpeg, runBinary } from "../../media/src/index.ts";
-import { StudioError, now, type Usage } from "../../shared/src/index.ts";
+import {
+  StudioError,
+  fileHash,
+  now,
+  type Usage,
+} from "../../shared/src/index.ts";
 import type { Recording, Transcript } from "../../orchestrator/src/model.ts";
 import {
   validateTranscript,
@@ -18,6 +28,156 @@ import { tokenize } from "../../orchestrator/src/alignment.ts";
 export const defaultWhisperModel = () =>
   process.env.WTS_WHISPER_MODEL ||
   path.join(os.homedir(), ".whisper-models", "ggml-small.bin");
+
+/** Official ggml model host; every canonical `ggml-*.bin` name resolves here. */
+const MODEL_REPO = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+const MODEL_PATHS_API =
+  "https://huggingface.co/api/models/ggerganov/whisper.cpp/paths-info/main";
+const downloadableModel = (name: string) =>
+  /^ggml-[a-z0-9][a-z0-9._-]*\.bin$/.test(name);
+
+async function existingFile(file: string) {
+  try {
+    return (await stat(file)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+interface ModelExpectations {
+  sha256?: string;
+  bytes?: number;
+}
+
+/** LFS metadata (sha256 + exact size) from the hub; optional defense in depth. */
+async function modelExpectations(
+  name: string,
+  fetcher: typeof globalThis.fetch,
+  signal?: AbortSignal,
+): Promise<ModelExpectations | null> {
+  try {
+    const response = await fetcher(MODEL_PATHS_API, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: [name] }),
+      signal,
+    });
+    if (!response.ok) return null;
+    const [entry] = (await response.json()) as {
+      size?: number;
+      lfs?: { oid?: string; size?: number };
+    }[];
+    return entry
+      ? { sha256: entry.lfs?.oid, bytes: entry.lfs?.size ?? entry.size }
+      : null;
+  } catch {
+    return null; /* Content-Length still guards against truncation. */
+  }
+}
+
+async function downloadModel(
+  modelPath: string,
+  name: string,
+  fetcher: typeof globalThis.fetch,
+  signal?: AbortSignal,
+): Promise<void> {
+  const expected = await modelExpectations(name, fetcher, signal);
+  const response = await fetcher(`${MODEL_REPO}/${encodeURI(name)}`, {
+    signal,
+  });
+  if (response.status === 404)
+    throw new StudioError(
+      "MISSING_DEPENDENCY",
+      `No whisper.cpp model named ${name} is published.`,
+      "Check the model name, or set WTS_WHISPER_MODEL to an existing ggml file.",
+    );
+  if (!response.ok || !response.body)
+    throw new StudioError(
+      "EXTERNAL_TOOL",
+      `Downloading whisper model ${name} failed (HTTP ${response.status}).`,
+      "Check network access to huggingface.co, then retry.",
+      true,
+    );
+  const declared =
+    Number(response.headers.get("content-length")) || expected?.bytes;
+  await mkdir(path.dirname(modelPath), { recursive: true });
+  const partial = `${modelPath}.${randomUUID()}.part`;
+  try {
+    await pipeline(
+      // undici's DOM-side ReadableStream type differs from node:stream/web's.
+      Readable.fromWeb(
+        response.body as unknown as NodeWebReadableStream<Uint8Array>,
+      ),
+      createWriteStream(partial),
+      { signal },
+    );
+    const written = (await stat(partial)).size;
+    if (declared && written !== declared)
+      throw new StudioError(
+        "EXTERNAL_TOOL",
+        `Incomplete download of ${name}: ${written} of ${declared} bytes.`,
+        "Check network stability, then retry.",
+        true,
+      );
+    const sha256 = expected?.sha256 && (await fileHash(partial));
+    if (expected?.sha256 && sha256 !== expected.sha256)
+      throw new StudioError(
+        "EXTERNAL_TOOL",
+        `Whisper model ${name} failed its sha256 checksum.`,
+        "Discard the partial download and retry; the source may be corrupted.",
+        true,
+      );
+    await rename(partial, modelPath);
+  } catch (e) {
+    await rm(partial, { force: true });
+    if (e instanceof StudioError) throw e;
+    throw new StudioError(
+      "EXTERNAL_TOOL",
+      e instanceof Error
+        ? e.message
+        : `Downloading whisper model ${name} failed.`,
+      "Check network access to huggingface.co, then retry.",
+      true,
+    );
+  }
+}
+
+const modelDownloads = new Map<string, Promise<void>>();
+
+/**
+ * Make sure the whisper model exists, downloading the canonical ggml file
+ * from the whisper.cpp repository on first use. Custom model paths whose
+ * names are not published there keep failing with setup guidance.
+ */
+export async function ensureWhisperModel(
+  options: {
+    modelPath?: string;
+    signal?: AbortSignal;
+    transport?: { fetch?: typeof globalThis.fetch };
+  } = {},
+): Promise<string> {
+  const modelPath = options.modelPath ?? defaultWhisperModel();
+  if (await existingFile(modelPath)) return modelPath;
+  const name = path.basename(modelPath);
+  if (!downloadableModel(name))
+    throw new StudioError(
+      "MISSING_DEPENDENCY",
+      `Whisper model not found at ${modelPath}.`,
+      "Download a ggml model and set WTS_WHISPER_MODEL to its path.",
+    );
+  let download = modelDownloads.get(modelPath);
+  if (!download) {
+    download = downloadModel(
+      modelPath,
+      name,
+      options.transport?.fetch ?? globalThis.fetch,
+      options.signal,
+    ).finally(() => modelDownloads.delete(modelPath));
+    modelDownloads.set(modelPath, download);
+  }
+  await download;
+  return modelPath;
+}
 
 interface WhisperJSON {
   transcription?: {
@@ -72,6 +232,7 @@ export class WhisperCLIProvider implements Transcriber {
   constructor(
     public modelPath: string = defaultWhisperModel(),
     private binary?: string,
+    private transport: { fetch?: typeof globalThis.fetch } = {},
   ) {}
   async transcribe(request: {
     file: string;
@@ -79,12 +240,11 @@ export class WhisperCLIProvider implements Transcriber {
     signal?: AbortSignal;
   }): Promise<ProviderResult<Transcript>> {
     const started = performance.now();
-    if (!(await stat(this.modelPath)).isFile())
-      throw new StudioError(
-        "MISSING_DEPENDENCY",
-        `Whisper model not found at ${this.modelPath}.`,
-        "Download a ggml model and set WTS_WHISPER_MODEL to its path.",
-      );
+    await ensureWhisperModel({
+      modelPath: this.modelPath,
+      signal: request.signal,
+      transport: this.transport,
+    });
     const binary = this.binary ?? (await whisperBinary());
     const json = await runWhisperJSON(
       this.modelPath,
