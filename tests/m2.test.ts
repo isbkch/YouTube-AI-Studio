@@ -188,6 +188,74 @@ test("alignment refuses short cross-take rescues and records its algorithm ident
   );
 });
 
+test("alignment rescues repeated beats only between their script neighbors", () => {
+  const rec = recording("rec-1", 60);
+  const script =
+    "The opening establishes the demo. Eleven documents never finished. Okay. Why?";
+  for (const repeatedInGap of [true, false]) {
+    const transcript = transcriptWithWords(rec.id, [
+      { start: 2, text: "Okay, let us begin." },
+      { start: 10, text: "The opening establishes the demo." },
+      { start: 30, text: "Eleven documents never finished." },
+      ...(repeatedInGap ? [{ start: 32, text: "Okay." }] : []),
+      { start: 33, text: "Why?" },
+      { start: 45, text: "Okay, that is all." },
+    ]);
+    const alignment = alignScript({
+      script,
+      scriptVersion: 1,
+      recordings: [rec],
+      transcripts: [transcript],
+    });
+    const beat = alignment.sentences[2];
+    if (repeatedInGap) {
+      assert.ok(beat.match);
+      assert.ok(beat.match.start >= alignment.sentences[1].match!.end);
+      assert.ok(beat.match.end <= alignment.sentences[3].match!.start);
+    } else assert.equal(beat.match, null);
+    const edit = buildEditDecision(alignment, [transcript]);
+    assert.ok(edit.stats.keptSeconds < 10);
+    assert.equal(edit.dropped.length, repeatedInGap ? 0 : 1);
+  }
+});
+
+test("A-roll short-scene merging cannot stretch a scene backwards over other speech", () => {
+  const rec = recording("rec-1", 60);
+  const transcript = transcriptWithWords(rec.id, [
+    { start: 2, text: "Okay." },
+    { start: 10, text: "The opening establishes the demo." },
+    { start: 30, text: "Eleven documents never finished." },
+    { start: 33, text: "Why?" },
+  ]);
+  const alignment = alignScript({
+    script:
+      "The opening establishes the demo. Eleven documents never finished. Okay. Why?",
+    scriptVersion: 1,
+    recordings: [rec],
+    transcripts: [transcript],
+  });
+  // A legacy/external alignment selected an earlier unclaimed beat. Keep its
+  // range separate; merging it used to swallow the opening and then throw.
+  alignment.sentences[2].match = {
+    recordingId: rec.id,
+    start: 1.86,
+    end: 2.66,
+    score: 1,
+    segmentIds: ["seg-1"],
+  };
+  const edit = buildEditDecision(alignment, [transcript]);
+  assert.equal(edit.dropped.length, 0);
+  assert.ok(edit.stats.keptSeconds < 10);
+  const ranges = [...edit.scenes].sort((a, b) => a.start - b.start);
+  for (let i = 1; i < ranges.length; i++)
+    assert.ok(ranges[i].start >= ranges[i - 1].end);
+  for (const row of alignment.sentences) {
+    const scene = edit.scenes.find((s) => s.sentences.includes(row.index))!;
+    assert.ok(scene.start <= row.match!.start);
+    assert.ok(scene.end >= row.match!.end);
+  }
+});
+
 test("bridging requires transcript proof of the claimed sentence", () => {
   const rec = recording("rec-1", 60);
   const row = (

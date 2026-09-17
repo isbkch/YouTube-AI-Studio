@@ -530,8 +530,9 @@ struct TranscriptView: View {
           .disabled(!p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
         Button("Generate Storyboard") {
           Task {
-            await m.perform("plan.generate", label: "Director planning")
-            m.tab = "Storyboard"
+            if await m.perform("plan.generate", label: "Director planning") {
+              m.tab = "Storyboard"
+            }
           }
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(
           !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
