@@ -42,12 +42,12 @@
     "swift:format": "swift format format --in-place --recursive apps/macos/Sources"
   },
   "dependencies": {
-    "@remotion/bundler": "4.0.525",
-    "@remotion/renderer": "4.0.525",
+    "@remotion/bundler": "4.0.526",
+    "@remotion/renderer": "4.0.526",
     "openai": "7.15.0",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "remotion": "4.0.525",
+    "remotion": "4.0.526",
     "zod": "^4.6.5"
   },
   "devDependencies": {
