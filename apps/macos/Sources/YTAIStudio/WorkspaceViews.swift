@@ -498,24 +498,28 @@ struct TranscriptView: View {
               "\(draft.stats.groups) scene(s) • \(String(format: "%.0f", draft.stats.keptSeconds))s kept • \(draft.stats.droppedSentences) sentence(s) dropped • \(draft.stats.suggestedGraphics) graphic suggestion(s)"
             ).font(.caption).foregroundStyle(.secondary)
           }
-          ForEach(draft.scenes) { s in
-            HStack(alignment: .top, spacing: 14) {
-              Text(timestamp(s.start) + "–" + timestamp(s.end)).font(
-                .system(size: 11, design: .monospaced)
-              ).foregroundStyle(Color.studioAccent).frame(width: 104, alignment: .leading)
-              VStack(alignment: .leading, spacing: 3) {
-                Text(String(s.narration.prefix(160))).font(.caption).lineLimit(2)
-                if let g = s.suggestedGraphic {
-                  Text("\(g.template) — \(g.reason)").font(.caption2).foregroundStyle(
-                    Color.studioAccent)
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+              ForEach(draft.scenes) { s in
+                HStack(alignment: .top, spacing: 14) {
+                  Text(timestamp(s.start) + "–" + timestamp(s.end)).font(
+                    .system(size: 11, design: .monospaced)
+                  ).foregroundStyle(Color.studioAccent).frame(width: 104, alignment: .leading)
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(String(s.narration.prefix(160))).font(.caption).lineLimit(2)
+                    if let g = s.suggestedGraphic {
+                      Text("\(g.template) — \(g.reason)").font(.caption2).foregroundStyle(
+                        Color.studioAccent)
+                    }
+                  }.frame(maxWidth: .infinity, alignment: .leading)
                 }
-              }.frame(maxWidth: .infinity, alignment: .leading)
+              }
+              ForEach(draft.dropped) { d in
+                Text("Dropped: \(String(d.text.prefix(100)))").font(.caption2).foregroundStyle(
+                  .secondary)
+              }
             }
-          }
-          ForEach(draft.dropped) { d in
-            Text("Dropped: \(String(d.text.prefix(100)))").font(.caption2).foregroundStyle(
-              .secondary)
-          }
+          }.frame(maxHeight: 240)
           Text(
             "Deterministic draft from script↔take alignment; the Director plan supersedes it."
           ).font(.caption2).foregroundStyle(.secondary)
