@@ -833,6 +833,32 @@ export interface SourceTranscript {
   recordingId: string;
   segments: { id: string; start: number; end: number; text: string }[];
 }
+
+/** Resolve generated provenance from the selected footage, not model-written
+ * IDs. This changes references only; source ranges and narration still have to
+ * pass validateSources. Explicitly imported plans keep their strict validation.
+ */
+export function bindTranscriptSegments(
+  plan: ProductionPlan,
+  transcripts: SourceTranscript[],
+): ProductionPlan {
+  const latest = new Map(transcripts.map((t) => [t.recordingId, t]));
+  return {
+    ...plan,
+    scenes: plan.scenes.map((scene) => {
+      const transcript = latest.get(scene.camera.recordingId);
+      if (!transcript) return scene; // validateSources reports the missing source.
+      const start = scene.sourceInFrame / plan.frameRate;
+      const end = (scene.sourceInFrame + scene.durationFrames) / plan.frameRate;
+      return {
+        ...scene,
+        transcriptSegmentIds: transcript.segments
+          .filter((s) => s.start < end && s.end > start)
+          .map((s) => s.id),
+      };
+    }),
+  };
+}
 // Alignment pads matched spans by a fraction of a second; segments may
 // legitimately straddle the selected range by that much.
 const SEGMENT_RANGE_TOLERANCE_SEC = 0.5;
