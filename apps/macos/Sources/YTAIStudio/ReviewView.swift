@@ -316,7 +316,7 @@ struct PublishingView: View {
                 || p.publishApproval == nil)
         }
         Text(
-          "Uploads run through the local youtubeuploader CLI (see Settings → Environment); WTS_YOUTUBE_ARGS carries its OAuth flags."
+          "Uploads run through the local youtubeuploader CLI (installed automatically on first publish; see Settings → Environment); WTS_YOUTUBE_ARGS carries its OAuth flags."
         ).font(.caption2).foregroundStyle(.secondary)
       }
     }.padding(16).studioCard(cornerRadius: 11).task(id: p.packaging?.version) {

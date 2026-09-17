@@ -270,7 +270,7 @@ export async function doctor(root = defaultRoot()) {
       version: "",
       required: false,
       guidance:
-        "Optional: install youtubeuploader or set WTS_YOUTUBEUPLOADER_PATH to enable direct publishing. Without it, packaging still works and the upload is manual.",
+        "Installed automatically from the official GitHub release on the first publish; or brew install youtubeuploader / set WTS_YOUTUBEUPLOADER_PATH. WTS_YOUTUBE_ARGS carries OAuth flags.",
     });
   }
   try {
