@@ -61,6 +61,7 @@ import {
 import {
   blenderClipKey,
   buildBlenderSpec,
+  writeBlenderClip,
   type BlenderProvider,
 } from "../../blender-engine/src/index.ts";
 import {
@@ -415,7 +416,14 @@ export async function buildProject(
                     progress: ctx.progress,
                   });
                   usage = result.usage;
-                  await writeFile(temp, result.file);
+                  // The bridge renders the plan resolution; insets are
+                  // conformed into their box here.
+                  await writeBlenderClip(result.file, {
+                    entry,
+                    plan,
+                    output: temp,
+                    signal: ctx.signal,
+                  });
                   await verifyOutput(
                     temp,
                     entry.durationFrames / plan.frameRate,

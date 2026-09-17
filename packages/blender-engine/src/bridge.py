@@ -98,7 +98,9 @@ def build_network_flow(scene, spec, pal):
     for p in range(packets):
         start, end = positions[p % len(positions)], positions[(p + 1) % len(positions)]
         offset = frames * p / packets
-        cube = box("packet-%d" % p, 0.32, start, material("packet", pal["accent"], 4.0), scene)
+        # primitive_add needs full 3-item locations; positions are (x, y) pairs.
+        cube = box("packet-%d" % p, 0.32, (start[0], start[1], 0),
+                   material("packet", pal["accent"], 4.0), scene)
         cube.location = (start[0], start[1], 0)
         cube.keyframe_insert(data_path="location", frame=1 + offset % frames)
         cube.location = (end[0], end[1], 0)

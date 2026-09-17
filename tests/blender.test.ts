@@ -1,11 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
   executable,
+  inspect,
   runBinary,
   verifyOutput,
 } from "../packages/media/src/index.ts";
@@ -13,8 +21,10 @@ import { validateEngines } from "../packages/orchestrator/src/engines.ts";
 import {
   MockBlenderProvider,
   RealBlenderProvider,
+  blenderBox,
   blenderClipKey,
   buildBlenderSpec,
+  writeBlenderClip,
 } from "../packages/blender-engine/src/index.ts";
 import { fixture } from "./fixtures.ts";
 import {
@@ -143,11 +153,14 @@ test("blender clip identity is stable and ignores narration and plan version", (
   );
 });
 
-test("mock provider renders a deterministic decodable clip for the entry box", async () => {
+test("mock provider renders a deterministic decodable clip at the plan resolution", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "wts-blender-mock-"));
   try {
     const provider = new MockBlenderProvider();
     const spec = buildBlenderSpec(entry(), fixture(), brand);
+    // The bridge contract renders only 1920×1080 — even for inset entries,
+    // whose boxes are smaller. Insets are conformed afterwards.
+    assert.deepEqual([spec.width, spec.height], [1920, 1080]);
     assert.deepEqual([spec.width % 2, spec.height % 2], [0, 0]);
     const first = await provider.renderClip({ spec });
     const clip = path.join(dir, "clip.mp4");
@@ -157,6 +170,39 @@ test("mock provider renders a deterministic decodable clip for the entry box", a
     // ffmpeg encodes are not byte-stable; verify the decodable contract
     // (duration within tolerance) rather than byte equality.
     await verifyOutput(clip, spec.durationFrames / spec.frameRate);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("rendered clips land in their box: full-frame passthrough, inset center-crop", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wts-blender-box-"));
+  try {
+    const plan = fixture();
+    const provider = new MockBlenderProvider();
+    const render = await provider.renderClip({
+      spec: buildBlenderSpec(entry(), plan, brand),
+    });
+    // Full-frame: the render already is the box — bytes pass through intact.
+    const fullframe = path.join(dir, "full.mp4");
+    await writeBlenderClip(render.file, {
+      entry: entry({ placement: "fullframe", inset: null }),
+      plan,
+      output: fullframe,
+    });
+    assert.deepEqual(await readFile(fullframe), render.file);
+    // Inset: conformed to the entry box with even H.264 dimensions.
+    const insetEntry = entry();
+    const inset = path.join(dir, "inset.mp4");
+    await writeBlenderClip(render.file, {
+      entry: insetEntry,
+      plan,
+      output: inset,
+    });
+    const box = blenderBox(insetEntry, plan);
+    const meta = await inspect(inset);
+    assert.deepEqual([meta.width, meta.height], [box.width, box.height]);
+    await verifyOutput(inset, insetEntry.durationFrames / plan.frameRate);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

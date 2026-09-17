@@ -331,6 +331,11 @@ export async function demo(
       .plans.at(-1)!
       .scenes.flatMap((s) => s.broll);
     assert.equal(treated.length, treatmentOps.length);
+    // Engine mix: gpt-image entries render a still then a motion clip; 3D
+    // entries render the finished clip in one step (no still asset).
+    const generatedStills = treated.filter(
+      (b) => b.asset.engine === "gpt-image",
+    ).length;
     const stillAssets = store
       .assets(p.id)
       .filter((a) => a.type === "generated-image");
@@ -339,7 +344,7 @@ export async function demo(
       .filter((a) => a.type === "broll-clip");
     const mixAssets = store.assets(p.id).filter((a) => a.type === "audio-mix");
     const bedAssets = store.assets(p.id).filter((a) => a.type === "music-bed");
-    assert.equal(stillAssets.length, treated.length);
+    assert.equal(stillAssets.length, generatedStills);
     assert.equal(clipAssets.length, treated.length);
     assert.equal(mixAssets.length, 1);
     assert.equal(

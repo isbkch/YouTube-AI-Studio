@@ -53,6 +53,11 @@ export interface BlenderSpec {
   framesDir?: string;
 }
 
+/**
+ * The bridge renders every clip at the plan resolution — its contract allows
+ * only 1920×1080, the one resolution the preview pipeline accepts. Insets are
+ * conformed to their box afterwards (see writeBlenderClip).
+ */
 export function buildBlenderSpec(
   entry: BRollEntry,
   plan: ProductionPlan,
@@ -63,13 +68,12 @@ export function buildBlenderSpec(
       "INVALID_INPUT",
       `buildBlenderSpec needs a blender asset, got ${entry.asset.engine}.`,
     );
-  const box = blenderBox(entry, plan);
   return {
     template: entry.asset.template,
     parameters: entry.asset.parameters,
     brand,
-    width: box.width,
-    height: box.height,
+    width: plan.resolution.width,
+    height: plan.resolution.height,
     frameRate: plan.frameRate,
     durationFrames: entry.durationFrames,
   };
@@ -299,7 +303,57 @@ export class MockBlenderProvider implements BlenderProvider {
   }
 }
 
-export const BLENDER_RENDERER = "blender+eevee-v1";
+export const BLENDER_RENDERER = "blender+eevee-v2";
+
+/**
+ * Place a rendered clip into its B-roll box. Renders always arrive at the plan
+ * resolution; full-frame boxes pass the bytes through untouched, insets are
+ * conformed by center-crop + scale — the same treatment generated stills
+ * receive in renderMotionClip.
+ */
+export async function writeBlenderClip(
+  file: Buffer,
+  options: {
+    entry: BRollEntry;
+    plan: ProductionPlan;
+    output: string;
+    signal?: AbortSignal;
+  },
+) {
+  const box = blenderBox(options.entry, options.plan);
+  const source = options.plan.resolution;
+  if (box.width === source.width && box.height === source.height) {
+    await writeFile(options.output, file);
+    return;
+  }
+  const workspace = await mkdtemp(
+    path.join(os.tmpdir(), "wts-blender-conform-"),
+  );
+  const input = path.join(workspace, "render.mp4");
+  try {
+    await writeFile(input, file);
+    await ffmpeg(
+      [
+        "-i",
+        input,
+        "-vf",
+        `scale=${box.width}:${box.height}:force_original_aspect_ratio=increase,crop=${box.width}:${box.height},setsar=1`,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "21",
+        "-pix_fmt",
+        "yuv420p",
+        path.resolve(options.output),
+      ],
+      options.signal,
+    );
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+}
 
 /** Semantic render identity: narration and plan version never invalidate pixels. */
 export function blenderClipKey(
