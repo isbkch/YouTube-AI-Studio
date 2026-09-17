@@ -50,7 +50,9 @@ import {
   now,
   safePath,
   StudioError,
+  asVisualDensity,
   type CreatorProfile,
+  type VisualDensity,
 } from "../../shared/src/index.ts";
 import {
   importRecording,
@@ -75,6 +77,7 @@ import {
   type Transcript,
 } from "./model.ts";
 import { buildProject } from "./build.ts";
+import { renderStoryboardPreviews } from "./previews.ts";
 import { JobGraph } from "./jobs.ts";
 import { engineCapabilities, validateEngines } from "./engines.ts";
 import { publishToYouTube } from "./youtube.ts";
@@ -906,8 +909,17 @@ export class Studio {
       return this.snapshot(p.id);
     });
   }
-  async generatePlan(projectId: string, signal?: AbortSignal) {
+  async generatePlan(
+    projectId: string,
+    options: { density?: VisualDensity } = {},
+    signal?: AbortSignal,
+  ) {
     return this.locked(projectId, async (p) => {
+      // An explicit density overrides the project's snapshotted creator
+      // default; the resulting plan records whichever was used.
+      const density = asVisualDensity(
+        options.density ?? p.creator.visualDensity,
+      );
       const transcripts = p.recordings
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
         .filter((t): t is Transcript => !!t);
@@ -959,7 +971,7 @@ export class Studio {
                 script: p.scripts.at(-1)!,
                 transcripts,
                 recordings: p.recordings,
-                creator: p.creator,
+                creator: { ...p.creator, visualDensity: density },
                 version: p.plans.length + 1,
                 targetDuration: p.targetDuration,
                 alignment,
@@ -1114,6 +1126,60 @@ export class Studio {
         provider: this.provider,
       },
     );
+  }
+  /**
+   * Render the current plan's graphics and 3D clips at storyboard time so the
+   * creator can see, approve or redo them before building. Cache keys match
+   * the build's, so a later build reuses these verified outputs. Missing 3D
+   * entries are reported as skipped instead of failing the pass; the build
+   * still fails closed on them.
+   */
+  async renderPreviews(projectId: string, signal?: AbortSignal) {
+    return this.locked(projectId, async (p) => {
+      this.revisionAllowed(p);
+      const plan = validatePlan(p.plans.at(-1));
+      const blender = await this.blenderEngine();
+      await this.operation(
+        p,
+        "previews",
+        "Storyboard • previews",
+        async (signal) => {
+          const result = await renderStoryboardPreviews({
+            store: this.store,
+            project: p,
+            plan,
+            blender,
+            signal,
+            onOutcome: (o) => {
+              this.store.event(p.id, {
+                event: "previews.scene",
+                sceneId: o.sceneId,
+                kind: o.kind,
+                label: o.label,
+                reused: o.reused,
+                skipped: o.skipped,
+              });
+              this.notify?.({
+                event: "previews.scene",
+                sceneId: o.sceneId,
+                kind: o.kind,
+                reused: o.reused,
+                skipped: o.skipped,
+              });
+            },
+          });
+          this.store.event(p.id, {
+            event: "previews.rendered",
+            planVersion: result.planVersion,
+            rendered: result.outcomes.filter((o) => o.asset).length,
+            reused: result.outcomes.filter((o) => o.reused).length,
+            skipped: result.outcomes.filter((o) => o.skipped).length,
+          });
+        },
+        signal,
+      );
+      return this.snapshot(p.id);
+    });
   }
   async propose(
     projectId: string,
@@ -2072,6 +2138,9 @@ export class Studio {
         format: z.string().max(300),
         targetMinutes: z.tuple([z.number().positive(), z.number().positive()]),
         subjects: z.array(z.string().max(100)),
+        visualDensity: z
+          .enum(["minimal", "balanced", "rich"])
+          .default("balanced"),
         brand: z.strictObject({
           background: z.string().regex(/^#[a-fA-F0-9]{6}$/),
           foreground: z.string().regex(/^#[a-fA-F0-9]{6}$/),

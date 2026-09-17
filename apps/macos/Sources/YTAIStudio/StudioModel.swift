@@ -33,6 +33,8 @@ import UniformTypeIdentifiers
   @Published var musicModelName = UserDefaults.standard.string(forKey: "musicModelName") ?? ""
   private var activeRequest: String?
   private var lastRefresh = Date.distantPast
+  /** Plan version storyboard previews were last auto-rendered for. */
+  private var autoPreviewedVersion: Int?
   init() {
     runtime.onJob = { [weak self] in
       guard let self, Date().timeIntervalSince(self.lastRefresh) > 0.3 else { return }
@@ -53,6 +55,28 @@ import UniformTypeIdentifiers
         if selectedID == id { project = snapshot }
       }
     } catch { self.error = error.localizedDescription }
+    await maybeRenderPreviews()
+  }
+  /** Storyboard previews render themselves once per new plan version so the
+   * creator sees the actual graphics and 3D clips before approving. Cache
+   * hits make unchanged scenes instant; the manual button retries. */
+  private func maybeRenderPreviews() async {
+    guard !busy, let p = project, let plan = p.plan,
+      p.status == "AWAITING_STORYBOARD_APPROVAL",
+      autoPreviewedVersion != plan.version,
+      plan.scenes.contains(where: { scene in
+        scene.enabled
+          && (scene.visual.graphic != nil
+            || (scene.broll ?? []).contains { $0.asset.engine == "blender" })
+      })
+    else { return }
+    autoPreviewedVersion = plan.version
+    await perform("previews.render", label: "Storyboard previews")
+  }
+  func renderPreviews() async {
+    guard let plan = project?.plan else { return }
+    autoPreviewedVersion = plan.version
+    await perform("previews.render", label: "Storyboard previews")
   }
   func select(_ id: String?) async {
     selectedID = id
@@ -60,6 +84,8 @@ import UniformTypeIdentifiers
     error = nil
     notice = nil
     aroll = nil
+    qa = nil
+    autoPreviewedVersion = nil
     tab = "Overview"
     await refresh()
   }

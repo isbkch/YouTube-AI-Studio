@@ -139,6 +139,44 @@ export async function cachedFile(
     await rm(temp, { force: true });
   }
 }
+/**
+ * Persist a derived-output asset row. Shared by builds and storyboard
+ * previews so both record provenance the same way; callers add their own
+ * job linkage (builds attach `producedAssets`, previews use the synthetic id).
+ */
+export function recordAsset(
+  store: Store,
+  projectId: string,
+  planVersion: number,
+  jobId: string,
+  type: Asset["type"],
+  key: string,
+  c: Cached & { reused: boolean },
+  sceneId: string | null,
+  extra: Partial<Asset> = {},
+): Asset {
+  const a: Asset = {
+    assetId: id("asset"),
+    type,
+    sceneId,
+    productionPlanVersion: planVersion,
+    generator: type === "remotion-render" ? "remotion" : "ffmpeg",
+    template: null,
+    templateVersion: null,
+    parameters: {},
+    inputHash: key,
+    outputHash: c.outputHash,
+    createdAt: now(),
+    path: c.path,
+    jobId,
+    reused: c.reused,
+    sourceAssets: [],
+    renderMs: c.reused ? 0 : c.renderMs,
+    ...extra,
+  };
+  store.asset(projectId, a);
+  return a;
+}
 export async function buildProject(
   store: Store,
   projectId: string,
@@ -242,26 +280,17 @@ export async function buildProject(
       sceneId: string | null,
       extra: Partial<Asset> = {},
     ): Asset => {
-      const a: Asset = {
-        assetId: id("asset"),
+      const a = recordAsset(
+        store,
+        p.id,
+        plan.version,
+        ctx.jobId,
         type,
+        key,
+        c,
         sceneId,
-        productionPlanVersion: plan.version,
-        generator: type === "remotion-render" ? "remotion" : "ffmpeg",
-        template: null,
-        templateVersion: null,
-        parameters: {},
-        inputHash: key,
-        outputHash: c.outputHash,
-        createdAt: now(),
-        path: c.path,
-        jobId: ctx.jobId,
-        reused: c.reused,
-        sourceAssets: [],
-        renderMs: c.reused ? 0 : c.renderMs,
-        ...extra,
-      };
-      store.asset(p.id, a);
+        extra,
+      );
       ctx.produced(a.assetId);
       ctx.log(`${c.reused ? "Reused verified cache" : "Rendered"}: ${a.path}`);
       return a;

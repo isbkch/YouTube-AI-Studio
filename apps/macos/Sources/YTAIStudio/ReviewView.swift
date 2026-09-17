@@ -63,11 +63,11 @@ struct ReviewView: View {
               systemImage: "checkmark.seal"
             ).foregroundStyle(Color.studioSuccess).font(.caption)
           }
-          QAReportView(p: p)
+          QASummaryStrip(p: p)
           if p.roughCutApproval != nil { FinalRenderView(p: p, preset: $preset, macro: $macro) }
           PublishingView(p: p)
           Text(
-            "Review pacing, factual accuracy, audio, and flagged visuals. Automated QA checks decode, timing, sampled frames and generated stills; it does not approve creative choices."
+            "Review pacing, factual accuracy, audio, and flagged visuals. The full automated report — decode, timing, sampled frames and generated stills — lives in the Visual QA tab; it does not approve creative choices."
           ).font(.caption).foregroundStyle(.secondary)
           if let plan = p.plan {
             Text("Jump to scene").font(.headline)
@@ -197,64 +197,39 @@ struct ReviewView: View {
   }
 }
 
-/// Automated visual QA: status, attention list, per-scene verdicts, still gates.
-struct QAReportView: View {
+/// Compact QA pointer for Review; the full report lives in the Visual QA tab.
+struct QASummaryStrip: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
   var body: some View {
     if let qa = m.qa {
-      VStack(alignment: .leading, spacing: 12) {
-        HStack {
-          Image(systemName: qa.status == "PASS" ? "checkmark.shield" : "exclamationmark.shield")
-            .foregroundStyle(qa.status == "PASS" ? Color.studioSuccess : .orange)
-          Text("Automated QA • \(qa.status)").font(.headline)
-          Spacer()
-          if let by = qa.visual?.reviewedBy {
-            Text(by).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
-          }
+      HStack(alignment: .center, spacing: 12) {
+        Image(
+          systemName: qa.status == "PASS" ? "checkmark.shield" : "exclamationmark.shield"
+        ).foregroundStyle(qa.status == "PASS" ? Color.studioSuccess : .orange)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Automated QA • \(qa.status == "PASS" ? "passed" : "needs attention")").font(
+            .headline)
+          Text(subline(qa)).font(.caption).foregroundStyle(.secondary)
         }
-        if let attention = qa.attention, !attention.isEmpty {
-          Text("Scenes needing attention: \(attention.joined(separator: ", "))")
-            .font(.caption).foregroundStyle(.orange)
-        }
-        ForEach(qa.warnings ?? [], id: \.self) { w in
-          Label(w, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(
-            .secondary)
-        }
-        let verdicts = (qa.visual?.scenes ?? []).filter { $0.verdict != "pass" }
-        if !verdicts.isEmpty {
-          DisclosureGroup("Scene verdicts • \(verdicts.count) flagged") {
-            ForEach(verdicts) { v in
-              VStack(alignment: .leading, spacing: 3) {
-                Text("\(v.sceneId) — \(v.verdict)").font(.system(size: 11, weight: .semibold))
-                ForEach(Array(v.findings.enumerated()), id: \.offset) { _, f in
-                  Text("• [\(f.severity)] \(f.kind): \(f.evidence)").font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-              }.padding(.vertical, 2)
-            }
-          }
-        }
-        let stills = (qa.visual?.stills ?? []).filter { $0.verdict != "pass" }
-        if !stills.isEmpty {
-          DisclosureGroup("Generated stills • \(stills.count) flagged") {
-            ForEach(stills) { s in
-              VStack(alignment: .leading, spacing: 3) {
-                Text("\(s.sceneId)/\(s.brollId) — \(s.verdict)").font(
-                  .system(size: 11, weight: .semibold))
-                ForEach(Array(s.findings.enumerated()), id: \.offset) { _, f in
-                  Text("• [\(f.severity)] \(f.kind): \(f.evidence)").font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-              }.padding(.vertical, 2)
-            }
-          }
-        }
-        if let frames = qa.visual?.framesDir, let url = p.url(frames) {
-          Button("Reveal Sampled Frames") { m.reveal(url) }.buttonStyle(QuietButtonStyle())
-        }
+        Spacer()
+        Button("Open Visual QA") { m.tab = "Visual QA" }.buttonStyle(QuietButtonStyle())
       }.padding(16).studioCard(cornerRadius: 11)
     }
+  }
+  private func subline(_ qa: QAReport) -> String {
+    let scenes = qa.visual?.scenes ?? []
+    let flaggedScenes = scenes.filter { $0.verdict != "pass" }.count
+    let flaggedStills = (qa.visual?.stills ?? []).filter { $0.verdict != "pass" }.count
+    var parts: [String] = []
+    if !scenes.isEmpty {
+      parts.append("\(scenes.count - flaggedScenes)/\(scenes.count) scenes passed")
+    }
+    if flaggedStills > 0 { parts.append("\(flaggedStills) still(s) flagged") }
+    if let warnings = qa.warnings, !warnings.isEmpty {
+      parts.append("\(warnings.count) warning(s)")
+    }
+    return parts.isEmpty ? "See the full report for details." : parts.joined(separator: " · ")
   }
 }
 

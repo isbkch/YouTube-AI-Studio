@@ -12,6 +12,7 @@ import os from "node:os";
 import { z } from "zod";
 import {
   atomicJSON,
+  asVisualDensity,
   defaultCreator,
   id,
   inside,
@@ -42,7 +43,8 @@ export const defaultProviderSelection = (): ProviderSelection => ({
   musicModel: "",
 });
 export const defaultRoot = () =>
-  process.env.WTS_HOME || path.join(os.homedir(), "Movies", "YouTube-AI-Studio");
+  process.env.WTS_HOME ||
+  path.join(os.homedir(), "Movies", "YouTube-AI-Studio");
 const folders = [
   "research",
   "scripts",
@@ -255,7 +257,14 @@ export class Store {
     const row = this.db
       .prepare("SELECT data FROM settings WHERE key='creator'")
       .get() as { data: string } | undefined;
-    return row ? JSON.parse(row.data) : structuredClone(defaultCreator);
+    if (!row) return structuredClone(defaultCreator);
+    const stored = JSON.parse(row.data) as Partial<CreatorProfile>;
+    // Rows persisted before visualDensity existed read as the default.
+    return {
+      ...structuredClone(defaultCreator),
+      ...stored,
+      visualDensity: asVisualDensity(stored.visualDensity),
+    };
   }
   setCreator(profile: CreatorProfile) {
     this.db

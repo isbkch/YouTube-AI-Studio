@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { now, StudioError } from "../../shared/src/index.ts";
+import {
+  now,
+  StudioError,
+  type VisualDensity,
+} from "../../shared/src/index.ts";
 import { tokenize, type Alignment } from "./alignment.ts";
 import type { TemplateName } from "../../production-plan/src/index.ts";
 
@@ -292,6 +296,7 @@ export function quantizeEditFrames(
 export function buildEditDecision(
   alignment: Alignment,
   transcripts: BridgeTranscript[] = [],
+  density: VisualDensity = "balanced",
 ): EditDecision {
   const latest = new Map<string, BridgeTranscript>();
   for (const t of transcripts) latest.set(t.recordingId, t);
@@ -537,6 +542,14 @@ export function buildEditDecision(
     };
   });
   // Chapters lead their scene; cap graphics so most scenes stay presenter-led.
+  // The cap follows the creator's visual density: minimal isolates essentials,
+  // rich lets graphics cluster and opens on one.
+  const throttle =
+    density === "minimal"
+      ? { recent: 1, openOnGraphic: false }
+      : density === "rich"
+        ? { recent: 3, openOnGraphic: true }
+        : { recent: 2, openOnGraphic: false };
   const withGraphics = scenes.map((s, i) => {
     if (s.heading)
       return {
@@ -550,7 +563,8 @@ export function buildEditDecision(
     const recent = scenes
       .slice(Math.max(0, i - 3), i)
       .filter((x) => x.suggestedGraphic).length;
-    if (recent >= 2 || i === 0) return { ...s, suggestedGraphic: null };
+    if (recent >= throttle.recent || (i === 0 && !throttle.openOnGraphic))
+      return { ...s, suggestedGraphic: null };
     return s;
   });
   return editDecisionSchema.parse({

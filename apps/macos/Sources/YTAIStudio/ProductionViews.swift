@@ -34,6 +34,7 @@ struct StoryboardView: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
   @State private var editing: ProductionScene?
+  @State private var density = "balanced"
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .top) {
@@ -87,6 +88,53 @@ struct StoryboardView: View {
           VStack(alignment: .trailing, spacing: 8) {
             Text("\(plan.scenes.count) scenes • v\(plan.version)").font(.caption).foregroundStyle(
               .secondary)
+            HStack(spacing: 8) {
+              Text("Visual density").font(.caption).foregroundStyle(.secondary)
+              Picker("", selection: $density) {
+                Text("Minimal").tag("minimal")
+                Text("Balanced").tag("balanced")
+                Text("Rich").tag("rich")
+              }.pickerStyle(.segmented).frame(width: 200).disabled(m.busy)
+            }
+            Button(
+              density == plan.density
+                ? "Regenerate Storyboard" : "Regenerate as \(density)"
+            ) {
+              Task {
+                await m.perform(
+                  "plan.generate", label: "Director • storyboard", params: ["density": density])
+              }
+            }.buttonStyle(QuietButtonStyle()).disabled(
+              m.busy
+                || !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].contains(p.status))
+            let previewable = plan.scenes.filter { $0.enabled && $0.visual.graphic != nil }
+            let rendered = previewable.filter { scene in
+              p.assets?.contains {
+                $0.sceneId == scene.id && $0.type == "remotion-render"
+                  && $0.productionPlanVersion == plan.version
+              } ?? false
+            }
+            if !previewable.isEmpty {
+              if rendered.count == previewable.count {
+                Label(
+                  "Previews rendered \(previewable.count)/\(previewable.count)",
+                  systemImage: "sparkles"
+                ).font(.caption).foregroundStyle(Color.studioSuccess)
+              } else {
+                Label(
+                  "Previews rendered \(rendered.count)/\(previewable.count)",
+                  systemImage: "sparkles"
+                ).font(.caption).foregroundStyle(.secondary)
+              }
+            }
+            Button("Re-render Previews") {
+              Task { await m.renderPreviews() }
+            }.buttonStyle(QuietButtonStyle()).disabled(
+              m.busy
+                || ![
+                  "AWAITING_STORYBOARD_APPROVAL", "AWAITING_ROUGH_CUT_APPROVAL",
+                  "READY_TO_RENDER",
+                ].contains(p.status))
             Button("Propose Visual Pass") {
               Task {
                 await m.proposeVisualPass()
@@ -133,9 +181,12 @@ struct StoryboardView: View {
           .frame(maxWidth: .infinity)
         Spacer()
       }
-    }.padding(28).sheet(item: $editing) { scene in
-      SceneEditor(p: p, scene: scene).environmentObject(m)
-    }
+    }.padding(28)
+      .onAppear { density = p.plan?.density ?? "balanced" }
+      .onChange(of: p.plan?.version) { _, _ in density = p.plan?.density ?? "balanced" }
+      .sheet(item: $editing) { scene in
+        SceneEditor(p: p, scene: scene).environmentObject(m)
+      }
   }
 }
 struct SceneCard: View {
@@ -213,12 +264,26 @@ struct SceneCard: View {
             .foregroundStyle(Color.studioAccent).lineLimit(1)
         }
         ForEach(scene.broll ?? []) { b in
-          VStack(alignment: .leading, spacing: 2) {
-            Label(
-              "\(b.placement == "inset" ? "B-roll inset" : "B-roll full-frame") · \(b.motion) · \(b.asset.engine == "blender" ? "3D \(b.asset.template)" : (b.asset.parameters.style ?? "still"))",
-              systemImage: "photo.on.rectangle.angled"
-            ).font(.system(size: 10, weight: .medium)).foregroundStyle(Color.studioAccent)
-            Text("“\(b.narrationHook)”").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+          HStack(alignment: .top, spacing: 8) {
+            if b.asset.engine == "blender",
+              let clip = p.assets?.last(where: {
+                $0.sceneId == scene.id && $0.type == "broll-clip"
+                  && $0.productionPlanVersion == p.plan?.version
+              }),
+              let url = p.url(clip.path)
+            {
+              MediaThumbnail(
+                url: url,
+                seconds: min(1, Double(b.durationFrames) / Double(p.plan?.frameRate ?? 30) / 2)
+              ).frame(width: 64, height: 38).clipShape(RoundedRectangle(cornerRadius: 5))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+              Label(
+                "\(b.placement == "inset" ? "B-roll inset" : "B-roll full-frame") · \(b.motion) · \(b.asset.engine == "blender" ? "3D \(b.asset.template)" : (b.asset.parameters.style ?? "still"))",
+                systemImage: "photo.on.rectangle.angled"
+              ).font(.system(size: 10, weight: .medium)).foregroundStyle(Color.studioAccent)
+              Text("“\(b.narrationHook)”").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
           }
         }
         Text(scene.rationale).font(.caption).foregroundStyle(.secondary).lineLimit(2).frame(
@@ -663,9 +728,8 @@ struct ProductionView: View {
         }
         if let build = p.currentBuild {
           HStack {
+            Button("Visual QA Report") { m.tab = "Visual QA" }.buttonStyle(QuietButtonStyle())
             Button("Review Rough Cut") { m.tab = "Review" }.buttonStyle(QuietButtonStyle())
-            Button("Reveal QA Report") { m.reveal(p.url(build.qaPath)) }.buttonStyle(
-              QuietButtonStyle())
             Button("Reveal Resolve Export") { m.reveal(p.url(build.exportPath)) }.buttonStyle(
               QuietButtonStyle())
           }

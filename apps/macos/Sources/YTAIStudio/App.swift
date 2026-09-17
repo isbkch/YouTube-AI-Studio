@@ -169,7 +169,7 @@ struct StudioView: View {
             ForEach(
               [
                 "Overview", "Pre-Production", "Script", "Media", "Transcript", "Storyboard",
-                "Production", "Review",
+                "Production", "Visual QA", "Review",
               ],
               id: \.self
             ) { tab in
@@ -196,6 +196,7 @@ struct StudioView: View {
             case "Transcript": TranscriptView(p: p)
             case "Storyboard": StoryboardView(p: p)
             case "Production": ProductionView(p: p)
+            case "Visual QA": VisualQAView(p: p)
             case "Review": ReviewView(p: p)
             default: OverviewView(p: p)
             }
