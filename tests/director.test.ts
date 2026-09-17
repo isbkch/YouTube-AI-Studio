@@ -20,6 +20,7 @@ import type {
 } from "../packages/orchestrator/src/model.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
+import { alignScript } from "../packages/orchestrator/src/alignment.ts";
 import { defaultCreator, hash, now } from "../packages/shared/src/index.ts";
 
 const recording: Recording = {
@@ -95,7 +96,7 @@ const usage = {
 };
 function providerFor(edit: (plan: ProductionPlan) => void): AIProvider {
   return {
-    name: "fixture",
+    name: "mock",
     async generateStructured<T>(request: StructuredRequest<T>) {
       const candidate = structuredClone(request.mockOutput) as ProductionPlan;
       edit(candidate);
@@ -143,7 +144,7 @@ test("Director resolves stale segment IDs from the selected frames and preserves
     source,
     undefined,
     async (candidate) => {
-      raw = candidate.output;
+      raw = candidate.output as ProductionPlan;
     },
   );
   assert.deepEqual(raw!.scenes[2].transcriptSegmentIds, [
@@ -197,6 +198,105 @@ test("Director provenance repair still rejects invalid editorial selections", as
       new DirectorAgent(providerFor(edit)).plan(input),
       error,
     );
+});
+
+test("aligned Director can style scenes but cannot invent footage or narration", async () => {
+  const source = {
+    ...input,
+    alignment: alignScript({
+      script: input.script.text,
+      scriptVersion: 1,
+      recordings: input.recordings,
+      transcripts: input.transcripts,
+    }),
+  };
+  const baseline = mockPlan(source);
+  const treatment = {
+    id: baseline.scenes[0].id,
+    visual: {
+      type: "presenter",
+      description: "Emphasize the opening.",
+      graphic: null,
+    },
+    framing: "close",
+    punchIn: 1.12,
+    musicIntensity: 0.5,
+    rationale: "Opening emphasis.",
+    chapterTitle: "Start with evidence",
+  };
+  const provider: AIProvider = {
+    name: "fixture",
+    async generateStructured<T>(request: StructuredRequest<T>) {
+      assert.equal(request.name, "storyboard_direction");
+      assert.throws(() =>
+        request.schema.parse({
+          summary: "Test",
+          scenes: [{ ...treatment, sourceInFrame: 9999 }],
+        }),
+      );
+      assert.throws(() =>
+        request.schema.parse({
+          summary: "Test",
+          scenes: [{ ...treatment, narration: "Invented speech." }],
+        }),
+      );
+      return {
+        output: request.schema.parse({
+          summary: "Directed verified footage.",
+          scenes: [treatment],
+        }),
+        usage,
+      };
+    },
+  };
+  const result = await new DirectorAgent(provider).plan(source);
+  const sourceFields = (p: ProductionPlan) =>
+    p.scenes.map((s) => ({
+      id: s.id,
+      start: s.startFrame,
+      duration: s.durationFrames,
+      sourceIn: s.sourceInFrame,
+      recording: s.camera.recordingId,
+      narration: s.narration,
+      segments: s.transcriptSegmentIds,
+    }));
+  assert.deepEqual(sourceFields(result.output), sourceFields(baseline));
+  assert.equal(result.output.scenes[0].camera.punchIn, 1.12);
+  assert.equal(result.output.scenes[0].chapterTitle, "Start with evidence");
+  assert.equal(result.output.director.provider, usage.provider);
+  assert.ok(
+    result.output.scenes
+      .slice(1)
+      .every((s) => s.visual.graphic === null && s.chapterTitle === null),
+  );
+  assert.deepEqual(result.output.scriptCoverage, baseline.scriptCoverage);
+  validateSources(result.output, source.recordings, source.transcripts);
+
+  for (const treatments of [
+    [{ ...treatment, id: "unknown-scene" }],
+    [treatment, treatment],
+  ]) {
+    let saved = false;
+    const invalid: AIProvider = {
+      name: "fixture",
+      async generateStructured<T>(request: StructuredRequest<T>) {
+        return {
+          output: request.schema.parse({
+            summary: "Invalid map",
+            scenes: treatments,
+          }),
+          usage,
+        };
+      },
+    };
+    await assert.rejects(
+      new DirectorAgent(invalid).plan(source, undefined, async () => {
+        saved = true;
+      }),
+      /unknown or repeated scene/,
+    );
+    assert.equal(saved, true);
+  }
 });
 
 test("Director candidates and usage survive rejection without creating or approving a plan", async () => {

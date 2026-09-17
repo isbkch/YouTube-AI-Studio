@@ -361,6 +361,7 @@ export function buildEditDecision(
     const last = groups.at(-1);
     if (
       last &&
+      sentence.heading === null &&
       last.recordingId === m.recordingId &&
       m.start - last.end <= GROUP_GAP &&
       m.start >= last.end - 0.05
@@ -427,6 +428,7 @@ export function buildEditDecision(
     const prev = merged.at(-1);
     if (
       prev &&
+      !g.sentences.some((s) => s.heading !== null) &&
       prev.recordingId === g.recordingId &&
       g.end - g.start < MIN_SCENE &&
       g.start >= prev.end - 0.05 &&
