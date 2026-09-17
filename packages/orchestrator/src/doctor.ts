@@ -29,7 +29,7 @@ export async function hasCredential() {
       [
         "find-generic-password",
         "-s",
-        "com.isbkch.yt-ai-studio",
+        "com.isbkch.YouTube-AI-Studio",
         "-a",
         "openai",
       ],
@@ -65,7 +65,7 @@ export async function keychainCredential(
     [
       "find-generic-password",
       "-s",
-      "com.isbkch.yt-ai-studio",
+      "com.isbkch.YouTube-AI-Studio",
       "-a",
       account,
       "-w",

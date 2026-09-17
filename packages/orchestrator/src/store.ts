@@ -42,7 +42,7 @@ export const defaultProviderSelection = (): ProviderSelection => ({
   musicModel: "",
 });
 export const defaultRoot = () =>
-  process.env.WTS_HOME || path.join(os.homedir(), "Movies", "yt-ai-studio");
+  process.env.WTS_HOME || path.join(os.homedir(), "Movies", "YouTube-AI-Studio");
 const folders = [
   "research",
   "scripts",

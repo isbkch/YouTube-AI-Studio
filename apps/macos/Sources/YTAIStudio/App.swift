@@ -4,7 +4,7 @@ import SwiftUI
 @main struct YTAIStudioApp: App {
   @StateObject private var model = StudioModel()
   var body: some SwiftUI.Scene {
-    WindowGroup("yt-ai-studio") {
+    WindowGroup("YouTube-AI-Studio") {
       StudioView().environmentObject(model).frame(minWidth: 1040, minHeight: 720)
         .preferredColorScheme(.light).onAppear { model.runtime.launch() }.onReceive(
           NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
@@ -88,7 +88,7 @@ struct StudioView: View {
           Image(systemName: "rectangle.stack.badge.play.fill").font(.title2).foregroundStyle(
             Color.studioAccent)
           VStack(alignment: .leading, spacing: 3) {
-            Text("yt-ai-studio").font(.system(size: 18, weight: .medium, design: .serif))
+            Text("YouTube-AI-Studio").font(.system(size: 18, weight: .medium, design: .serif))
             Text("STUDIO").font(.system(size: 10, weight: .semibold, design: .monospaced)).tracking(
               3
             ).foregroundStyle(.secondary)

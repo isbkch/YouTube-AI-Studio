@@ -253,7 +253,7 @@ export interface CreatorProfile {
 }
 export const defaultCreator: CreatorProfile = {
   name: "iLyas",
-  channel: "yt-ai-studio",
+  channel: "YouTube-AI-Studio",
   format: "Long-form technical YouTube essay",
   targetMinutes: [12, 18],
   subjects: [

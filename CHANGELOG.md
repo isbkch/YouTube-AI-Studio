@@ -1,12 +1,12 @@
 # Changelog
 
-Notable changes to yt-ai-studio are documented here. Releases are
+Notable changes to YouTube-AI-Studio are documented here. Releases are
 numbered from `package.json`; while pre-1.0, expect breaking changes between
 alphas without a major-version bump.
 
-## [0.1.0] — 2026-09-17
+## [0.1.7] — 2026-09-17
 
-First public alpha. yt-ai-studio is a native macOS production dashboard for technical YouTube videos: a SwiftUI app and a CLI (`wts`) sharing one local TypeScript runtime that takes you from idea to uploaded video — with a human approval gate at every stage and no cloud backend. The pipeline ingests real camera files, aligns your approved script against every take, builds a deterministic edit, renders a 1080p/30 rough cut, finishes through Resolve, and publishes through your own local YouTube CLI. Mock providers are the default, so the whole workflow runs without any API keys.
+First public alpha. YouTube-AI-Studio is a native macOS production dashboard for technical YouTube videos: a SwiftUI app and a CLI (`wts`) sharing one local TypeScript runtime that takes you from idea to uploaded video — with a human approval gate at every stage and no cloud backend. The pipeline ingests real camera files, aligns your approved script against every take, builds a deterministic edit, renders a 1080p/30 rough cut, finishes through Resolve, and publishes through your own local YouTube CLI. Mock providers are the default, so the whole workflow runs without any API keys.
 
 ### Pre-production
 
@@ -117,4 +117,4 @@ bun run macos:demo # build and launch the app with the demo library
 - Integration and demo runs (real FFmpeg/Remotion renders) are not part of CI
   and require local media tools; there is no Swift test target yet.
 
-[0.1.0]: https://github.com/isbkch/yt-studio/releases/tag/v0.1.0
+[0.1.7]: https://github.com/isbkch/yt-studio/releases/tag/v0.1.7

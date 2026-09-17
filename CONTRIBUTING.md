@@ -1,6 +1,6 @@
-# Contributing to yt-ai-studio
+# Contributing to YouTube-AI-Studio
 
-Thanks for your interest in improving yt-ai-studio. This document covers
+Thanks for your interest in improving YouTube-AI-Studio. This document covers
 setup, the checks your change must pass, and project-specific rules that keep
 the app and the CLI honest.
 

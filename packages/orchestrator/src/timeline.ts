@@ -120,7 +120,7 @@ export function makeTimeline(
   const overlays: Timeline["tracks"][number] = {
     id: "v2",
     kind: "video",
-    name: "yt-ai-studio graphics",
+    name: "YouTube-AI-Studio graphics",
     clips: [],
   };
   const insets: Timeline["tracks"][number] = {
@@ -320,7 +320,7 @@ export function makeTimeline(
   );
   return validateTimeline({
     schemaVersion: "1.1.0",
-    name: "yt-ai-studio rough cut",
+    name: "YouTube-AI-Studio rough cut",
     planVersion: plan.version,
     frameRate: plan.frameRate,
     resolution: plan.resolution,
@@ -537,7 +537,7 @@ export function toFCPXML(t: Timeline, projectDir: string) {
         )}${audioChildren(c.startFrame, end)}<marker start="0s" duration="${seconds(1)}" value="${xml(t.markers.find((m) => m.sceneId === c.sceneId)?.label || c.sceneId)}"/></asset-clip>`;
     })
     .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n<fcpxml version="1.8"><resources><format id="r1" name="yt-ai-studio${t.resolution.height}p${fps}" frameDuration="1/${fps}s" width="${t.resolution.width}" height="${t.resolution.height}" colorSpace="1-1-1 (Rec. 709)"/>${assets}</resources><library><event name="yt-ai-studio"><project name="${xml(t.name + " v" + t.planVersion)}"><sequence format="r1" duration="${seconds(t.durationFrames)}" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k"><spine>${clips}</spine></sequence></project></event></library></fcpxml>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n<fcpxml version="1.8"><resources><format id="r1" name="YouTube-AI-Studio${t.resolution.height}p${fps}" frameDuration="1/${fps}s" width="${t.resolution.width}" height="${t.resolution.height}" colorSpace="1-1-1 (Rec. 709)"/>${assets}</resources><library><event name="YouTube-AI-Studio"><project name="${xml(t.name + " v" + t.planVersion)}"><sequence format="r1" duration="${seconds(t.durationFrames)}" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k"><spine>${clips}</spine></sequence></project></event></library></fcpxml>\n`;
 }
 export interface SegmentOverlay {
   /** Rendered B-roll clip (already at box size, plan fps). */

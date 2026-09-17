@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "yt-ai-studio",
+      "name": "YouTube-AI-Studio",
       "dependencies": {
         "@remotion/bundler": "4.0.526",
         "@remotion/renderer": "4.0.526",
@@ -26,31 +26,31 @@
     },
     "packages/agents": {
       "name": "@wts/agents",
-      "version": "0.1.0",
+      "version": "0.1.7",
     },
     "packages/media": {
       "name": "@wts/media",
-      "version": "0.1.0",
+      "version": "0.1.7",
     },
     "packages/orchestrator": {
       "name": "@wts/orchestrator",
-      "version": "0.1.0",
+      "version": "0.1.7",
     },
     "packages/production-plan": {
       "name": "@wts/production-plan",
-      "version": "0.1.0",
+      "version": "0.1.7",
     },
     "packages/remotion-engine": {
       "name": "@wts/remotion-engine",
-      "version": "0.1.0",
+      "version": "0.1.7",
     },
     "packages/resolve-engine": {
       "name": "@wts/resolve-engine",
-      "version": "0.1.0",
+      "version": "0.1.7",
     },
     "packages/shared": {
       "name": "@wts/shared",
-      "version": "0.1.0",
+      "version": "0.1.7",
     },
   },
   "trustedDependencies": [

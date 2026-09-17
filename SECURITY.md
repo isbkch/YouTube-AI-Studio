@@ -1,6 +1,6 @@
 # Security Policy
 
-yt-ai-studio is a local, creator-run application: SwiftUI talking to a
+YouTube-AI-Studio is a local, creator-run application: SwiftUI talking to a
 private local runtime over stdio, with no web frontend, HTTP server, or cloud
 backend. Publishing goes through the local `youtubeuploader` CLI under an
 explicit creator approval, and the project never handles OAuth credentials
@@ -9,7 +9,7 @@ itself.
 ## Reporting a Vulnerability
 
 Please report suspected vulnerabilities privately via
-[GitHub security advisories](https://github.com/isbkch/yt-ai-studio/security/advisories/new)
+[GitHub security advisories](https://github.com/isbkch/YouTube-AI-Studio/security/advisories/new)
 ("Report a vulnerability"). Do not open public issues for security reports.
 
 Include what you can of: affected component or file, a minimal reproduction,

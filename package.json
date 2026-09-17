@@ -1,6 +1,6 @@
 {
-  "name": "yt-ai-studio",
-  "version": "0.1.0",
+  "name": "YouTube-AI-Studio",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.2",
@@ -11,12 +11,12 @@
   "license": "Elastic-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/isbkch/yt-ai-studio.git"
+    "url": "git+https://github.com/isbkch/YouTube-AI-Studio.git"
   },
   "bugs": {
-    "url": "https://github.com/isbkch/yt-ai-studio/issues"
+    "url": "https://github.com/isbkch/YouTube-AI-Studio/issues"
   },
-  "homepage": "https://github.com/isbkch/yt-ai-studio#readme",
+  "homepage": "https://github.com/isbkch/YouTube-AI-Studio#readme",
   "workspaces": [
     "packages/*"
   ],
