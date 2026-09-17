@@ -206,8 +206,8 @@ export const TEMPLATE_CATALOG = [
 
 /**
  * B-roll assets are produced by non-Remotion engines. Each variant is a typed,
- * validated instruction — never executable content (ADR 007). New engines
- * (e.g. Blender) join this union alongside their trusted adapter.
+ * validated instruction — never executable content (ADR 007). Engines join
+ * this union alongside their trusted adapter (gpt-image stills, Blender 3D).
  */
 export const brollAssetSchema = z.discriminatedUnion("engine", [
   z.strictObject({
@@ -231,6 +231,57 @@ export const brollAssetSchema = z.discriminatedUnion("engine", [
       /** Whether the brief legitimately requires text inside the image. */
       expectsText: z.boolean(),
     }),
+  }),
+  z.strictObject({
+    engine: z.literal("blender"),
+    template: z.enum([
+      "NetworkFlow",
+      "ServerRack",
+      "OrbitRings",
+      "CascadeGrid",
+      "DataTunnel",
+      "TerrainSweep",
+    ]),
+    templateVersion: z.literal("1.0.0"),
+    parameters: z.discriminatedUnion("template", [
+      z.strictObject({
+        template: z.literal("NetworkFlow"),
+        /** Node graph labels; bounded and schema-checked, never code. */
+        nodes: z.array(z.string().min(1).max(40)).min(2).max(8),
+        packets: z.number().int().min(1).max(24),
+      }),
+      z.strictObject({
+        template: z.literal("ServerRack"),
+        racks: z.number().int().min(2).max(12),
+        /** LED blink pulses per second. */
+        pulseRate: z.number().min(0.5).max(6),
+      }),
+      z.strictObject({
+        template: z.literal("OrbitRings"),
+        rings: z.number().int().min(1).max(7),
+        /** Orbit revolutions over the clip. */
+        revolutions: z.number().min(0.25).max(3),
+      }),
+      z.strictObject({
+        template: z.literal("CascadeGrid"),
+        columns: z.number().int().min(3).max(16),
+        rows: z.number().int().min(3).max(16),
+        /** Wave phases across the grid over the clip. */
+        waves: z.number().min(0.5).max(4),
+      }),
+      z.strictObject({
+        template: z.literal("DataTunnel"),
+        segments: z.number().int().min(6).max(60),
+        /** Tunnel traversal speed in segments per second. */
+        speed: z.number().min(0.5).max(12),
+      }),
+      z.strictObject({
+        template: z.literal("TerrainSweep"),
+        ridges: z.number().int().min(2).max(24),
+        /** Terrain amplitude as a fraction of frame height. */
+        amplitude: z.number().min(0.05).max(0.6),
+      }),
+    ]),
   }),
 ]);
 export type BRollAsset = z.infer<typeof brollAssetSchema>;
@@ -256,6 +307,24 @@ export const BROLL_CATALOG = [
       "minimal-lineart": "Minimal line drawing, generous negative space.",
     },
     note: "Generated images must not carry text unless expectsText is true; text fidelity in generated imagery is unreliable and checked by visual QA.",
+  },
+  {
+    engine: "blender",
+    template:
+      "NetworkFlow | ServerRack | OrbitRings | CascadeGrid | DataTunnel | TerrainSweep",
+    when: "Narration describes structure, scale, motion or systems a stylized 3D render makes visceral: request paths, capacity, orbits, cascades, depth, terrain.",
+    parameters:
+      "NetworkFlow: nodes[2–8 labels], packets 1–24. ServerRack: racks 2–12, pulseRate 0.5–6. OrbitRings: rings 1–7, revolutions 0.25–3. CascadeGrid: columns/rows 3–16, waves 0.5–4. DataTunnel: segments 6–60, speed 0.5–12. TerrainSweep: ridges 2–24, amplitude 0.05–0.6.",
+    styles: {
+      NetworkFlow:
+        "Glowing packets traveling a 3D node graph with labeled nodes.",
+      ServerRack: "Corridor of server racks with pulsing status LEDs.",
+      OrbitRings: "Concentric rings orbiting a focal object.",
+      CascadeGrid: "A grid of cubes waving in a cascading phase.",
+      DataTunnel: "Camera flight through a tunnel of data slabs.",
+      TerrainSweep: "Abstract procedural terrain flyover.",
+    },
+    note: "3D renders are stylized and deterministic; labels are schema-bounded strings, colors come from the creator brand. Not photorealism — prefer gpt-image for places and physical machines.",
   },
 ] as const;
 

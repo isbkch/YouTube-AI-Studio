@@ -17,7 +17,10 @@ import {
 } from "../packages/image-engine/src/index.ts";
 import { renderSegment } from "../packages/orchestrator/src/timeline.ts";
 import { fixture } from "./fixtures.ts";
-import type { BRollEntry } from "../packages/production-plan/src/index.ts";
+import type {
+  BRollAsset,
+  BRollEntry,
+} from "../packages/production-plan/src/index.ts";
 
 const still = (brief: string) =>
   ({
@@ -54,7 +57,9 @@ test("generated stills become motion clips, composite insets and mix under narra
     const e = entry();
     // 1. Still generation through the trusted adapter.
     const generated = await provider.generate({
-      prompt: buildImagePrompt(e.asset),
+      prompt: buildImagePrompt(
+        e.asset as Extract<BRollAsset, { engine: "gpt-image" }>,
+      ),
       size: "1536x1024",
       quality: "low",
     });

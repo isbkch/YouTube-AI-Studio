@@ -59,6 +59,10 @@ import {
 } from "../../media/src/index.ts";
 import type { ImageProvider } from "../../image-engine/src/index.ts";
 import {
+  RealBlenderProvider,
+  type BlenderProvider,
+} from "../../blender-engine/src/index.ts";
+import {
   FINAL_RENDER_PRESETS,
   resolveCommand,
 } from "../../resolve-engine/src/index.ts";
@@ -92,6 +96,17 @@ export class Studio {
   public transcription: Transcriber;
   /** Still-image generation engine; null fails B-roll plans closed (ADR 007). */
   public images: ImageProvider | null = null;
+  /** 3D B-roll engine; probed lazily, injectable for tests (ADR 008). */
+  public blender: BlenderProvider | null = null;
+  private blenderProbed = false;
+  async blenderEngine(): Promise<BlenderProvider | null> {
+    if (this.blender) return this.blender;
+    if (!this.blenderProbed) {
+      this.blenderProbed = true;
+      this.blender = await RealBlenderProvider.create();
+    }
+    return this.blender;
+  }
   constructor(
     public store: Store,
     public provider: AIProvider = new MockAIProvider(),
@@ -1054,7 +1069,11 @@ export class Studio {
       projectId,
       signal,
       (job) => this.notify?.({ event: "job", job }),
-      { images: this.images, provider: this.provider },
+      {
+        images: this.images,
+        blender: await this.blenderEngine(),
+        provider: this.provider,
+      },
     );
   }
   async propose(
@@ -1384,10 +1403,14 @@ export class Studio {
       this.revisionAllowed(p);
       const plan = validatePlan(p.plans.at(-1));
       const library = await readLibrary(this.store.root);
-      const capabilities = engineCapabilities(this.images, library);
+      const capabilities = engineCapabilities(
+        this.images,
+        library,
+        await this.blenderEngine(),
+      );
       const visualCapabilities: VisualPassCapabilities = {
         "gpt-image": capabilities["gpt-image"],
-        blender: null,
+        blender: capabilities.blender,
         musicTracks: library.tracks
           .filter((t) => t.kind === "music")
           .map((t) => ({
@@ -1467,7 +1490,7 @@ export class Studio {
           // Fail closed before approval: engines must be configured and the
           // audio design must resolve in the creator's library.
           const next = applyPatch(plan, this.validateProposal(p, proposal));
-          validateEngines(next, this.images);
+          validateEngines(next, this.images, await this.blenderEngine());
           validateAudioDesign(next, trackRefs(library.tracks));
           this.store.update(p.id, (x) => {
             x.usage.push(result.usage);
