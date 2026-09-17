@@ -58,6 +58,11 @@ import {
   renderMotionClip,
   type ImageProvider,
 } from "../../image-engine/src/index.ts";
+import {
+  blenderClipKey,
+  buildBlenderSpec,
+  type BlenderProvider,
+} from "../../blender-engine/src/index.ts";
 import { Store } from "./store.ts";
 import { transition, type Asset } from "./model.ts";
 import { JobGraph, type Task, type TaskContext } from "./jobs.ts";
@@ -76,6 +81,8 @@ import {
 /** Providers the build may invoke; null engines make plans fail closed. */
 export interface BuildContext {
   images: ImageProvider | null;
+  /** 3D B-roll engine; null rejects blender entries (ADR 008). */
+  blender: BlenderProvider | null;
   /** Structured-output provider for automated visual QA; null skips review. */
   provider: AIProvider | null;
 }
@@ -129,7 +136,7 @@ export async function buildProject(
   projectId: string,
   signal?: AbortSignal,
   onJob?: (job: import("./model.ts").Job) => void,
-  context: BuildContext = { images: null, provider: null },
+  context: BuildContext = { images: null, blender: null, provider: null },
 ) {
   let p = store.get(projectId);
   const release = store.acquire(p.id);
@@ -182,7 +189,7 @@ export async function buildProject(
     validateSources(plan, p.recordings, p.transcripts);
     // Engine capability gates (ADR 007): unavailable engines fail the build
     // before any pixels are spent, and audio design must resolve in-library.
-    validateEngines(plan, context.images);
+    validateEngines(plan, context.images, context.blender);
     const library = await readLibrary(store.root);
     validateAudioDesign(plan, trackRefs(library.tracks));
     const design = plan.audioDesign;
@@ -361,9 +368,73 @@ export async function buildProject(
       }
       const sceneBroll = scene.enabled ? scene.broll : [];
       for (const entry of sceneBroll) {
-        const stillId = `broll-still-${scene.id}-${entry.id}`;
         const clipTaskId = `broll-clip-${scene.id}-${entry.id}`;
+        if (entry.asset.engine === "blender") {
+          // 3D renders produce the finished clip in one trusted step; the
+          // brand palette and validated parameters are the whole spec.
+          tasks.push({
+            id: clipTaskId,
+            type: "blender",
+            label: `Blender 3D • ${scene.id}/${entry.id}`,
+            dependencies: [],
+            run: async (ctx) => {
+              const key = blenderClipKey(
+                entry,
+                plan,
+                context.blender!,
+                p.creator.brand,
+              );
+              let usage: Usage | null = null;
+              const c = await cachedFile(
+                dir,
+                key,
+                `assets/generated/broll-${key}.mp4`,
+                async (temp) => {
+                  const result = await context.blender!.renderClip({
+                    spec: buildBlenderSpec(entry, plan, p.creator.brand),
+                    signal: ctx.signal,
+                    progress: ctx.progress,
+                  });
+                  usage = result.usage;
+                  await writeFile(temp, result.file);
+                  await verifyOutput(
+                    temp,
+                    entry.durationFrames / plan.frameRate,
+                    ctx.signal,
+                  );
+                },
+              );
+              if (usage && !c.reused) {
+                const spent = usage;
+                store.update(p.id, (x) => x.usage.push(spent));
+              }
+              let perScene = brollClips.get(scene.id);
+              if (!perScene) brollClips.set(scene.id, (perScene = new Map()));
+              perScene.set(
+                entry.id,
+                persistAsset(ctx, "broll-clip", key, c, scene.id, {
+                  generator: "blender-eevee",
+                  template: entry.asset.template,
+                  templateVersion: entry.asset.templateVersion,
+                  parameters: {
+                    ...entry.asset.parameters,
+                    placement: entry.placement,
+                    inset: entry.inset,
+                  },
+                  sourceAssets: scene.transcriptSegmentIds,
+                  instruction: entry.narrationHook,
+                }),
+              );
+            },
+          });
+          continue;
+        }
+        const stillId = `broll-still-${scene.id}-${entry.id}`;
         const stillKey = brollStillKey(entry, context.images!);
+        // Narrow once outside the closures; discriminant narrowing on nested
+        // properties does not survive into task callbacks.
+        const still = entry.asset.engine === "gpt-image" ? entry.asset : null;
+        if (!still) continue;
         tasks.push({
           id: stillId,
           type: "image",
@@ -377,9 +448,9 @@ export async function buildProject(
               `assets/generated/still-${stillKey}.png`,
               async (temp) => {
                 const result = await context.images!.generate({
-                  prompt: buildImagePrompt(entry.asset),
+                  prompt: buildImagePrompt(still),
                   size: BROLL_SOURCE_SIZE,
-                  quality: entry.asset.parameters.quality,
+                  quality: still.parameters.quality,
                   signal: ctx.signal,
                 });
                 usage = result.usage;
@@ -391,7 +462,7 @@ export async function buildProject(
               store.update(p.id, (x) => x.usage.push(spent));
             }
             persistAsset(ctx, "generated-image", stillKey, c, scene.id, {
-              generator: entry.asset.engine,
+              generator: "gpt-image",
               template: entry.asset.template,
               templateVersion: entry.asset.templateVersion,
               parameters: entry.asset.parameters,
@@ -407,9 +478,9 @@ export async function buildProject(
                   {
                     sceneId: scene.id,
                     stillPath: await safePath(dir, c.path),
-                    brief: entry.asset.parameters.brief,
-                    style: entry.asset.parameters.style,
-                    expectsText: entry.asset.parameters.expectsText,
+                    brief: still.parameters.brief,
+                    style: still.parameters.style,
+                    expectsText: still.parameters.expectsText,
                   },
                   ctx.signal,
                 );
@@ -916,7 +987,10 @@ export async function buildProject(
                   description: scene.visual.description,
                   graphicTemplate: scene.visual.graphic?.template ?? null,
                   broll: scene.broll.map((b) => ({
-                    brief: b.asset.parameters.brief,
+                    brief:
+                      b.asset.engine === "gpt-image"
+                        ? b.asset.parameters.brief
+                        : `[blender ${b.asset.template}] ${b.narrationHook}`,
                     placement: b.placement,
                     motion: b.motion,
                   })),

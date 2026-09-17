@@ -12,6 +12,11 @@ import {
   PREVIEW,
 } from "../packages/media/src/index.ts";
 import { fileHash, defaultCreator } from "../packages/shared/src/index.ts";
+import {
+  RealBlenderProvider,
+  buildBlenderSpec,
+} from "../packages/blender-engine/src/index.ts";
+import type { BRollEntry } from "../packages/production-plan/src/index.ts";
 import { renderGraphic } from "../packages/remotion-engine/src/index.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
@@ -278,6 +283,45 @@ test("two real recordings plan and build one timeline end to end", async () => {
     assert.deepEqual(after, originals);
   } finally {
     store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("blender EEVEE renders a trusted template clip end-to-end", async () => {
+  const provider = await RealBlenderProvider.create();
+  if (!provider) {
+    console.log("Blender not installed; skipping the real EEVEE render.");
+    return;
+  }
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-blender-eevee-"));
+  try {
+    const plan = fixture();
+    const entry: BRollEntry = {
+      id: "broll-blender",
+      startFrame: 0,
+      durationFrames: 24,
+      placement: "fullframe",
+      inset: null,
+      motion: "none",
+      asset: {
+        engine: "blender",
+        template: "OrbitRings",
+        templateVersion: "1.0.0",
+        parameters: { template: "OrbitRings", rings: 3, revolutions: 1 },
+      },
+      narrationHook: "capacity orbiting the request path",
+    };
+    const spec = buildBlenderSpec(entry, plan, {
+      background: defaultCreator.brand.background,
+      foreground: defaultCreator.brand.foreground,
+      accent: defaultCreator.brand.accent,
+    });
+    const result = await provider.renderClip({ spec });
+    const clip = path.join(root, "clip.mp4");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(clip, result.file);
+    await verifyOutput(clip, spec.durationFrames / spec.frameRate);
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });

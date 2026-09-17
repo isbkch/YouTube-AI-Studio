@@ -982,6 +982,182 @@
                         "parameters"
                       ],
                       "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "engine": {
+                          "type": "string",
+                          "const": "blender"
+                        },
+                        "template": {
+                          "type": "string",
+                          "enum": [
+                            "NetworkFlow",
+                            "ServerRack",
+                            "OrbitRings",
+                            "CascadeGrid",
+                            "DataTunnel",
+                            "TerrainSweep"
+                          ]
+                        },
+                        "templateVersion": {
+                          "type": "string",
+                          "const": "1.0.0"
+                        },
+                        "parameters": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "template": {
+                                  "type": "string",
+                                  "const": "NetworkFlow"
+                                },
+                                "nodes": {
+                                  "minItems": 2,
+                                  "maxItems": 8,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 40
+                                  }
+                                },
+                                "packets": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 24
+                                }
+                              },
+                              "required": ["template", "nodes", "packets"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "template": {
+                                  "type": "string",
+                                  "const": "ServerRack"
+                                },
+                                "racks": {
+                                  "type": "integer",
+                                  "minimum": 2,
+                                  "maximum": 12
+                                },
+                                "pulseRate": {
+                                  "type": "number",
+                                  "minimum": 0.5,
+                                  "maximum": 6
+                                }
+                              },
+                              "required": ["template", "racks", "pulseRate"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "template": {
+                                  "type": "string",
+                                  "const": "OrbitRings"
+                                },
+                                "rings": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 7
+                                },
+                                "revolutions": {
+                                  "type": "number",
+                                  "minimum": 0.25,
+                                  "maximum": 3
+                                }
+                              },
+                              "required": ["template", "rings", "revolutions"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "template": {
+                                  "type": "string",
+                                  "const": "CascadeGrid"
+                                },
+                                "columns": {
+                                  "type": "integer",
+                                  "minimum": 3,
+                                  "maximum": 16
+                                },
+                                "rows": {
+                                  "type": "integer",
+                                  "minimum": 3,
+                                  "maximum": 16
+                                },
+                                "waves": {
+                                  "type": "number",
+                                  "minimum": 0.5,
+                                  "maximum": 4
+                                }
+                              },
+                              "required": [
+                                "template",
+                                "columns",
+                                "rows",
+                                "waves"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "template": {
+                                  "type": "string",
+                                  "const": "DataTunnel"
+                                },
+                                "segments": {
+                                  "type": "integer",
+                                  "minimum": 6,
+                                  "maximum": 60
+                                },
+                                "speed": {
+                                  "type": "number",
+                                  "minimum": 0.5,
+                                  "maximum": 12
+                                }
+                              },
+                              "required": ["template", "segments", "speed"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "template": {
+                                  "type": "string",
+                                  "const": "TerrainSweep"
+                                },
+                                "ridges": {
+                                  "type": "integer",
+                                  "minimum": 2,
+                                  "maximum": 24
+                                },
+                                "amplitude": {
+                                  "type": "number",
+                                  "minimum": 0.05,
+                                  "maximum": 0.6
+                                }
+                              },
+                              "required": ["template", "ridges", "amplitude"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "engine",
+                        "template",
+                        "templateVersion",
+                        "parameters"
+                      ],
+                      "additionalProperties": false
                     }
                   ]
                 },

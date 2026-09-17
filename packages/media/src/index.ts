@@ -42,7 +42,8 @@ export async function executable(name: Tool): Promise<string> {
       ]
         .filter(Boolean)
         .map((p) => path.join(p, name));
-  if (name === "blender")
+  // An explicit override is authoritative: never fall back to known locations.
+  if (name === "blender" && !override)
     candidates.push("/Applications/Blender.app/Contents/MacOS/Blender");
   for (const p of candidates) {
     try {

@@ -216,12 +216,13 @@ struct InsetRect: Decodable {
   let width: Double
 }
 struct BRollParameters: Decodable {
-  let brief: String
-  let style: String
+  // gpt-image parameters; Blender assets carry typed 3D parameters instead.
+  let brief: String?
+  let style: String?
   let palette: String?
   let avoid: String?
-  let quality: String
-  let expectsText: Bool
+  let quality: String?
+  let expectsText: Bool?
 }
 struct BRollAsset: Decodable {
   let engine: String

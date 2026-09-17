@@ -204,7 +204,7 @@ struct SceneCard: View {
         ForEach(scene.broll ?? []) { b in
           VStack(alignment: .leading, spacing: 2) {
             Label(
-              "\(b.placement == "inset" ? "B-roll inset" : "B-roll full-frame") · \(b.motion) · \(b.asset.parameters.style)",
+              "\(b.placement == "inset" ? "B-roll inset" : "B-roll full-frame") · \(b.motion) · \(b.asset.engine == "blender" ? "3D \(b.asset.template)" : (b.asset.parameters.style ?? "still"))",
               systemImage: "photo.on.rectangle.angled"
             ).font(.system(size: 10, weight: .medium)).foregroundStyle(Color.studioAccent)
             Text("“\(b.narrationHook)”").font(.caption2).foregroundStyle(.secondary).lineLimit(1)

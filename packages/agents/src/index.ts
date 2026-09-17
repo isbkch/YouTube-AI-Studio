@@ -497,7 +497,7 @@ export class DirectorAgent {
 /** What the pass may plan with: runtime engines plus the creator's library. */
 export interface VisualPassCapabilities {
   "gpt-image": { model: string } | null;
-  blender: null;
+  blender: { engine: "blender"; version: string } | null;
   musicTracks: {
     trackId: string;
     title: string;
@@ -526,6 +526,8 @@ WHERE AND HOW LONG: startFrame and durationFrames are relative to the scene and 
 INTEGRATION WITH NARRATION: default to placement "inset" so the presenter stays visible while the image illustrates alongside the speech; keep insets within the safe rectangle (x + width ≤ 1, y + height ≤ 1 where height ≈ width × 1.07 at 16:9). Use "fullframe" only when narration explicitly tours a scene and the presenter's face adds nothing — never on scenes that already have a graphic. Motion is subtle: zoom-in to reveal, zoom-out to settle, pans for wide images.
 
 MUSIC: propose a bed only when the video's tone genuinely benefits and the library has a fitting track (cite its trackId exactly). gainDb −42…−6, duckToDb below gainDb, short fades. SFX sparingly — chapter starts or decisive moments, atFrame away from the final 12 frames, citing exact library trackIds. Empty arrays are a valid, common answer.
+
+3D B-ROLL (when the blender capability is present): the catalog lists checked-in Blender templates — NetworkFlow, ServerRack, OrbitRings, CascadeGrid, DataTunnel, TerrainSweep — for stylized deterministic 3D motion. Choose them when the narration describes structure, scale or motion (request paths, capacity, orbits, cascades, depth); prefer gpt-image for places and physical machines. Parameters are strict numbers and short labels from the narration — never invented named entities. When the blender capability is absent, do not propose engine "blender" entries at all.
 
 CONTRACT: only sceneIds from the input plan. broll entry IDs are stable slugs (broll-1, broll-2…). Explain each treatment in rationale concisely, never private reasoning.`;
 export class VisualPassAgent {
@@ -590,6 +592,53 @@ export function mockVisualPass(input: VisualPassInput): VisualPass {
       Math.min(2, input.budget.maxGeneratedStills)
     )
       break;
+    // Deterministic 3D probe: when the runtime advertises Blender, the first
+    // eligible scene demonstrates a typed 3D treatment instead of a still.
+    if (input.capabilities.blender && serial === 0) {
+      const hook =
+        ranked[0].narration.split(/(?<=\.)\s/)[0]?.slice(0, 300) ||
+        ranked[0].narration.slice(0, 60);
+      treatments.push({
+        sceneId: scene.id,
+        rationale:
+          "Deterministic mock treatment: narration names structure or motion a stylized 3D render can illustrate.",
+        broll: [
+          {
+            id: `broll-${++serial}`,
+            startFrame: Math.min(
+              Math.floor(scene.durationFrames * 0.2),
+              scene.durationFrames - 24,
+            ),
+            durationFrames: Math.max(
+              24,
+              Math.min(
+                Math.floor(scene.durationFrames * 0.55),
+                scene.durationFrames -
+                  Math.min(
+                    Math.floor(scene.durationFrames * 0.2),
+                    scene.durationFrames - 24,
+                  ),
+              ),
+            ),
+            placement: "inset",
+            inset: { x: 0.55, y: 0.5, width: 0.38 },
+            motion: "zoom-in",
+            asset: {
+              engine: "blender",
+              template: "NetworkFlow",
+              templateVersion: "1.0.0",
+              parameters: {
+                template: "NetworkFlow",
+                nodes: ["edge", "api", "db"],
+                packets: 6,
+              },
+            },
+            narrationHook: hook,
+          },
+        ],
+      });
+      continue;
+    }
     const hook =
       scene.narration.split(/(?<=\.)\s/)[0]?.slice(0, 300) ||
       scene.narration.slice(0, 60);
