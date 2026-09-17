@@ -13,6 +13,17 @@ import {
   resolveCommand,
 } from "../../resolve-engine/src/index.ts";
 loadDotEnv();
+/** Shared `--tightening` parse so `aroll` and `plan` cannot drift. */
+const tighteningArg = (
+  value: string | undefined,
+): "natural" | "tight" | "punchy" | undefined => {
+  if (value && !["natural", "tight", "punchy"].includes(value))
+    throw new StudioError(
+      "INVALID_INPUT",
+      "--tightening must be natural, tight or punchy.",
+    );
+  return value as "natural" | "tight" | "punchy" | undefined;
+};
 const { positionals: a, values: v } = parseArgs({
   allowPositionals: true,
   options: {
@@ -204,18 +215,7 @@ try {
       result = await studio.transcribe(a[1], abort.signal);
     else if (a[0] === "align") result = await studio.computeAlignment(a[1]);
     else if (a[0] === "aroll") {
-      if (
-        v.tightening &&
-        !["natural", "tight", "punchy"].includes(v.tightening)
-      )
-        throw new StudioError(
-          "INVALID_INPUT",
-          "--tightening must be natural, tight or punchy.",
-        );
-      result = await studio.draftAroll(
-        a[1],
-        v.tightening as "natural" | "tight" | "punchy" | undefined,
-      );
+      result = await studio.draftAroll(a[1], tighteningArg(v.tightening));
     } else if (a[0] === "plan" && a[1] === "validate")
       result = validatePlan(store.get(a[2]).plans.at(-1));
     else if (a[0] === "plan" && a[1] === "approve")
@@ -234,20 +234,11 @@ try {
           "INVALID_INPUT",
           "--density must be minimal, balanced or rich.",
         );
-      if (
-        v.tightening &&
-        !["natural", "tight", "punchy"].includes(v.tightening)
-      )
-        throw new StudioError(
-          "INVALID_INPUT",
-          "--tightening must be natural, tight or punchy.",
-        );
       result = await studio.generatePlan(
         a[1],
         {
           density: v.density as "minimal" | "balanced" | "rich" | undefined,
-          tightening: v.tightening as
-            "natural" | "tight" | "punchy" | undefined,
+          tightening: tighteningArg(v.tightening),
         },
         abort.signal,
       );

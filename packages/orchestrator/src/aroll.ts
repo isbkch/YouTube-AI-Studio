@@ -483,6 +483,10 @@ export function buildEditDecision(
   let gapsCut = 0;
   let secondsRemoved = 0;
   const skippedTightening = new Set<string>();
+  // Tightened sentences claim their spoken words, not the padded match span —
+  // bridged rows carry artificial spans that cover the whole gap they were
+  // proven in, so the later coverage check must not measure against those.
+  const wordClaims = new Map<number, { first: number; last: number }>();
   let result: typeof merged = merged;
   if (tightening !== "natural") {
     const level = TIGHTENING_LEVELS[tightening];
@@ -497,7 +501,9 @@ export function buildEditDecision(
       let first: number | null = null;
       let last: number | null = null;
       for (const w of words) {
-        if (w.end < start || w.start > end) continue;
+        // Only words fully inside the match: touching words from a
+        // neighbouring sentence would push bounds past this group's span.
+        if (w.start < start || w.end > end) continue;
         if (first === null || w.start < first) first = w.start;
         if (last === null || w.end > last) last = w.end;
       }
@@ -513,6 +519,8 @@ export function buildEditDecision(
         result.push(g);
         continue;
       }
+      for (const [i, b] of bounds.entries())
+        if (b) wordClaims.set(g.sentences[i].index, b);
       // Greedy left-to-right: a pause wide enough to cut, with reviewable
       // scenes on both sides, becomes a scene boundary.
       const final = bounds.at(-1)!;
@@ -547,7 +555,9 @@ export function buildEditDecision(
         result.push({
           recordingId: g.recordingId,
           start: Math.max(0, part.first - level.headPad),
-          end: part.last + level.tailPad,
+          // The group end is already clamped to the recording; never tighten
+          // an edge past media that exists.
+          end: Math.min(g.end, part.last + level.tailPad),
           sentences: part.sentences,
         });
       secondsRemoved +=
@@ -592,8 +602,17 @@ export function buildEditDecision(
       );
   const kept = result.filter((g) => !collided.has(g));
   for (const g of kept) {
-    const minStart = Math.min(...g.sentences.map((s) => s.match!.start));
-    const maxEnd = Math.max(...g.sentences.map((s) => s.match!.end));
+    // Untightened sentences claim their padded match span; tightened ones
+    // claim the spoken words the pass measured against (bridged spans are
+    // candidate regions, not claimed speech).
+    const claim = (s: (typeof g.sentences)[number]) => {
+      const words = wordClaims.get(s.index);
+      return words
+        ? { start: words.first, end: words.last }
+        : { start: s.match!.start, end: s.match!.end };
+    };
+    const minStart = Math.min(...g.sentences.map((s) => claim(s).start));
+    const maxEnd = Math.max(...g.sentences.map((s) => claim(s).end));
     if (g.start - minStart > SPAN_TOLERANCE || maxEnd - g.end > SPAN_TOLERANCE)
       throw new StudioError(
         "INVALID_PLAN",

@@ -379,10 +379,8 @@ export async function transcribeOpening(
     );
     const binary = options.binary ?? (await whisperBinary());
     const json = await runWhisperJSON(modelPath, wav, binary, options.signal);
-    const text = (json.transcription || [])
-      .slice(0, 2)
-      .map((s) => s.text)
-      .join(" ");
+    // Entries are single words now; fingerprint the opening's first tokens.
+    const text = (json.transcription || []).map((s) => s.text).join(" ");
     return tokenize(text).slice(0, 10);
   } finally {
     await rm(dir, { recursive: true, force: true });
