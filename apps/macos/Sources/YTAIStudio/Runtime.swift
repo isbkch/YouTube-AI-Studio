@@ -155,7 +155,7 @@ import SwiftUI
 }
 
 enum Keychain {
-  static let service = "com.winthecloud.studio"
+  static let service = "com.isbkch.yt-ai-studio"
   static func read(_ account: String = "openai") throws -> String? {
     let query: [String: Any] = [
       kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
