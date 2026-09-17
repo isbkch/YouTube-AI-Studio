@@ -165,7 +165,7 @@ export async function doctor(root = defaultRoot()) {
         status: "NOT FOUND",
         version: "",
         required: false,
-        guidance: `Set WTS_WHISPER_MODEL to a ggml model (expected ${model}).`,
+        guidance: `Downloaded automatically on the first whisper transcription (expected ${model}). Set WTS_WHISPER_MODEL to use an existing ggml model instead.`,
       });
     }
   } catch {
@@ -175,7 +175,7 @@ export async function doctor(root = defaultRoot()) {
       version: "",
       required: false,
       guidance:
-        "Set WTS_WHISPER_MODEL to a ggml model for local transcription.",
+        "Downloaded automatically on the first whisper transcription; set WTS_WHISPER_MODEL to use an existing ggml model instead.",
     });
   }
   checks.push({
