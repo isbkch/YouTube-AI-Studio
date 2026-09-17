@@ -339,36 +339,61 @@ struct MediaView: View {
   private var canImport: Bool {
     ["READY_TO_RECORD", "MEDIA_IMPORTED"].contains(p.status) && p.scriptApproval != nil
   }
+  /// Why the drop zone is closed right now, so a rejected drop is never silent.
+  private var importBlocker: String? {
+    if p.scriptApproval == nil {
+      return "A-roll import unlocks after you approve the script."
+    }
+    return canImport
+      ? nil
+      : "This project has moved past the recording stage — new recordings can no longer be imported."
+  }
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 24) {
         Text("A-roll, safely on disk.").studioHeading(20)
         VStack(spacing: 14) {
           Image(systemName: "square.and.arrow.down").font(.system(size: 34, weight: .light))
-            .foregroundStyle(Color.studioAccent)
+            .foregroundStyle(canImport ? Color.studioAccent : Color.secondary.opacity(0.6))
           Text(
             p.recordings.isEmpty
               ? "Drop your talking-head recordings here"
               : "Drop additional clips any time before planning"
-          ).font(.headline)
-          Text(
-            p.scriptApproval == nil
-              ? "Approve the script first."
-              : "Select or drop several clips at once; each is imported in order. Originals are preserved."
-          ).font(.caption).foregroundStyle(.secondary)
+          ).font(.headline).opacity(canImport ? 1 : 0.5)
+          if let blocker = importBlocker {
+            HStack(spacing: 10) {
+              Image(systemName: "exclamationmark.triangle.fill")
+              Text(blocker)
+              if p.scriptApproval == nil {
+                Button("Go to Script →") { m.tab = "Script" }.buttonStyle(QuietButtonStyle())
+              }
+            }.font(.callout).foregroundStyle(.orange)
+              .padding(.horizontal, 14).padding(.vertical, 9)
+              .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+          } else {
+            Text(
+              "Select or drop several clips at once; each is imported in order. Originals are preserved."
+            ).font(.caption).foregroundStyle(.secondary)
+          }
           Button("Choose A-roll…") { Task { await m.importVideo() } }.buttonStyle(
             QuietButtonStyle()
           ).disabled(!canImport || m.busy)
         }.frame(maxWidth: .infinity).padding(45).studioCard(cornerRadius: 14).overlay(
           RoundedRectangle(cornerRadius: 14).strokeBorder(
-            Color.studioAccent.opacity(targeted ? 0.6 : 0.35),
+            canImport
+              ? Color.studioAccent.opacity(targeted ? 0.6 : 0.35)
+              : Color.secondary.opacity(0.25),
             style: StrokeStyle(lineWidth: 1, dash: [6, 5]))
         ).background(
-          targeted ? Color.studioAccentSoft : .clear,
+          targeted && canImport ? Color.studioAccentSoft : .clear,
           in: RoundedRectangle(cornerRadius: 14)
         )
         .dropDestination(for: URL.self) { urls, _ in
-          guard !m.busy, canImport, !urls.isEmpty else { return false }
+          guard !urls.isEmpty else { return false }
+          guard canImport, !m.busy else {
+            if !m.busy, let blocker = importBlocker { m.error = blocker }
+            return false
+          }
           Task { await m.importVideo(urls) }
           return true
         } isTargeted: {
