@@ -1,6 +1,6 @@
 # WinTheCloud Studio
 
-[![CI](https://github.com/isbkch/yt-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/isbkch/yt-studio/actions/workflows/ci.yml)
+[![CI](https://github.com/isbkch/yt-ai-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/isbkch/yt-ai-studio/actions/workflows/ci.yml)
 [![License: ELv2](https://img.shields.io/badge/License-Elastic%20License%202.0-blue.svg)](LICENSE)
 
 A native macOS production dashboard for technical YouTube videos. The creator approves the script, reviews the storyboard, and directs the rough cut. A local TypeScript runtime validates the production plan and executes trusted media workers.

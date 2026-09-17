@@ -11,12 +11,12 @@
   "license": "Elastic-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/isbkch/yt-studio.git"
+    "url": "git+https://github.com/isbkch/yt-ai-studio.git"
   },
   "bugs": {
-    "url": "https://github.com/isbkch/yt-studio/issues"
+    "url": "https://github.com/isbkch/yt-ai-studio/issues"
   },
-  "homepage": "https://github.com/isbkch/yt-studio#readme",
+  "homepage": "https://github.com/isbkch/yt-ai-studio#readme",
   "workspaces": [
     "packages/*"
   ],
