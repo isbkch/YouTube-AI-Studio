@@ -193,6 +193,21 @@ struct SceneCard: View {
   let p: Project
   let scene: ProductionScene
   let edit: () -> Void
+  private var sourceDetails: String {
+    var details = [
+      "src \(scene.sourceInFrame)–\(scene.sourceInFrame + scene.durationFrames) f",
+      "\(scene.transcriptSegmentIds?.count ?? 0) seg",
+      String(format: "%.1f dB", scene.audio?.gainDb ?? 0),
+    ]
+    if let intensity = scene.musicIntensity {
+      details.append(String(format: "music %.0f%%", intensity * 100))
+    }
+    if let selection = scene.selection {
+      details.append(String(format: "match %.2f", selection.score))
+      if selection.bridged == true { details.append("bridged") }
+    }
+    return details.joined(separator: " · ")
+  }
   var previewOffset: Double {
     min(1, Double(scene.durationFrames) / Double(p.plan?.frameRate ?? 30) / 2)
   }
@@ -249,14 +264,7 @@ struct SceneCard: View {
                 : scene.visual.graphic == nil ? "A-roll only" : "Planned"
           ).font(.system(size: 10)).foregroundStyle(Color.studioAccent)
         }
-        Text(
-          "src \(scene.sourceInFrame)–\(scene.sourceInFrame + scene.durationFrames) f"
-            + " · \(scene.transcriptSegmentIds?.count ?? 0) seg"
-            + " · \(String(format: "%.1f", scene.audio?.gainDb ?? 0)) dB"
-            + (scene.musicIntensity.map { String(format: " · music %.0f%%", $0 * 100) } ?? "")
-            + (scene.selection.map { String(format: " · match %.2f", $0.score) } ?? "")
-            + (scene.selection?.bridged == true ? " · bridged" : "")
-        ).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+        Text(sourceDetails).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
         Text(scene.narration).font(.system(size: 13)).lineSpacing(3).lineLimit(4).frame(
           height: 74, alignment: .topLeading)
         if let chapter = scene.chapterTitle {

@@ -656,7 +656,7 @@ const sampleJob = (projectId: string): Job => ({
   retryCount: 0,
   producedAssets: [],
 });
-const sampleAsset = (projectId: string): Asset => ({
+const sampleAsset = (_projectId: string): Asset => ({
   assetId: "asset-1",
   type: "proxy",
   sceneId: null,
