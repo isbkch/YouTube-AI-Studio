@@ -17,7 +17,7 @@ The attachment was a screenshot, not a video file. It identified the existing pr
 
 ## Verified artifacts
 
-Library project: `~/Movies/WinTheCloud Studio/projects/your-ai-generated-app-is-not-production-ready-121ad9c9`.
+Library project: `~/Movies/yt-ai-studio/projects/your-ai-generated-app-is-not-production-ready-121ad9c9`.
 
 - Nine imported 3840×2160, 23.976 fps recordings, totaling **35:12.125**. Eight are used; the unused short recording is a sound check.
 - Plan v2: **113 scenes**, **29,040 frames**, **16:08**, 1920×1080/30. Twenty-seven graphics: 11 ChapterTitle, 10 Callout, two CodeReveal, and one each of FailureAnimation, CodeDiff, Terminal, and MetricChart.
@@ -65,7 +65,7 @@ However, scene-105 at **15:00.100–15:07.033** charts `1, 2, 4, 8, 16, 32 ×`, 
 
 ### 4. The Mac inspector does not expose the complete plan
 
-[ProductionScene](../apps/macos/Sources/WinTheCloudStudio/Models.swift) does not decode `sourceInFrame`, `transcriptSegmentIds`, `audio`, or `transition`. Its graphic parameters omit fields such as code lines, chart series, architecture layers, and failed-node selection. The [scene editor](../apps/macos/Sources/WinTheCloudStudio/ProductionViews.swift) offers only Presenter, Callout, ArchitectureFlow, and ChapterTitle, although the catalog has eleven graphic templates.
+[ProductionScene](../apps/macos/Sources/YTAIStudio/Models.swift) does not decode `sourceInFrame`, `transcriptSegmentIds`, `audio`, or `transition`. Its graphic parameters omit fields such as code lines, chart series, architecture layers, and failed-node selection. The [scene editor](../apps/macos/Sources/YTAIStudio/ProductionViews.swift) offers only Presenter, Callout, ArchitectureFlow, and ChapterTitle, although the catalog has eleven graphic templates.
 
 The FailureAnimation inspector was checked in the running app: narration, title/subtitle, punch-in, enabled state, and asset provenance are visible; the selected source interval and failure-node parameters are not. The separate A-roll draft screen can show draft timings and dropped text after computation, but that recomputed draft is explicitly superseded by the approved Director plan. It is not a complete audit of the selected plan.
 
