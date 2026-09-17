@@ -481,8 +481,15 @@ export const sceneSchema = z.strictObject({
   chapterTitle: z.string().min(1).max(120).nullable(),
   selection: selectionSchema.nullable().default(null),
 });
+/**
+ * How animation-heavy the plan is: "minimal" keeps the presenter on screen and
+ * allows only essential graphics, "balanced" is the restrained default, "rich"
+ * favors a graphic or generated clip wherever the catalog fits. The Director
+ * reads it as steering; revisions inherit it.
+ */
+export const visualDensitySchema = z.enum(["minimal", "balanced", "rich"]);
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("4.2.0"),
+  schemaVersion: z.literal("4.3.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -501,6 +508,8 @@ export const planSchema = z.strictObject({
     summary: z.string().max(2000),
   }),
   scenes: z.array(sceneSchema).min(1).max(500),
+  /** Density the plan was directed at; drives revisions and the UI display. */
+  visualDensity: visualDensitySchema.default("balanced"),
   audioDesign: audioDesignSchema.default({ music: null, sfx: [] }),
   scriptCoverage: scriptCoverageSchema.nullable().default(null),
 });
@@ -584,7 +593,7 @@ export function migratePlan(input: unknown): unknown {
   if (plan.schemaVersion === "4.1.0")
     // v4.2 makes the music bed's source explicit; existing beds are library
     // tracks, and generated beds carry a brief instead of a trackId.
-    return {
+    return migratePlan({
       ...plan,
       schemaVersion: "4.2.0",
       audioDesign: {
@@ -600,7 +609,11 @@ export function migratePlan(input: unknown): unknown {
                   .music,
               },
       },
-    };
+    });
+  if (plan.schemaVersion === "4.2.0")
+    // v4.3 records the visual density the plan was directed at; filled by the
+    // schema default.
+    return migratePlan({ ...plan, schemaVersion: "4.3.0" });
   return input;
 }
 

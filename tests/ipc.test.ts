@@ -64,6 +64,9 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
     assert.equal((snap.result as { status: string }).status, "READY_TO_RECORD");
     const unsupported = await call("execute.shell", { command: "echo unsafe" });
     assert.equal((unsupported.error as { kind: string }).kind, "UNSUPPORTED");
+    // Storyboard previews share the planning gates: no plan yet, no previews.
+    const noPreviews = await call("previews.render", { projectId: p.id });
+    assert.equal((noPreviews.error as { kind: string }).kind, "CONFLICT");
     // Deleting removes the project (no recordings imported here) and later
     // snapshots fail cleanly instead of resurrecting it.
     const deleted = await call("project.delete", { projectId: p.id });

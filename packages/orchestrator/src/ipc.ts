@@ -117,8 +117,14 @@ async function dispatch(
       return studio.alignment(project.parse(params).projectId);
     case "aroll.draft":
       return studio.draftAroll(project.parse(params).projectId);
-    case "plan.generate":
-      return studio.generatePlan(project.parse(params).projectId, signal);
+    case "plan.generate": {
+      const p = project
+        .extend({
+          density: z.enum(["minimal", "balanced", "rich"]).optional(),
+        })
+        .parse(params);
+      return studio.generatePlan(p.projectId, { density: p.density }, signal);
+    }
     case "plan.import": {
       const p = project.extend({ plan: z.unknown() }).parse(params);
       return studio.importPlan(p.projectId, p.plan, signal);
@@ -129,6 +135,8 @@ async function dispatch(
     }
     case "build":
       return studio.build(project.parse(params).projectId, signal);
+    case "previews.render":
+      return studio.renderPreviews(project.parse(params).projectId, signal);
     case "revision.propose": {
       const p = project
         .extend({ request: z.string(), sceneId: z.string() })

@@ -20,6 +20,7 @@ const { positionals: a, values: v } = parseArgs({
     transcriber: { type: "string" },
     images: { type: "string" },
     music: { type: "string" },
+    density: { type: "string" },
     model: { type: "string", default: process.env.WTS_MODEL || "gpt-5.4" },
     description: { type: "string", default: "" },
     duration: { type: "string", default: "900" },
@@ -54,11 +55,12 @@ bun run wts transcript fcp <project> <fcpbundle-or-folder>
 bun run wts transcribe <project> [--transcriber whisper|openai]
 bun run wts align <project>
 bun run wts aroll <project>
-bun run wts plan <project> [--provider openai]
+bun run wts plan <project> [--provider openai] [--density minimal|balanced|rich]
 bun run wts plan import <project> <plan.json>
 bun run wts plan validate <project>
 bun run wts plan approve <project> --version 1
 bun run wts storyboard <project>
+bun run wts previews <project>   (render storyboard previews: graphics + 3D clips)
 bun run wts build <project> | render <project> | jobs <project>
 bun run wts revision propose <project> <scene-id> "Creative direction" [--provider openai]
 bun run wts revision range <project> 3:42-4:10 "illustrate the failover"
@@ -213,12 +215,25 @@ try {
       );
     else if (a[0] === "plan" && a[1] === "undo")
       result = await studio.undo(a[2]);
-    else if (a[0] === "plan")
-      result = await studio.generatePlan(a[1], abort.signal);
-    else if (a[0] === "storyboard")
+    else if (a[0] === "plan") {
+      if (v.density && !["minimal", "balanced", "rich"].includes(v.density))
+        throw new StudioError(
+          "INVALID_INPUT",
+          "--density must be minimal, balanced or rich.",
+        );
+      result = await studio.generatePlan(
+        a[1],
+        {
+          density: v.density as "minimal" | "balanced" | "rich" | undefined,
+        },
+        abort.signal,
+      );
+    } else if (a[0] === "storyboard")
       result = store.get(a[1]).plans.at(-1)?.scenes;
     else if (a[0] === "build" || a[0] === "render")
       result = await studio.build(a[1], abort.signal);
+    else if (a[0] === "previews")
+      result = await studio.renderPreviews(a[1], abort.signal);
     else if (a[0] === "jobs") result = store.jobs(store.get(a[1]).id);
     else if (a[0] === "revision" && a[1] === "propose")
       result = await studio.propose(a[2], a[4], a[3], abort.signal);

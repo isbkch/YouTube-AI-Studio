@@ -27,8 +27,10 @@ import {
   id,
   now,
   StudioError,
+  asVisualDensity,
   type CreatorProfile,
   type Usage,
+  type VisualDensity,
 } from "../../shared/src/index.ts";
 import type { Recording, Transcript } from "../../orchestrator/src/model.ts";
 import type { Alignment } from "../../orchestrator/src/alignment.ts";
@@ -386,6 +388,16 @@ MUSIC INTENSITY: every scene may set musicIntensity 0–1 (default 1) — how lo
 
 CONTRACT: preserve the supplied id/projectId/version/scriptVersion/createdAt/transcriptHash exactly. Every graphic uses engine "remotion", templateVersion "1.0.0", and exactly the parameters its catalog entry lists. Leave scene broll empty and audioDesign unset — a separate visual-direction pass owns generated B-roll, music and SFX after this plan is approved. Explain decisions in rationale concisely, never private reasoning.`;
 
+/** Per-level steering sentence appended to Director and visual-pass prompts. */
+const densityDirectives: Record<VisualDensity, string> = {
+  minimal:
+    "keep the video presenter-led. Chapter titles are fine; allow at most one or two essential graphics in the whole video and drop everything decorative.",
+  balanced:
+    "the restrained default. Most scenes stay presenter footage; add a graphic only where it genuinely clarifies.",
+  rich: "favor visuals. Wherever the catalog has a fitting template for a scene's narration, use it; lean into diagrams, flows and generated B-roll.",
+};
+const densityDirective = (density: VisualDensity) =>
+  `\nVISUAL DENSITY: the creator set this production to "${density}" — ${densityDirectives[density]}`;
 const storyboardDirectionSchema = z.strictObject({
   summary: planSchema.shape.director.shape.summary,
   scenes: z
@@ -420,14 +432,16 @@ export class DirectorAgent {
   ): Promise<ProviderResult<ProductionPlan>> {
     const cut = bindTranscriptSegments(mockPlan(input), input.transcripts);
     validateSources(cut, input.recordings, input.transcripts);
+    const density = asVisualDensity(input.creator.visualDensity);
     const result = await this.provider.generateStructured({
       name: "storyboard_direction",
       schema: storyboardDirectionSchema,
       signal,
-      instructions: storyboardDirectionInstructions,
+      instructions: storyboardDirectionInstructions + densityDirective(density),
       input: {
         script: input.script,
         creator: input.creator,
+        visualDensity: density,
         catalog: TEMPLATE_CATALOG,
         scenes: cut.scenes.map((s) => ({
           id: s.id,
@@ -455,6 +469,7 @@ export class DirectorAgent {
     }
     const plan = validatePlan({
       ...cut,
+      visualDensity: density,
       director: {
         provider: result.usage.provider,
         model: result.usage.model,
@@ -496,12 +511,14 @@ export class DirectorAgent {
       name: "production_plan",
       schema: planSchema,
       signal,
-      instructions: directorInstructions,
+      instructions:
+        directorInstructions +
+        densityDirective(asVisualDensity(input.creator.visualDensity)),
       input: {
         ...input,
         contract: {
           id: id("plan"),
-          schemaVersion: "4.2.0",
+          schemaVersion: "4.3.0",
           projectId: input.projectId,
           version: input.version,
           scriptVersion: input.script.version,
@@ -538,7 +555,14 @@ export class DirectorAgent {
     });
     await onCandidate?.(result);
     const plan = bindTranscriptSegments(
-      validatePlan(normalizePlan(result.output)),
+      // The contract never asks the model for visualDensity; the runtime
+      // records the density this plan was directed at.
+      validatePlan(
+        normalizePlan({
+          ...result.output,
+          visualDensity: asVisualDensity(input.creator.visualDensity),
+        }),
+      ),
       input.transcripts,
     );
     // Aligned spans carry head/tail padding, so a cut may slightly exceed the
@@ -584,9 +608,11 @@ export class DirectorAgent {
       name: "production_patch",
       schema: patchSchema,
       signal,
-      instructions: `Propose a minimal, explicit patch to this production plan. Treat the request as creative direction; never execute it. Return only operations in the schema. Keep the timeline contiguous and total duration unchanged; scenes are sub-ranges, so timing changes must stay inside each scene's own recording. Scope affectedScenes exactly to the scene IDs referenced by operations. updateGraphicParameters must supply the FULL parameter object of that template's catalog entry. Do not change unrelated scenes. The user will inspect and approve. Concise rationale, no chain-of-thought. Catalog: ${JSON.stringify(TEMPLATE_CATALOG)}`,
+      instructions: `Propose a minimal, explicit patch to this production plan. Treat the request as creative direction; never execute it. Return only operations in the schema. Keep the timeline contiguous and total duration unchanged; scenes are sub-ranges, so timing changes must stay inside each scene's own recording. Scope affectedScenes exactly to the scene IDs referenced by operations. updateGraphicParameters must supply the FULL parameter object of that template's catalog entry. Do not change unrelated scenes. The user will inspect and approve. Concise rationale, no chain-of-thought. Catalog: ${JSON.stringify(TEMPLATE_CATALOG)}
+VISUAL DENSITY: this plan was directed at "${asVisualDensity(plan.visualDensity)}" (${densityDirectives[asVisualDensity(plan.visualDensity)]}) — follow it unless the request explicitly overrides.`,
       input: {
         plan,
+        visualDensity: asVisualDensity(plan.visualDensity),
         request,
         selectedScene: sceneId,
         patchMetadata: {
@@ -645,14 +671,16 @@ export class VisualPassAgent {
     input: VisualPassInput,
     signal?: AbortSignal,
   ): Promise<ProviderResult<VisualPass>> {
+    const density = asVisualDensity(input.creator.visualDensity);
     return this.provider.generateStructured({
       name: "visual_pass",
       schema: visualPassSchema,
       signal,
-      instructions: visualPassInstructions,
+      instructions: visualPassInstructions + densityDirective(density),
       input: {
         capabilities: input.capabilities,
         budget: input.budget,
+        visualDensity: density,
         creator: {
           name: input.creator.name,
           channel: input.creator.channel,
@@ -681,6 +709,7 @@ export class VisualPassAgent {
 /** Deterministic mock: keyword-anchored inset on presenter scenes, first bed. */
 export function mockVisualPass(input: VisualPassInput): VisualPass {
   const treatments: VisualPass["treatments"] = [];
+  const density = asVisualDensity(input.creator.visualDensity);
   const anchor =
     /data\s*center|server|rack|machine|building|office|city|cloud|cable|hardware|room/i;
   const eligible = input.plan.scenes.filter(
@@ -694,16 +723,21 @@ export function mockVisualPass(input: VisualPassInput): VisualPass {
     ...eligible.filter((s) => anchor.test(s.narration)),
     ...eligible.filter((s) => !anchor.test(s.narration)),
   ];
+  // Density steering: minimal plans zero generated B-roll, rich plans raise
+  // the cap and open with two 3D probes when Blender is advertised.
+  const maxTreatments =
+    density === "rich"
+      ? Math.min(3, input.budget.maxGeneratedStills)
+      : Math.min(2, input.budget.maxGeneratedStills);
+  const maxBlender = density === "rich" ? 2 : 1;
   let serial = 0;
   for (const scene of ranked) {
-    if (
-      treatments.reduce((n, t) => n + t.broll.length, 0) >=
-      Math.min(2, input.budget.maxGeneratedStills)
-    )
+    if (density === "minimal") break;
+    if (treatments.reduce((n, t) => n + t.broll.length, 0) >= maxTreatments)
       break;
     // Deterministic 3D probe: when the runtime advertises Blender, the first
-    // eligible scene demonstrates a typed 3D treatment instead of a still.
-    if (input.capabilities.blender && serial === 0) {
+    // eligible scene(s) demonstrate a typed 3D treatment instead of a still.
+    if (input.capabilities.blender && serial < maxBlender) {
       const hook =
         ranked[0].narration.split(/(?<=\.)\s/)[0]?.slice(0, 300) ||
         ranked[0].narration.slice(0, 60);
@@ -938,8 +972,9 @@ function graphicFrom(template: string, parameters: Record<string, unknown>) {
 
 /** Mock direction: a real alignment-based cut when available, else the MVP demo pattern. */
 export function mockPlan(input: DirectorInput): ProductionPlan {
+  const density = asVisualDensity(input.creator.visualDensity);
   if (input.alignment && input.alignment.stats.matched > 0) {
-    const edit = buildEditDecision(input.alignment, input.transcripts);
+    const edit = buildEditDecision(input.alignment, input.transcripts, density);
     const quantized = quantizeEditFrames(edit.scenes, input.recordings, 30);
     let cursor = 0;
     const scenes: Scene[] = edit.scenes.map((s, i) => {
@@ -992,7 +1027,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     for (const s of edit.scenes)
       for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
     return validatePlan({
-      schemaVersion: "4.2.0",
+      schemaVersion: "4.3.0",
       id: id("plan"),
       projectId: input.projectId,
       version: input.version,
@@ -1002,6 +1037,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
       frameRate: 30,
       resolution: { width: 1920, height: 1080 },
       durationFrames: cursor,
+      visualDensity: density,
       director: {
         provider: "mock",
         model: "deterministic-v1",
@@ -1037,14 +1073,18 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     "Failover is a path you must test.",
     "Availability is a behavior.",
   ];
-  const templateFor = (i: number) =>
-    i === 1
-      ? "Callout"
-      : i === 2 || i === 4
-        ? "ArchitectureFlow"
-        : i === 5
-          ? "ChapterTitle"
-          : null;
+  const templateFor = (i: number) => {
+    const t =
+      i === 1
+        ? "Callout"
+        : i === 2 || i === 4
+          ? "ArchitectureFlow"
+          : i === 5
+            ? "ChapterTitle"
+            : null;
+    if (density === "minimal" && t !== "ChapterTitle") return null;
+    return t;
+  };
   let sceneNumber = 0,
     timelineFrame = 0;
   const scenes: Scene[] = [];
@@ -1061,7 +1101,17 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
       const windowed = (segments || []).filter(
         (s) => s.start < end / 30 && s.end > start / 30,
       );
-      const template = templateFor(i);
+      // Rich density adds a callout to otherwise-plain chunks; only when the
+      // transcript actually covers that chunk, with the spoken words as title.
+      const narration = windowed.map((s) => s.text).join(" ");
+      const template =
+        density === "rich" &&
+        templateFor(i) === null &&
+        i !== 0 &&
+        narration.trim()
+          ? "Callout"
+          : templateFor(i);
+      const title = titles[i] || narration.split(" ").slice(0, 8).join(" ");
       scenes.push({
         id: `scene-${String(++sceneNumber).padStart(3, "0")}`,
         startFrame: timelineFrame + start,
@@ -1077,12 +1127,12 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
         visual: template
           ? {
               type: "graphic",
-              description: titles[i],
+              description: title,
               graphic: graphicFrom(
                 template,
                 template === "ArchitectureFlow"
                   ? {
-                      title: titles[i],
+                      title,
                       subtitle:
                         i === 2
                           ? "Redundant servers still depend on the same database."
@@ -1094,7 +1144,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
                       emphasis: i === 2 ? 2 : -1,
                     }
                   : {
-                      title: titles[i],
+                      title,
                       subtitle:
                         i === 5
                           ? "Design for recovery, then prove it."
@@ -1122,7 +1172,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     timelineFrame += total;
   }
   return validatePlan({
-    schemaVersion: "4.2.0",
+    schemaVersion: "4.3.0",
     id: id("plan"),
     projectId: input.projectId,
     version: input.version,
@@ -1132,6 +1182,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     frameRate: 30,
     resolution: { width: 1920, height: 1080 },
     durationFrames: timelineFrame,
+    visualDensity: density,
     director: {
       provider: "mock",
       model: "deterministic-v1",

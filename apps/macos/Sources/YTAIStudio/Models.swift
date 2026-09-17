@@ -315,9 +315,14 @@ struct Plan: Decodable {
   let durationFrames: Int
   let scenes: [ProductionScene]
   let director: Director
+  let visualDensity: String?
   let audioDesign: AudioDesign?
   let scriptCoverage: ScriptCoverage?
   var brollCount: Int { scenes.reduce(0) { $0 + ($1.broll?.count ?? 0) } }
+  var density: String {
+    ["minimal", "balanced", "rich"].contains(visualDensity ?? "")
+      ? visualDensity! : "balanced"
+  }
 }
 struct Asset: Decodable, Identifiable {
   var id: String { assetId }
@@ -573,8 +578,23 @@ struct Creator: Codable {
   var format: String
   var targetMinutes: [Double]
   var subjects: [String]
+  var visualDensity: String = "balanced"
   var brand: Brand
   var preferences: [Preference]
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    name = try c.decode(String.self, forKey: .name)
+    channel = try c.decode(String.self, forKey: .channel)
+    format = try c.decode(String.self, forKey: .format)
+    targetMinutes = try c.decode([Double].self, forKey: .targetMinutes)
+    subjects = try c.decode([String].self, forKey: .subjects)
+    // Profiles persisted before the knob existed decode as the default.
+    let density = try c.decodeIfPresent(String.self, forKey: .visualDensity)
+    visualDensity = ["minimal", "balanced", "rich"].contains(density ?? "")
+      ? density! : "balanced"
+    brand = try c.decode(Brand.self, forKey: .brand)
+    preferences = try c.decode([Preference].self, forKey: .preferences)
+  }
 }
 struct AnyResponse: Decodable {}
 enum JSONValue: Codable {

@@ -173,6 +173,7 @@ const packagingInput = (p: { id: string; title: string }): PackagingInput => ({
     format: "Long-form technical YouTube essay",
     targetMinutes: [12, 18],
     subjects: ["cloud architecture"],
+    visualDensity: "balanced",
     brand: {
       background: "#101b29",
       foreground: "#f2f4ed",

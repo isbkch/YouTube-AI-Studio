@@ -232,12 +232,23 @@ export interface Usage {
   elapsedMs: number;
   createdAt: string;
 }
+/** Steering level for how many animations/effects the Director plans. */
+export type VisualDensity = "minimal" | "balanced" | "rich";
+/**
+ * Tolerant read for values persisted before the field existed (project
+ * snapshots, stored plans): anything unrecognized reads as the default.
+ */
+export function asVisualDensity(value: unknown): VisualDensity {
+  return value === "minimal" || value === "rich" ? value : "balanced";
+}
 export interface CreatorProfile {
   name: string;
   channel: string;
   format: string;
   targetMinutes: [number, number];
   subjects: string[];
+  /** Advises the Director: fewer visuals (minimal) vs graphics-first (rich). */
+  visualDensity: VisualDensity;
   brand: {
     background: string;
     foreground: string;
@@ -256,6 +267,7 @@ export const defaultCreator: CreatorProfile = {
   channel: "YouTube-AI-Studio",
   format: "Long-form technical YouTube essay",
   targetMinutes: [12, 18],
+  visualDensity: "balanced",
   subjects: [
     "cloud architecture",
     "reliability",

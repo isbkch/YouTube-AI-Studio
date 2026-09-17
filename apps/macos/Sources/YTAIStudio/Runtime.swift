@@ -97,6 +97,11 @@ import SwiftUI
         onJob?()
         continue
       }
+      if obj["event"] as? String == "previews.scene" {
+        // Progressive storyboard previews: each rendered scene refreshes the grid.
+        onJob?()
+        continue
+      }
       guard let id = obj["id"] as? String, let continuation = pending.removeValue(forKey: id) else {
         continue
       }

@@ -163,13 +163,16 @@ struct VisualQAView: View {
         Metric(value: timestamp(meta?.duration ?? 0), label: "Duration")
         Metric(
           value: meta.map { "\($0.width)×\($0.height)" } ?? "—",
-          label: meta.map { "\(fpsLabel($0.frameRate)) fps · \($0.codec ?? "video")" } ?? "Resolution"
+          label: meta.map { "\(fpsLabel($0.frameRate)) fps · \($0.codec ?? "video")" }
+            ?? "Resolution"
         )
         Metric(value: meta.map { "\($0.frames ?? 0)" } ?? "—", label: "Frames")
         Metric(
           value: scenes.isEmpty ? "—" : "\(passed)/\(scenes.count)", label: "Scenes passed")
         Metric(
-          value: stills.isEmpty ? "—" : "\(stills.count - stills.filter { $0.verdict != "pass" }.count)/\(stills.count)",
+          value: stills.isEmpty
+            ? "—"
+            : "\(stills.count - stills.filter { $0.verdict != "pass" }.count)/\(stills.count)",
           label: "Stills passed")
       }
       if !flagged.isEmpty {
@@ -178,7 +181,9 @@ struct VisualQAView: View {
             .foregroundStyle(.orange)
           HStack(spacing: 8) {
             ForEach(flagged.sorted(), id: \.self) { id in
-              Button { attentionOnly = true } label: {
+              Button {
+                attentionOnly = true
+              } label: {
                 Text(id).font(.system(size: 10, weight: .semibold, design: .monospaced))
                   .padding(.horizontal, 9).padding(.vertical, 5)
                   .background(Color.orange.opacity(0.12), in: Capsule())
@@ -296,8 +301,10 @@ struct VisualQAView: View {
           RoundedRectangle(cornerRadius: 8).strokeBorder(Color.studioBorder, lineWidth: 0.7))
       VStack(alignment: .leading, spacing: 7) {
         HStack(spacing: 10) {
-          Text(scene.id.uppercased()).font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(.secondary)
+          Text(scene.id.uppercased()).font(
+            .system(size: 10, weight: .semibold, design: .monospaced)
+          )
+          .foregroundStyle(.secondary)
           if let chapter = scene.chapterTitle {
             Label(chapter, systemImage: "bookmark.fill").font(.system(size: 10, weight: .medium))
               .foregroundStyle(Color.studioAccent).lineLimit(1)
@@ -306,7 +313,8 @@ struct VisualQAView: View {
           if flagged {
             VerdictChip(verdict: "ATTENTION")
           }
-          VerdictChip(verdict: verdict?.verdict.uppercased() ?? (scene.enabled ? "NOT SAMPLED" : "DISABLED"))
+          VerdictChip(
+            verdict: verdict?.verdict.uppercased() ?? (scene.enabled ? "NOT SAMPLED" : "DISABLED"))
         }
         Text(
           timestamp(Double(scene.startFrame) / fps) + "–"
@@ -323,8 +331,10 @@ struct VisualQAView: View {
             }
           }
         } else if !scene.enabled {
-          Text("Visual disabled — the scene's A-roll and audio are included, but no frame was sampled.")
-            .font(.caption).foregroundStyle(.secondary)
+          Text(
+            "Visual disabled — the scene's A-roll and audio are included, but no frame was sampled."
+          )
+          .font(.caption).foregroundStyle(.secondary)
         } else {
           Text("No verdict recorded for this scene in the current report.").font(.caption)
             .foregroundStyle(.secondary)
@@ -420,13 +430,21 @@ struct VisualQAView: View {
   /// (jobs carry the `GeneratedStill • scene/broll` label), falling back to the
   /// scene's latest generated image.
   private func stillImageURL(_ still: QAStillVerdict) -> URL? {
-    if let job = p.jobs?.first(where: { $0.label == "GeneratedStill • \(still.sceneId)/\(still.brollId)" }),
+    if let job = p.jobs?.first(where: {
+      $0.label == "GeneratedStill • \(still.sceneId)/\(still.brollId)"
+    }),
       let asset = p.assets?.first(where: { $0.jobId == job.id && $0.type == "generated-image" }),
       let url = p.url(asset.path), FileManager.default.fileExists(atPath: url.path)
-    { return url }
-    if let asset = p.assets?.last(where: { $0.type == "generated-image" && $0.sceneId == still.sceneId }),
+    {
+      return url
+    }
+    if let asset = p.assets?.last(where: {
+      $0.type == "generated-image" && $0.sceneId == still.sceneId
+    }),
       let url = p.url(asset.path)
-    { return url }
+    {
+      return url
+    }
     return nil
   }
 }
@@ -517,8 +535,10 @@ private struct Sidebar: View {
     VStack(alignment: .leading, spacing: 3) {
       Text(label.uppercased()).font(.system(size: 9, weight: .semibold)).tracking(1.5)
         .foregroundStyle(.secondary)
-      Text(db.map { String(format: "%.1f dB", $0) } ?? "—").font(.system(size: 15, design: .monospaced))
-        .foregroundStyle(warn ? Color.orange : Color.studioInk)
+      Text(db.map { String(format: "%.1f dB", $0) } ?? "—").font(
+        .system(size: 15, design: .monospaced)
+      )
+      .foregroundStyle(warn ? Color.orange : Color.studioInk)
     }.frame(maxWidth: .infinity, alignment: .leading)
   }
 

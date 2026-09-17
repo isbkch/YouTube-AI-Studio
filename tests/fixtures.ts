@@ -2,7 +2,7 @@ import { hash } from "../packages/shared/src/index.ts";
 import type { ProductionPlan } from "../packages/production-plan/src/index.ts";
 export function fixture(): ProductionPlan {
   return {
-    schemaVersion: "4.2.0",
+    schemaVersion: "4.3.0",
     id: "plan-1",
     projectId: "project-1",
     version: 1,
@@ -12,6 +12,7 @@ export function fixture(): ProductionPlan {
     frameRate: 30,
     resolution: { width: 1920, height: 1080 },
     durationFrames: 90,
+    visualDensity: "balanced",
     director: { provider: "mock", model: "fixture", summary: "Simple." },
     scenes: [
       {

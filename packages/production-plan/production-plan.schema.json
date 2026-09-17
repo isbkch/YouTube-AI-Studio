@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "4.2.0"
+      "const": "4.3.0"
     },
     "id": {
       "type": "string",
@@ -1295,6 +1295,11 @@
         "additionalProperties": false
       }
     },
+    "visualDensity": {
+      "default": "balanced",
+      "type": "string",
+      "enum": ["minimal", "balanced", "rich"]
+    },
     "audioDesign": {
       "default": {
         "music": null,
@@ -1506,6 +1511,7 @@
     "durationFrames",
     "director",
     "scenes",
+    "visualDensity",
     "audioDesign",
     "scriptCoverage"
   ],
