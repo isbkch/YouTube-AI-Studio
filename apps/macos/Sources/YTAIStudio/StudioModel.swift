@@ -57,25 +57,33 @@ import UniformTypeIdentifiers
   func select(_ id: String?) async {
     selectedID = id
     project = nil
+    error = nil
+    notice = nil
+    aroll = nil
     tab = "Overview"
     await refresh()
   }
-  func perform(_ method: String, label: String, params: [String: Any] = [:]) async {
-    guard !busy else { return }
+  @discardableResult
+  func perform(_ method: String, label: String, params: [String: Any] = [:]) async -> Bool {
+    guard !busy else { return false }
     busy = true
     busyLabel = label
     let requestID = UUID().uuidString
     activeRequest = requestID
     error = nil
+    notice = nil
+    var succeeded = false
     var args = params
     if let id = selectedID, args["projectId"] == nil { args["projectId"] = id }
     do {
       let _: AnyResponse = try await runtime.call(method, args, id: requestID)
       notice = label + " completed."
+      succeeded = true
     } catch { self.error = error.localizedDescription }
     activeRequest = nil
     busy = false
     await refresh()
+    return succeeded
   }
   func create(title: String, description: String, minutes: Double) async {
     do {
@@ -214,6 +222,8 @@ import UniformTypeIdentifiers
     busy = true
     busyLabel = "Drafting A-roll cut"
     error = nil
+    notice = nil
+    aroll = nil
     defer { busy = false }
     do {
       aroll = try await runtime.call("aroll.draft", ["projectId": id])

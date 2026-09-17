@@ -176,7 +176,7 @@ function bestSpan(
  * alongside the artifact so a library can detect alignments computed by an
  * older algorithm and recompute instead of silently reusing them.
  */
-export const ALIGNMENT_ALGORITHM = "smith-waterman-v2";
+export const ALIGNMENT_ALGORITHM = "smith-waterman-v3";
 
 export const alignmentSchema = z.strictObject({
   schemaVersion: z.literal("2.0.0"),
@@ -387,10 +387,29 @@ export function alignScript(input: AlignInput): Alignment {
       }
     const fillIns: SpanMatch[] = [];
     for (const { recording, transcript, stream } of streams) {
-      const span = bestSpan(sentence.tokens, stream);
+      // A rescue belongs between its script neighbors in this recording.
+      // Searching the entire take again can select an earlier repeated beat
+      // ("Okay.", "Why?") and move backwards through footage already used.
+      const before = used
+        .slice(0, row.index)
+        .findLast((s) => s.match?.recordingId === recording.id)?.match;
+      const after = used
+        .slice(row.index + 1)
+        .find((s) => s.match?.recordingId === recording.id)?.match;
+      const lower = before?.end ?? 0;
+      const upper = after?.start ?? recording.duration;
+      const available = stream.filter(
+        (t) =>
+          t.start - HEAD_PAD >= lower - MONOTONIC_TOLERANCE &&
+          t.end + TAIL_PAD <= upper + MONOTONIC_TOLERANCE,
+      );
+      const span = bestSpan(sentence.tokens, available);
       if (!span) continue;
-      const start = Math.max(0, stream[span.start].start - HEAD_PAD);
-      const end = Math.min(recording.duration, stream[span.end].end + TAIL_PAD);
+      const start = Math.max(0, available[span.start].start - HEAD_PAD);
+      const end = Math.min(
+        recording.duration,
+        available[span.end].end + TAIL_PAD,
+      );
       if (end <= start) continue;
       const overlaps = (claimed.get(recording.id) ?? []).some(
         (c) => start < c.end - 0.4 && end > c.start + 0.4,

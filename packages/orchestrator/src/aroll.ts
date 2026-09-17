@@ -323,6 +323,7 @@ export function buildEditDecision(
       before &&
       after &&
       before.recordingId === after.recordingId &&
+      after.start >= before.end &&
       after.start - before.end <= BRIDGE_MAX
     ) {
       const start = Math.max(0, before.end - 0.1);
@@ -419,7 +420,8 @@ export function buildEditDecision(
     queue.unshift(rest);
     queue.unshift(first);
   }
-  // Merge runs too short to feel like a scene into the following group.
+  // Merge short runs into the preceding group only when the source continues
+  // forwards. A short earlier take must never stretch that group backwards.
   const merged: typeof groups = [];
   for (const g of split) {
     const prev = merged.at(-1);
@@ -427,6 +429,7 @@ export function buildEditDecision(
       prev &&
       prev.recordingId === g.recordingId &&
       g.end - g.start < MIN_SCENE &&
+      g.start >= prev.end - 0.05 &&
       g.start - prev.end <= GROUP_GAP * 1.5
     ) {
       prev.end = Math.max(prev.end, g.end);

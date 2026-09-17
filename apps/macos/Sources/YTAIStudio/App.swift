@@ -289,8 +289,8 @@ struct Banner: View {
       Text(text).font(.caption).textSelection(.enabled)
       Spacer()
       Button(action: close) { Image(systemName: "xmark") }.buttonStyle(.plain)
-    }.padding(12).foregroundStyle(isError ? Color.orange : .studioAccent).background(
-      isError ? Color.orange.opacity(0.08) : Color.studioAccentSoft)
+    }.padding(12).foregroundStyle(isError ? Color.orange : .studioSuccess).background(
+      isError ? Color.orange.opacity(0.08) : Color.studioSuccess.opacity(0.08))
   }
 }
 struct NewProjectView: View {
