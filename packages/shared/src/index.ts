@@ -241,6 +241,16 @@ export type VisualDensity = "minimal" | "balanced" | "rich";
 export function asVisualDensity(value: unknown): VisualDensity {
   return value === "minimal" || value === "rich" ? value : "balanced";
 }
+/**
+ * How aggressively the deterministic A-roll cut removes silence: "natural"
+ * keeps today's pacing, "tight" and "punchy" cut interior word gaps and trim
+ * scene edges closer to the spoken words.
+ */
+export type SilenceTightening = "natural" | "tight" | "punchy";
+/** Tolerant read in the same shape as `asVisualDensity`. */
+export function asSilenceTightening(value: unknown): SilenceTightening {
+  return value === "tight" || value === "punchy" ? value : "natural";
+}
 export interface CreatorProfile {
   name: string;
   channel: string;
@@ -249,6 +259,8 @@ export interface CreatorProfile {
   subjects: string[];
   /** Advises the Director: fewer visuals (minimal) vs graphics-first (rich). */
   visualDensity: VisualDensity;
+  /** Advises the deterministic A-roll editor, never the model. */
+  silenceTightening: SilenceTightening;
   brand: {
     background: string;
     foreground: string;
@@ -268,6 +280,7 @@ export const defaultCreator: CreatorProfile = {
   format: "Long-form technical YouTube essay",
   targetMinutes: [12, 18],
   visualDensity: "balanced",
+  silenceTightening: "natural",
   subjects: [
     "cloud architecture",
     "reliability",

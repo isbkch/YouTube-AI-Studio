@@ -35,6 +35,7 @@ struct StoryboardView: View {
   let p: Project
   @State private var editing: ProductionScene?
   @State private var density = "balanced"
+  @State private var tightening = "natural"
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .top) {
@@ -96,13 +97,23 @@ struct StoryboardView: View {
                 Text("Rich").tag("rich")
               }.pickerStyle(.segmented).frame(width: 200).disabled(m.busy)
             }
+            HStack(spacing: 8) {
+              Text("Silence").font(.caption).foregroundStyle(.secondary)
+              Picker("", selection: $tightening) {
+                Text("Natural").tag("natural")
+                Text("Tight").tag("tight")
+                Text("Punchy").tag("punchy")
+              }.pickerStyle(.segmented).frame(width: 200).disabled(m.busy)
+            }
             Button(
-              density == plan.density
-                ? "Regenerate Storyboard" : "Regenerate as \(density)"
+              density == plan.density && tightening == plan.tightening
+                ? "Regenerate Storyboard"
+                : "Regenerate as \(density) · \(tightening)"
             ) {
               Task {
                 await m.perform(
-                  "plan.generate", label: "Director • storyboard", params: ["density": density])
+                  "plan.generate", label: "Director • storyboard",
+                  params: ["density": density, "tightening": tightening])
               }
             }.buttonStyle(QuietButtonStyle()).disabled(
               m.busy
@@ -182,8 +193,14 @@ struct StoryboardView: View {
         Spacer()
       }
     }.padding(28)
-      .onAppear { density = p.plan?.density ?? "balanced" }
-      .onChange(of: p.plan?.version) { _, _ in density = p.plan?.density ?? "balanced" }
+      .onAppear {
+        density = p.plan?.density ?? "balanced"
+        tightening = p.plan?.tightening ?? "natural"
+      }
+      .onChange(of: p.plan?.version) { _, _ in
+        density = p.plan?.density ?? "balanced"
+        tightening = p.plan?.tightening ?? "natural"
+      }
       .sheet(item: $editing) { scene in
         SceneEditor(p: p, scene: scene).environmentObject(m)
       }

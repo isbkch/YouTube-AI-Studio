@@ -81,7 +81,7 @@ const withBroll = (broll: BRollEntry[], plan = fixture()): ProductionPlan =>
 test("v2 plans upgrade through v3 to v4 with defaulted broll and audio design", () => {
   const v2 = { ...fixture(), schemaVersion: "2.0.0" as const };
   const upgraded = validatePlan(migratePlan(v2));
-  assert.equal(upgraded.schemaVersion, "4.3.0");
+  assert.equal(upgraded.schemaVersion, "4.4.0");
   assert.deepEqual(upgraded.scenes[0].broll, []);
   assert.deepEqual(upgraded.audioDesign, { music: null, sfx: [] });
 });
@@ -111,7 +111,7 @@ test("legacy v2 chapter omissions migrate without changing the saved edit or its
   );
   assert.deepEqual(migrated, {
     ...saved,
-    schemaVersion: "4.3.0",
+    schemaVersion: "4.4.0",
     scriptCoverage: null,
     scenes: scenes.map((s) => ({
       ...s,
@@ -298,7 +298,7 @@ test("v4.1 library beds migrate to the explicit source field", () => {
     },
   };
   const migrated = validatePlan(legacy);
-  assert.equal(migrated.schemaVersion, "4.3.0");
+  assert.equal(migrated.schemaVersion, "4.4.0");
   assert.ok(
     migrated.audioDesign.music &&
       migrated.audioDesign.music.source === "library" &&

@@ -21,6 +21,7 @@ const { positionals: a, values: v } = parseArgs({
     images: { type: "string" },
     music: { type: "string" },
     density: { type: "string" },
+    tightening: { type: "string" },
     model: { type: "string", default: process.env.WTS_MODEL || "gpt-5.4" },
     description: { type: "string", default: "" },
     duration: { type: "string", default: "900" },
@@ -54,8 +55,8 @@ bun run wts transcript load <project> <transcript.json>
 bun run wts transcript fcp <project> <fcpbundle-or-folder>
 bun run wts transcribe <project> [--transcriber whisper|openai]
 bun run wts align <project>
-bun run wts aroll <project>
-bun run wts plan <project> [--provider openai] [--density minimal|balanced|rich]
+bun run wts aroll <project> [--tightening natural|tight|punchy]
+bun run wts plan <project> [--provider openai] [--density minimal|balanced|rich] [--tightening natural|tight|punchy]
 bun run wts plan import <project> <plan.json>
 bun run wts plan validate <project>
 bun run wts plan approve <project> --version 1
@@ -202,8 +203,20 @@ try {
     else if (a[0] === "transcribe")
       result = await studio.transcribe(a[1], abort.signal);
     else if (a[0] === "align") result = await studio.computeAlignment(a[1]);
-    else if (a[0] === "aroll") result = await studio.draftAroll(a[1]);
-    else if (a[0] === "plan" && a[1] === "validate")
+    else if (a[0] === "aroll") {
+      if (
+        v.tightening &&
+        !["natural", "tight", "punchy"].includes(v.tightening)
+      )
+        throw new StudioError(
+          "INVALID_INPUT",
+          "--tightening must be natural, tight or punchy.",
+        );
+      result = await studio.draftAroll(
+        a[1],
+        v.tightening as "natural" | "tight" | "punchy" | undefined,
+      );
+    } else if (a[0] === "plan" && a[1] === "validate")
       result = validatePlan(store.get(a[2]).plans.at(-1));
     else if (a[0] === "plan" && a[1] === "approve")
       result = await studio.approvePlan(a[2], Number(v.version));
@@ -221,10 +234,20 @@ try {
           "INVALID_INPUT",
           "--density must be minimal, balanced or rich.",
         );
+      if (
+        v.tightening &&
+        !["natural", "tight", "punchy"].includes(v.tightening)
+      )
+        throw new StudioError(
+          "INVALID_INPUT",
+          "--tightening must be natural, tight or punchy.",
+        );
       result = await studio.generatePlan(
         a[1],
         {
           density: v.density as "minimal" | "balanced" | "rich" | undefined,
+          tightening: v.tightening as
+            "natural" | "tight" | "punchy" | undefined,
         },
         abort.signal,
       );

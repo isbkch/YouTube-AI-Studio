@@ -12,6 +12,7 @@ import os from "node:os";
 import { z } from "zod";
 import {
   atomicJSON,
+  asSilenceTightening,
   asVisualDensity,
   defaultCreator,
   id,
@@ -259,11 +260,13 @@ export class Store {
       .get() as { data: string } | undefined;
     if (!row) return structuredClone(defaultCreator);
     const stored = JSON.parse(row.data) as Partial<CreatorProfile>;
-    // Rows persisted before visualDensity existed read as the default.
+    // Rows persisted before visualDensity/silenceTightening existed read as
+    // the defaults.
     return {
       ...structuredClone(defaultCreator),
       ...stored,
       visualDensity: asVisualDensity(stored.visualDensity),
+      silenceTightening: asSilenceTightening(stored.silenceTightening),
     };
   }
   setCreator(profile: CreatorProfile) {

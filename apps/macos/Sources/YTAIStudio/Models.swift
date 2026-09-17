@@ -316,12 +316,17 @@ struct Plan: Decodable {
   let scenes: [ProductionScene]
   let director: Director
   let visualDensity: String?
+  let silenceTightening: String?
   let audioDesign: AudioDesign?
   let scriptCoverage: ScriptCoverage?
   var brollCount: Int { scenes.reduce(0) { $0 + ($1.broll?.count ?? 0) } }
   var density: String {
     ["minimal", "balanced", "rich"].contains(visualDensity ?? "")
       ? visualDensity! : "balanced"
+  }
+  var tightening: String {
+    ["natural", "tight", "punchy"].contains(silenceTightening ?? "")
+      ? silenceTightening! : "natural"
   }
 }
 struct Asset: Decodable, Identifiable {
@@ -579,6 +584,7 @@ struct Creator: Codable {
   var targetMinutes: [Double]
   var subjects: [String]
   var visualDensity: String = "balanced"
+  var silenceTightening: String = "natural"
   var brand: Brand
   var preferences: [Preference]
   init(from decoder: Decoder) throws {
@@ -593,6 +599,11 @@ struct Creator: Codable {
     visualDensity =
       ["minimal", "balanced", "rich"].contains(density ?? "")
       ? density! : "balanced"
+    let tightening = try c.decodeIfPresent(
+      String.self, forKey: .silenceTightening)
+    silenceTightening =
+      ["natural", "tight", "punchy"].contains(tightening ?? "")
+      ? tightening! : "natural"
     brand = try c.decode(Brand.self, forKey: .brand)
     preferences = try c.decode([Preference].self, forKey: .preferences)
   }
