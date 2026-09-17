@@ -1,5 +1,8 @@
 # WinTheCloud Studio
 
+[![CI](https://github.com/isbkch/yt-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/isbkch/yt-studio/actions/workflows/ci.yml)
+[![License: ELv2](https://img.shields.io/badge/License-Elastic%20License%202.0-blue.svg)](LICENSE)
+
 A native macOS production dashboard for technical YouTube videos. The creator approves the script, reviews the storyboard, and directs the rough cut. A local TypeScript runtime validates the production plan and executes trusted media workers.
 
 **This repository produces actual media from real footage.** The pipeline ingests camera files, imports word-level transcripts (Final Cut speech analysis, local whisper.cpp, or OpenAI), aligns the approved script against every take, applies a deterministic A-roll edit (take selection, dead-space removal, punch-ins), directs scenes from an 11-template Remotion catalog, renders a 1080p/30 rough cut, and exports Resolve timelines with chapters. The credit-free demo does the same on synthetic A-roll and proves selective rebuilds.
@@ -110,7 +113,23 @@ Credentials resolve from `OPENAI_API_KEY` in the repository `.env` first, then K
 | `packages/media`           | Tool detection, safe subprocesses, ffprobe, import, proxy, audio, QA                                                                                |
 | `packages/remotion-engine` | Trusted SSR rendering adapter                                                                                                                       |
 | `templates/remotion`       | The 11-template graphic catalog and the synthetic demo presenter                                                                                    |
+| `packages/image-engine`    | Generated B-roll stills (mock gradients, OpenAI `gpt-image-1`, Gemini Nano Banana) turned into deterministic motion clips                           |
+| `packages/music-engine`    | Music beds from the creator library, local synthesis, or Gemini Lyria generation                                                                    |
+| `packages/blender-engine`  | Headless EEVEE renders of the six checked-in 3D B-roll templates                                                                                    |
 | `packages/resolve-engine`  | Explicit Resolve probe/import adapter; no GUI automation                                                                                            |
 | `packages/shared`          | Errors, hashing, safe paths, usage and creator profile                                                                                              |
 
 Read [architecture](docs/architecture.md), [development](docs/development.md), [Resolve support](docs/resolve.md), [troubleshooting](docs/troubleshooting.md), [verification evidence](docs/verification.md), and [PROGRESS.md](PROGRESS.md).
+
+## Contributing
+
+Issues and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, the checks your change must pass, and the project's ground rules — domain gates live in one service, production plans stay honest, and media engines fail closed. By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues privately per [SECURITY.md](SECURITY.md), never in public issues.
+
+## License
+
+Copyright 2026 iLyas Bakouch. Source-available under the
+[Elastic License 2.0](LICENSE): you may use, copy, modify, and redistribute the
+software, with three limitations — you may not offer it to third parties as a
+hosted or managed service, may not circumvent any license-key protection, and
+may not remove or obscure licensing, copyright, or trademark notices.
+Dependencies brought in at install time remain under their own licenses.
