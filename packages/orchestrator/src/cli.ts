@@ -28,6 +28,7 @@ const { positionals: a, values: v } = parseArgs({
     preset: { type: "string", default: "H.264 Master" },
     macro: { type: "string" },
     apply: { type: "boolean" },
+    yes: { type: "boolean" },
     help: { type: "boolean" },
   },
 });
@@ -36,6 +37,7 @@ const help = `yt-ai-studio — local production CLI
 bun run wts doctor
 bun run wts project create "Title" --duration 900 --description "Idea"
 bun run wts project list | project inspect <project> | project recover <project>
+bun run wts project delete <project> --yes   (files you imported from stay untouched)
 bun run wts research <project> [--provider openai]
 bun run wts narrative <project> [--provider openai]
 bun run wts script draft <project> [--provider openai]
@@ -156,7 +158,15 @@ try {
     else if (a[0] === "project" && a[1] === "list") result = store.list();
     else if (a[0] === "project" && a[1] === "recover")
       result = await studio.recover(a[2]);
-    else if (a[0] === "project" && a[1] === "inspect")
+    else if (a[0] === "project" && a[1] === "delete") {
+      if (!v.yes)
+        throw new StudioError(
+          "INVALID_INPUT",
+          "Deleting a project removes its scripts, plans, renders, artifacts and imported recording copies from the library.",
+          "The original files you imported from are untouched. Re-run with --yes to delete.",
+        );
+      result = await studio.deleteProject(a[2]);
+    } else if (a[0] === "project" && a[1] === "inspect")
       result = studio.snapshot(a[2]);
     else if (a[0] === "script" && a[1] === "import")
       result = await studio.saveScript(a[2], await readFile(a[3], "utf8"));

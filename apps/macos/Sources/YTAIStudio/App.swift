@@ -80,6 +80,7 @@ struct StudioView: View {
   @EnvironmentObject var m: StudioModel
   @State private var newProject = false
   @State private var settings = false
+  @State private var confirmDelete: Project?
   var body: some View {
     NavigationSplitView {
       VStack(alignment: .leading, spacing: 24) {
@@ -116,6 +117,13 @@ struct StudioView: View {
                   m.selectedID == p.id ? Color.primary.opacity(0.07) : .clear,
                   in: RoundedRectangle(cornerRadius: 10))
               }.buttonStyle(.plain).disabled(m.busy)
+                .contextMenu {
+                  Button(role: .destructive) {
+                    confirmDelete = p
+                  } label: {
+                    Label("Delete Project…", systemImage: "trash")
+                  }
+                }
             }
           }
         }
@@ -151,6 +159,11 @@ struct StudioView: View {
             } label: {
               Image(systemName: "folder")
             }.help("Reveal project folder")
+            Button {
+              confirmDelete = p
+            } label: {
+              Image(systemName: "trash")
+            }.help("Delete project (files you imported from are untouched)")
           }.padding(28)
           HStack(spacing: 4) {
             ForEach(
@@ -174,16 +187,7 @@ struct StudioView: View {
             Spacer()
           }.padding(.horizontal, 28).padding(.bottom, 18)
           Divider()
-          if m.busy {
-            HStack {
-              ProgressView().controlSize(.small)
-              Text(m.busyLabel).font(.caption)
-              Spacer()
-              Button("Cancel") { Task { await m.cancel() } }.controlSize(.small)
-            }.padding(.horizontal, 28).padding(.vertical, 10).background(Color.studioAccentSoft)
-          }
-          if let error = m.error { Banner(text: error, isError: true) { m.error = nil } }
-          if let notice = m.notice { Banner(text: notice, isError: false) { m.notice = nil } }
+          statusBanners
           Group {
             switch m.tab {
             case "Pre-Production": PreproductionView(p: p)
@@ -197,6 +201,7 @@ struct StudioView: View {
             }
           }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
+          statusBanners
           VStack(spacing: 20) {
             Image(systemName: "film.stack").font(.system(size: 50, weight: .ultraLight))
               .foregroundStyle(Color.studioAccent)
@@ -208,6 +213,27 @@ struct StudioView: View {
           }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
       }.background(Color.studioBackground)
+        .confirmationDialog(
+          "Delete “\(confirmDelete?.title ?? "")”?",
+          isPresented: Binding(
+            get: { confirmDelete != nil },
+            set: { if !$0 { confirmDelete = nil } }
+          ),
+          titleVisibility: .visible
+        ) {
+          Button("Delete Project", role: .destructive) {
+            guard let p = confirmDelete else { return }
+            confirmDelete = nil
+            Task { await m.delete(p) }
+          }
+          Button("Cancel", role: .cancel) { confirmDelete = nil }
+        } message: {
+          Text(
+            confirmDelete?.recordings.isEmpty == true
+              ? "Scripts, plans, renders and artifacts are removed from the library. This project has no imported A-roll."
+              : "Scripts, plans, renders and the imported copies of your A-roll are removed from the library. The original files you imported from are untouched."
+          )
+        }
     }.tint(.studioAccent)
       .sheet(isPresented: $newProject) { NewProjectView().environmentObject(m) }
       .sheet(isPresented: $settings) {
@@ -216,6 +242,22 @@ struct StudioView: View {
       .overlay(alignment: .bottomTrailing) {
         ConnectionLoader(runtime: m.runtime, onReady: { Task { await m.load() } })
       }
+  }
+  /// Busy/error/notice strip shared by the project and empty states, so
+  /// feedback from deleting the selected project stays visible.
+  private var statusBanners: some View {
+    VStack(spacing: 0) {
+      if m.busy {
+        HStack {
+          ProgressView().controlSize(.small)
+          Text(m.busyLabel).font(.caption)
+          Spacer()
+          Button("Cancel") { Task { await m.cancel() } }.controlSize(.small)
+        }.padding(.horizontal, 28).padding(.vertical, 10).background(Color.studioAccentSoft)
+      }
+      if let error = m.error { Banner(text: error, isError: true) { m.error = nil } }
+      if let notice = m.notice { Banner(text: notice, isError: false) { m.notice = nil } }
+    }
   }
 }
 struct RuntimeStatus: View {

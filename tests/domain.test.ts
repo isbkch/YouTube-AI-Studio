@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile, readFile, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -21,7 +22,11 @@ import {
   toOTIO,
   validateTimeline,
 } from "../packages/orchestrator/src/timeline.ts";
-import type { Recording } from "../packages/orchestrator/src/model.ts";
+import type {
+  Asset,
+  Job,
+  Recording,
+} from "../packages/orchestrator/src/model.ts";
 
 const recording: Recording = {
   id: "recording-1",
@@ -634,3 +639,96 @@ test("committed demo plan and Director output share valid transcript provenance"
   assert.ok(plan.scenes.length >= 1);
   assert.equal(plan.schemaVersion, "4.2.0");
 });
+
+const sampleJob = (projectId: string): Job => ({
+  id: "job-1",
+  projectId,
+  runId: "run-1",
+  type: "import",
+  label: "Inspect and import A-roll",
+  status: "COMPLETE",
+  dependencies: [],
+  progress: 1,
+  logs: [],
+  startedAt: "t",
+  completedAt: "t",
+  error: null,
+  retryCount: 0,
+  producedAssets: [],
+});
+const sampleAsset = (projectId: string): Asset => ({
+  assetId: "asset-1",
+  type: "proxy",
+  sceneId: null,
+  productionPlanVersion: 1,
+  generator: "ffmpeg",
+  template: null,
+  templateVersion: null,
+  parameters: {},
+  inputHash: hash("input"),
+  outputHash: hash("output"),
+  createdAt: "t",
+  path: "cache/proxy.mp4",
+  jobId: "job-1",
+  reused: false,
+  sourceAssets: [],
+  renderMs: 1,
+});
+test("deleting a project removes its workspace including imported recording copies", async () =>
+  temporary(async (root, store) => {
+    const studio = new Studio(store);
+    const p = store.create("Delete me");
+    const dir = store.dir(p);
+    await writeFile(
+      path.join(dir, "recordings", "source.mp4"),
+      "imported copy",
+    );
+    await writeFile(path.join(dir, "renders", "rough.mp4"), "derived");
+    store.update(p.id, (x) => {
+      x.recordings.push(recording);
+    });
+    store.job(sampleJob(p.id));
+    store.asset(p.id, sampleAsset(p.id));
+    store.event(p.id, { event: "project.created" });
+    const result = await studio.deleteProject(p.id);
+    assert.equal(result.title, "Delete me");
+    assert.equal(result.recordingsRemoved, 1);
+    // The imported copy went away with the workspace; no preservation folder
+    // is created (originals live outside the library and are never touched).
+    assert.equal(existsSync(dir), false);
+    assert.equal(existsSync(path.join(root, "preserved")), false);
+    assert.deepEqual(store.list(), []);
+    assert.throws(() => store.get(p.id), /does not exist/);
+    assert.deepEqual(store.jobs(p.id), []);
+    assert.deepEqual(store.assets(p.id), []);
+    assert.deepEqual(store.events(p.id), []);
+    await assert.rejects(studio.deleteProject(p.id), /does not exist/);
+  }));
+test("deleting tolerates projects without footage and missing recording files", async () =>
+  temporary(async (_, store) => {
+    const studio = new Studio(store);
+    const empty = await studio.deleteProject(store.create("Empty").id);
+    assert.equal(empty.recordingsRemoved, 0);
+    const lost = store.create("Lost footage");
+    store.update(lost.id, (x) => {
+      x.recordings.push({
+        ...recording,
+        id: "recording-gone",
+        name: "gone.mp4",
+      });
+    });
+    const result = await studio.deleteProject(lost.id);
+    assert.equal(result.recordingsRemoved, 1);
+    assert.equal(existsSync(store.dir(lost)), false);
+    assert.deepEqual(store.list(), []);
+  }));
+test("deleting a project refuses a live owner's lock", async () =>
+  temporary(async (_, store) => {
+    const studio = new Studio(store);
+    const p = store.create("Busy");
+    const release = store.acquire(p.id);
+    await assert.rejects(studio.deleteProject(p.id), /active operation/);
+    release();
+    await studio.deleteProject(p.id);
+    assert.deepEqual(store.list(), []);
+  }));

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { copyFile, readFile, stat } from "node:fs/promises";
+import { copyFile, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import {
@@ -182,6 +182,28 @@ export class Studio {
       }
       this.store.event(p.id, { event: "project.recovered" });
       return this.snapshot(p.id);
+    });
+  }
+  /**
+   * Delete a project's workspace and database rows. Original footage is never
+   * touched: import copies files into the project, so the files the creator
+   * imported from live outside the library and stay exactly where they were.
+   * Everything inside `projects/<slug>/` — including the imported recording
+   * copies, proxies, plans and renders — is removed, and a live owner's lock
+   * is never bypassed.
+   */
+  async deleteProject(projectId: string) {
+    return this.locked(projectId, async (p) => {
+      const recordingsRemoved = p.recordings.length;
+      await rm(this.store.dir(p), { recursive: true, force: true });
+      this.store.delete(p.id);
+      return {
+        id: p.id,
+        title: p.title,
+        slug: p.slug,
+        status: p.status,
+        recordingsRemoved,
+      };
     });
   }
   private async operation(

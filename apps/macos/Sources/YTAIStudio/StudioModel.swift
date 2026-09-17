@@ -86,6 +86,33 @@ import UniformTypeIdentifiers
       tab = "Pre-Production"
     } catch { self.error = error.localizedDescription }
   }
+  /** Deleting removes the project's workspace; the files the creator imported
+   * from live outside the library and are never touched. */
+  struct DeleteResult: Decodable {
+    let title: String
+    let recordingsRemoved: Int
+  }
+  func delete(_ target: Project) async {
+    guard !busy else { return }
+    busy = true
+    busyLabel = "Deleting project"
+    error = nil
+    defer { busy = false }
+    do {
+      let r: DeleteResult = try await runtime.call(
+        "project.delete", ["projectId": target.id])
+      if selectedID == target.id {
+        selectedID = nil
+        project = nil
+        tab = "Overview"
+      }
+      await refresh()
+      notice =
+        r.recordingsRemoved == 0
+        ? "Deleted “\(r.title)”."
+        : "Deleted “\(r.title)” — \(r.recordingsRemoved) imported recording copy(s) removed. The files you imported from are untouched."
+    } catch { self.error = error.localizedDescription }
+  }
   func cancel() async {
     guard let id = activeRequest else { return }
     let _: AnyResponse? = try? await runtime.call("request.cancel", ["requestId": id])
