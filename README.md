@@ -7,6 +7,21 @@ A native macOS production dashboard for technical YouTube videos. The creator ap
 
 **This repository produces actual media from real footage.** The pipeline ingests camera files, imports word-level transcripts (Final Cut speech analysis, local whisper.cpp, or OpenAI), aligns the approved script against every take, applies a deterministic A-roll edit (take selection, dead-space removal, punch-ins), directs scenes from an 11-template Remotion catalog, renders a 1080p/30 rough cut, and exports Resolve timelines with chapters. The credit-free demo does the same on synthetic A-roll and proves selective rebuilds.
 
+## From idea to published video
+
+| Stage      | What yt-ai-studio does                                                                                                                                       | What you control                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| Research   | Turns your idea into a brief with key points, labelled claims, counterpoints, and source citations.                                                          | Topic, audience, channel direction, and verification of facts and sources.              |
+| Script     | Builds a narrative outline and an A-roll/B-roll shooting script.                                                                                             | Voice, angle, target length, manual edits, and script approval.                         |
+| Recording  | Prepares a shot plan, recording order, and teleprompter; copies your footage and imports or generates transcripts.                                           | On-camera delivery, source recordings, transcript accuracy, and transcription provider. |
+| Storyboard | Aligns the approved script to your takes and proposes cuts, framing, graphics, and visual treatments.                                                        | Take selection, scene edits, revision requests, and storyboard approval.                |
+| Production | Runs trusted media workers to render graphics and B-roll, mix audio, and assemble a 1080p/30 MP4.                                                            | Media providers, generation budget, music library, and visual direction.                |
+| Review     | Opens the rough cut with QA results and supports scene or range revisions. Approval starts final rendering through Resolve, with a verified FFmpeg fallback. | Playback review, factual accuracy, media rights, edits, and rough-cut approval.         |
+| Packaging  | Proposes titles, thumbnail concepts, a description, timeline-derived chapters, and upload metadata.                                                          | Review of the publication package and approval of its exact saved version.              |
+| Publish    | Uploads the approved package and final video through the local YouTube CLI, then records the video ID.                                                       | When to upload and when to make the default private upload public in YouTube Studio.    |
+
+Research citations come from model knowledge and need verification; the Research agent does not browse the web. You can also write the script yourself and enter the same approval and production workflow.
+
 ## Start here
 
 Prerequisites: macOS 14+, Xcode command-line tools with Swift 6+, Node.js 24+, Bun 1.4+, and FFmpeg/ffprobe with libx264 and libmp3lame. Paths are detected; Homebrew is not required. Resolve and Blender are optional.
@@ -44,6 +59,35 @@ The normal library is `~/Movies/yt-ai-studio`. `WTS_HOME` or the app's Settings 
 12. **Generate Packaging** (Review → Packaging & publishing, or `wts packaging`): the Packaging agent proposes ranked title candidates, thumbnail concepts, the description with the exact chapter timestamps of the rendered timeline, and upload metadata (tags, category, private visibility). **Approve Packaging vN** binds your approval to the document's hash. **Publish to YouTube** (`wts publish`) uploads the final render through the local `youtubeuploader` CLI — argument arrays, no shell, your OAuth handled by the CLI itself (`WTS_YOUTUBEUPLOADER_PATH`, `WTS_YOUTUBE_ARGS`; `wts doctor` reports availability; the pinned official release is downloaded automatically on first publish when the CLI is not installed). Publication is one-shot and recorded with its video ID; visibility stays private until you flip it in YouTube Studio.
 
 Multiple A-roll recordings per project are supported — imported before planning, each with its own transcript — plus 1080p/30fps rough cuts, hard cuts, full-frame graphics from the 11-template catalog, generated B-roll insets with motion, a curated music/SFX bed mixed under the narration, modest presenter punch-ins and audio gain. Sources may have another frame rate or resolution (4K/23.976 camera files verified); conformed 1080p proxies provide a stable edit timebase and originals are never overwritten. Scenes select sub-ranges of any take in script order: retakes, false starts and dead space stay on the cutting room floor, and a QA coverage report lists which recordings the cut actually used. Changing an approved script after media import requires a new project; scene revisions remain available.
+
+## Architecture
+
+The SwiftUI app communicates with a local Node.js runtime over private JSON-lines IPC. The CLI calls the same `Studio` domain service, which owns approvals, versioned artifacts, and the persisted job graph. SQLite stores project state; media and exported artifacts stay in the local library.
+
+```mermaid
+graph TD
+    Idea[Creator idea and channel profile] --> Research[Research Agent]
+    Research --> Narrative[Narrative Agent]
+    Narrative --> Script[Script Agent or creator-written script]
+    Script --> Prep[Director Pre-Visualization]
+    Script --> ScriptGate{Creator script approval}
+    Prep -. Shot plan and recording order .-> Media[Record, import, and transcribe]
+    ScriptGate --> Media
+    Media --> Director[Script alignment and Director Agent]
+    Director --> Plan[Validated, versioned production plan]
+    Plan --> StoryboardGate{Creator storyboard approval}
+    StoryboardGate --> Jobs[Persistent media job graph]
+    Jobs --> Workers[FFmpeg, Remotion, and configured media engines]
+    Workers --> Review[Rough cut and QA review]
+    Review -->|Revision request| Director
+    Review --> RoughCutGate{Creator rough-cut approval}
+    RoughCutGate --> Final[Final render: Resolve or verified FFmpeg fallback]
+    Final --> Packaging[Packaging Agent]
+    Packaging --> PublishGate{Creator publication approval}
+    PublishGate --> Upload[Local YouTube CLI upload]
+```
+
+Agents return structured documents, plans, or proposed patches. The runtime validates them and invokes checked-in media adapters. Revisions create new plan versions, invalidate downstream approvals, and reuse verified unchanged assets on rebuild.
 
 ## Demo and verification
 
