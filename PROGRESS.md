@@ -1,4 +1,4 @@
-# WinTheCloud Studio — implementation progress
+# yt-ai-studio — implementation progress
 
 ## Completed
 
@@ -30,10 +30,10 @@
 
 ## Next
 
-- Creator review of rough cut #1 in the app (`~/Movies/WinTheCloud Studio`, project "Your AI-Generated App Is NOT Production Ready", latest: `renders/rough-cut-v2-42f364af97da.mp4`, 1920×1080/30, 16:08). Two dropped sentences and pacing notes go through `wts revision range`.
+- Creator review of rough cut #1 in the app (`~/Movies/yt-ai-studio`, project "Your AI-Generated App Is NOT Production Ready", latest: `renders/rough-cut-v2-42f364af97da.mp4`, 1920×1080/30, 16:08). Two dropped sentences and pacing notes go through `wts revision range`.
 - Run `wts visuals propose --provider openai` on the real project once an API key is configured: the live visual pass (gpt-5.4 + gpt-image-1) has not been exercised against real footage yet — mock-provider demo coverage is complete, live calls are not.
 - Resolve final render (`wts final render`) remains unverified on this machine: the external-scripting probe could not connect during Milestone 2. The bridge implements the documented API; the manual FCPXML path is the verified fallback.
-- Curate a real music/SFX library (`~/Movies/WinTheCloud Studio/library/library.json`): the demo bed is synthesized; real tracks with cleared licenses are the creator's contribution.
+- Curate a real music/SFX library (`~/Movies/yt-ai-studio/library/library.json`): the demo bed is synthesized; real tracks with cleared licenses are the creator's contribution.
 - The pre-production agents are mock-verified end to end (CLI, IPC and unit tests); the live OpenAI path for `research`/`narrative`/`script draft`/`previsualize` follows the same tested transport as the Director but has not been exercised against a real key yet — same caveat as the live visual pass.
 - Future work: Blender engine adapter (the registry, capability manifest and broll asset union are the whole integration surface — see ADR 008), original-resolution reconform for finals, distribution packaging/notarization, then analytics observation behind its human gate.
 
@@ -77,4 +77,4 @@ bun run macos        # normal local project library
 bun run wts doctor
 ```
 
-The app is `dist/WinTheCloud Studio.app`. Default user library: `~/Movies/WinTheCloud Studio`; demo library: `.demo`. The newest demo's exact output paths and cache assertions are in `.demo/demo-result.json`. Native workflow evidence is in `.demo/native-verification.json`. See `docs/verification.md` for the proof boundaries.
+The app is `dist/yt-ai-studio.app`. Default user library: `~/Movies/yt-ai-studio`; demo library: `.demo`. The newest demo's exact output paths and cache assertions are in `.demo/demo-result.json`. Native workflow evidence is in `.demo/native-verification.json`. See `docs/verification.md` for the proof boundaries.

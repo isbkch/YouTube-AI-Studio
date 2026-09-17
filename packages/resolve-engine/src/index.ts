@@ -101,7 +101,7 @@ export async function resolveCommand(
         "INVALID_INPUT",
         "Resolve import requires an exported timeline file.",
       );
-    args.push(file, name || "WinTheCloud Studio");
+    args.push(file, name || "yt-ai-studio");
   }
   if (command === "render") {
     if (
@@ -117,7 +117,7 @@ export async function resolveCommand(
         "INVALID_INPUT",
         "Final render requires the exported FCPXML, an absolute output path and a known preset.",
       );
-    args.push(file, name || "WinTheCloud Final", output, preset);
+    args.push(file, name || "yt-ai-studio Final", output, preset);
     if (macro) args.push(await fusionMacroPath(macro));
   }
   const { stdout } = await runBinary(interpreter, args, {

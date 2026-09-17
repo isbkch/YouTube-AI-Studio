@@ -48,7 +48,7 @@ export async function renderGraphic(
   };
   const composition = await selectComposition({
     serveUrl,
-    id: "WinTheCloudVisual",
+    id: "YTAIStudioVisual",
     inputProps,
   });
   const { cancelSignal, cancel } = makeCancelSignal();
@@ -90,7 +90,7 @@ export async function renderPlaceholder(
   };
   const composition = await selectComposition({
     serveUrl,
-    id: "WinTheCloudVisual",
+    id: "YTAIStudioVisual",
     inputProps,
   });
   await renderStill({

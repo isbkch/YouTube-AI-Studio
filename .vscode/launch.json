@@ -5,20 +5,20 @@
       "request": "launch",
       "args": [],
       "cwd": "${workspaceFolder:yt-studio}/apps/macos",
-      "name": "Debug WinTheCloudStudio (apps/macos)",
-      "target": "WinTheCloudStudio",
+      "name": "Debug YTAIStudio (apps/macos)",
+      "target": "YTAIStudio",
       "configuration": "debug",
-      "preLaunchTask": "swift: Build Debug WinTheCloudStudio (apps/macos)"
+      "preLaunchTask": "swift: Build Debug YTAIStudio (apps/macos)"
     },
     {
       "type": "swift",
       "request": "launch",
       "args": [],
       "cwd": "${workspaceFolder:yt-studio}/apps/macos",
-      "name": "Release WinTheCloudStudio (apps/macos)",
-      "target": "WinTheCloudStudio",
+      "name": "Release YTAIStudio (apps/macos)",
+      "target": "YTAIStudio",
       "configuration": "release",
-      "preLaunchTask": "swift: Build Release WinTheCloudStudio (apps/macos)"
+      "preLaunchTask": "swift: Build Release YTAIStudio (apps/macos)"
     }
   ]
 }

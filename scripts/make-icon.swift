@@ -3,7 +3,7 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-// Renders the WinTheCloud Studio app icon at every iconset size.
+// Renders the yt-ai-studio app icon at every iconset size.
 // Coordinates live in a 1024x1024 design space (y-up), scaled per size.
 
 let arguments = CommandLine.arguments

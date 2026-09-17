@@ -1,6 +1,6 @@
-# Contributing to WinTheCloud Studio
+# Contributing to yt-ai-studio
 
-Thanks for your interest in improving WinTheCloud Studio. This document covers
+Thanks for your interest in improving yt-ai-studio. This document covers
 setup, the checks your change must pass, and project-specific rules that keep
 the app and the CLI honest.
 
@@ -26,7 +26,7 @@ write outside temporary directories, or require media tools.
   owns approvals, state transitions, and publishing rules; the CLI and the
   Swift app both call it. Do not fork domain logic into `cli.ts`, `ipc.ts`, or
   Swift — the app and the CLI must enforce the same gates.
-- **IPC changes are a contract.** `apps/macos/Sources/WinTheCloudStudio` decodes
+- **IPC changes are a contract.** `apps/macos/Sources/YTAIStudio` decodes
   the private JSON-lines protocol. Keep shape changes backward-compatible with
   the Swift consumers, or update them in the same change.
 - **Plans stay honest.** Times are integer frames; scenes cover the output

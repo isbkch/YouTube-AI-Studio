@@ -253,7 +253,7 @@ export interface CreatorProfile {
 }
 export const defaultCreator: CreatorProfile = {
   name: "iLyas",
-  channel: "WinTheCloud",
+  channel: "yt-ai-studio",
   format: "Long-form technical YouTube essay",
   targetMinutes: [12, 18],
   subjects: [

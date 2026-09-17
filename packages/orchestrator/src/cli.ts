@@ -31,7 +31,7 @@ const { positionals: a, values: v } = parseArgs({
     help: { type: "boolean" },
   },
 });
-const help = `WinTheCloud Studio — local production CLI
+const help = `yt-ai-studio — local production CLI
 
 bun run wts doctor
 bun run wts project create "Title" --duration 900 --description "Idea"
@@ -72,7 +72,7 @@ All approvals refer to an exact version. Publishing uploads through the local
 YouTube CLI (youtubeuploader; WTS_YOUTUBEUPLOADER_PATH / WTS_YOUTUBE_ARGS) only after packaging approval.
 Providers: mock (default, no credits) · whisper (local whisper.cpp) · openai (.env OPENAI_API_KEY or Keychain).
 Generated media: --images mock|openai|gemini and --music library|mock|gemini (library is the default; gemini needs GEMINI_API_KEY or the Keychain item). Saved Settings selections apply when no flag is given.
-WTS_HOME overrides ~/Movies/WinTheCloud Studio. Quote paths with spaces.
+WTS_HOME overrides ~/Movies/yt-ai-studio. Quote paths with spaces.
 `;
 const abort = new AbortController();
 process.once("SIGINT", () => abort.abort());

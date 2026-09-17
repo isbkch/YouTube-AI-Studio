@@ -169,7 +169,7 @@ const packagingInput = (p: { id: string; title: string }): PackagingInput => ({
   ],
   creator: {
     name: "iLyas",
-    channel: "WinTheCloud",
+    channel: "yt-ai-studio",
     format: "Long-form technical YouTube essay",
     targetMinutes: [12, 18],
     subjects: ["cloud architecture"],

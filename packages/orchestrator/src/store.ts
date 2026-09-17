@@ -42,8 +42,7 @@ export const defaultProviderSelection = (): ProviderSelection => ({
   musicModel: "",
 });
 export const defaultRoot = () =>
-  process.env.WTS_HOME ||
-  path.join(os.homedir(), "Movies", "WinTheCloud Studio");
+  process.env.WTS_HOME || path.join(os.homedir(), "Movies", "yt-ai-studio");
 const folders = [
   "research",
   "scripts",

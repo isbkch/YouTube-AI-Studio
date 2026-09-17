@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "winthecloud-studio",
+      "name": "yt-ai-studio",
       "dependencies": {
         "@remotion/bundler": "4.0.525",
         "@remotion/renderer": "4.0.525",

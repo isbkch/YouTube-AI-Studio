@@ -26,7 +26,13 @@ export async function hasCredential() {
   try {
     await runBinary(
       "/usr/bin/security",
-      ["find-generic-password", "-s", "com.winthecloud.studio", "-a", "openai"],
+      [
+        "find-generic-password",
+        "-s",
+        "com.isbkch.yt-ai-studio",
+        "-a",
+        "openai",
+      ],
       { timeoutMs: 5000 },
     );
     return true;
@@ -59,7 +65,7 @@ export async function keychainCredential(
     [
       "find-generic-password",
       "-s",
-      "com.winthecloud.studio",
+      "com.isbkch.yt-ai-studio",
       "-a",
       account,
       "-w",

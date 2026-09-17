@@ -1,4 +1,4 @@
-# WinTheCloud — Video #1
+# yt-ai-studio — Video #1
 
 ## **Your AI-Generated App Is NOT Production Ready**
 
@@ -425,7 +425,7 @@ Three words appear:
 
 # 12:00–14:00 — The engineering job is moving
 
-This is the section that connects directly to the larger WinTheCloud direction.
+This is the section that connects directly to the larger yt-ai-studio direction.
 
 **A-ROLL**
 
@@ -621,7 +621,7 @@ I'd deliberately **not sell the course yet**. First establish this new editorial
 >
 > Put it in the comments.
 >
-> I'm building the next few WinTheCloud videos around this exact problem, and I want to see where your experience matches—or completely disagrees—with mine.
+> I'm building the next few yt-ai-studio videos around this exact problem, and I want to see where your experience matches—or completely disagrees—with mine.
 
 Then your normal subscribe/outro.
 
@@ -651,6 +651,6 @@ I would **not** put "Your AI-Generated App Is Not Production Ready" on the thumb
 
 For this first video, **don't over-edit it**.
 
-Your conversation today started partly because spending another 4–5 hours staring at an editing timeline is becoming physically costly. This video is actually a good opportunity to change WinTheCloud's visual language: confident talking head, occasional code, simple diagrams, purposeful cuts, and far fewer decorative effects.
+Your conversation today started partly because spending another 4–5 hours staring at an editing timeline is becoming physically costly. This video is actually a good opportunity to change yt-ai-studio's visual language: confident talking head, occasional code, simple diagrams, purposeful cuts, and far fewer decorative effects.
 
 The intellectual content should carry the video. That also makes this format much easier to hand to an editor once you decide to delegate production.
