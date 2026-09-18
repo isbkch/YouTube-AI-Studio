@@ -218,19 +218,27 @@ test("generatePlan honors the density override and records it on the plan", asyn
   }
 });
 
-test("legacy creator profiles without a density default to balanced", async () => {
+test("legacy creator profiles hire the craftsman, who owns the derived knobs", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wts-legacy-"));
   const store = new Store(root);
   try {
     const studio = new Studio(store);
-    // A profile persisted before the knob existed has no visualDensity key.
+    // A profile persisted before the director existed has no director key and
+    // no knobs; it reads back as the craftsman with the persona's bundle.
     const legacy = JSON.parse(JSON.stringify(defaultCreator));
+    delete legacy.director;
     delete legacy.visualDensity;
+    delete legacy.silenceTightening;
     const saved = studio.setCreator(legacy);
-    assert.equal(saved.visualDensity, "balanced");
-    assert.equal(store.creator().visualDensity, "balanced");
-    const project = store.create("Legacy density");
-    assert.equal(store.get(project.id).creator.visualDensity, "balanced");
+    assert.equal(saved.director, "craftsman");
+    assert.equal(saved.visualDensity, "rich");
+    assert.equal(saved.silenceTightening, "tight");
+    const profile = store.creator();
+    assert.equal(profile.director, "craftsman");
+    assert.equal(profile.visualDensity, "rich");
+    assert.equal(profile.silenceTightening, "tight");
+    const project = store.create("Legacy director");
+    assert.equal(store.get(project.id).creator.director, "craftsman");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

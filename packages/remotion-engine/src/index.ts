@@ -103,3 +103,71 @@ export async function renderPlaceholder(
     logLevel: "error",
   });
 }
+
+/** A single computed punch-line caption event, in renderer shape. */
+export interface CaptionRenderEvent {
+  id: string;
+  startFrame: number;
+  endFrame: number;
+  text: string;
+  words: { atFrame: number; text: string }[];
+}
+/**
+ * Render one caption event as a transparent WebM (VP8 + alpha) the build's
+ * captions task overlays at the event's frame range. Clip-local time: local
+ * frame 0 is the event's startFrame, and word timings shift with it.
+ */
+export async function renderCaption(
+  event: CaptionRenderEvent,
+  style: "pop" | "karaoke",
+  plan: Pick<ProductionPlan, "resolution" | "frameRate">,
+  brand: CreatorProfile["brand"],
+  output: string,
+  signal?: AbortSignal,
+  onProgress?: (fraction: number) => void,
+) {
+  await mkdir(path.dirname(output), { recursive: true });
+  signal?.throwIfAborted();
+  const serveUrl = await getBundle();
+  const inputProps = {
+    style,
+    text: event.text,
+    words: event.words.map((w) => ({
+      atFrame: Math.max(0, w.atFrame - event.startFrame),
+      text: w.text,
+    })),
+    brand,
+    durationFrames: Math.max(2, event.endFrame - event.startFrame),
+    width: plan.resolution.width,
+    height: plan.resolution.height,
+    fps: plan.frameRate,
+  };
+  const composition = await selectComposition({
+    serveUrl,
+    id: "YTAIStudioCaption",
+    inputProps,
+  });
+  const { cancelSignal, cancel } = makeCancelSignal();
+  const abort = () => cancel();
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    signal?.throwIfAborted();
+    await renderMedia({
+      serveUrl,
+      composition,
+      inputProps,
+      outputLocation: output,
+      // VP8 + PNG frames is Remotion's transparent-video path; the overlay
+      // pass composites the alpha channel over the assembled cut.
+      codec: "vp8",
+      imageFormat: "png",
+      concurrency: 2,
+      overwrite: true,
+      cancelSignal,
+      onProgress: (p) => onProgress?.(p.progress),
+      logLevel: "error",
+    });
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
+}

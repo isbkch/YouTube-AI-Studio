@@ -523,6 +523,68 @@ export async function analyzeAudio(file: string, signal?: AbortSignal) {
   };
 }
 
+export interface CaptionOverlay {
+  /** Transparent WebM rendered at the plan resolution. */
+  file: string;
+  startSec: number;
+  endSec: number;
+}
+/**
+ * Burn transparent caption clips over the assembled cut in one pass. Each
+ * overlay is full-frame (the caption composition positions its own text), so
+ * this is the only video re-encode between assembly and the mix.
+ */
+export async function overlayCaptions(options: {
+  video: string;
+  output: string;
+  captions: CaptionOverlay[];
+  duration: number;
+  signal?: AbortSignal;
+  progress?: (fraction: number) => void;
+}) {
+  const o = options;
+  if (path.resolve(o.video) === path.resolve(o.output))
+    throw new StudioError("INVALID_INPUT", "Cannot overwrite the input cut.");
+  if (!o.captions.length)
+    throw new StudioError("INVALID_INPUT", "No caption clips to overlay.");
+  const inputs: string[] = ["-i", path.resolve(o.video)];
+  const chains: string[] = [];
+  let label = "0:v";
+  o.captions.forEach((c, i) => {
+    inputs.push("-i", path.resolve(c.file));
+    const next = `cap${i}`;
+    chains.push(
+      `[${label}][${i + 1}:v]overlay=0:0:format=auto:enable='between(t,${c.startSec.toFixed(3)},${c.endSec.toFixed(3)})'[${next}]`,
+    );
+    label = next;
+  });
+  await ffmpeg(
+    [
+      ...inputs,
+      "-filter_complex",
+      chains.join(";"),
+      "-map",
+      `[${label}]`,
+      "-map",
+      "0:a?",
+      "-c:v",
+      "libx264",
+      "-crf",
+      "21",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "copy",
+      "-movflags",
+      "+faststart",
+      path.resolve(o.output),
+    ],
+    o.signal,
+    o.progress,
+    o.duration,
+  );
+}
+
 export interface MusicMix {
   file: string;
   gainDb: number;
@@ -543,9 +605,22 @@ export interface SfxMix {
   gainDb: number;
 }
 /**
+ * Narration engineering the director personas drive, applied to the cut's
+ * own audio before ducking and mixing. acompressor thresholds/makeup are
+ * linear amplitudes in ffmpeg (0.1 ≈ −20 dBFS, makeup 1.26 ≈ +2 dB); the
+ * loud chain lands on streaming loudness (EBU R128 / YouTube's −14 LUFS).
+ */
+export const NARRATION_CHAINS: Record<"polished" | "loud", string> = {
+  polished:
+    "highpass=f=90,acompressor=threshold=0.1:ratio=2.5:attack=8:release=180:makeup=1.26",
+  loud: "highpass=f=80,acompressor=threshold=0.158:ratio=4:attack=5:release=120:makeup=1.41,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000",
+};
+/**
  * Mix the music bed and SFX under the narration already present in the video.
  * Ducking uses sidechain compression keyed on narration; the duckToDb target
  * maps to a compression ratio (an approximation, measured afterwards by QA).
+ * `narration` optionally engineers the narration itself first — the duck key
+ * hears the processed signal, so ducking tracks the compressed speech.
  */
 export async function mixAudio(options: {
   video: string;
@@ -553,6 +628,8 @@ export async function mixAudio(options: {
   duration: number;
   music: MusicMix | null;
   sfx: SfxMix[];
+  /** Optional narration processing chain level; absent = as recorded. */
+  narration?: "polished" | "loud";
   signal?: AbortSignal;
   progress?: (fraction: number) => void;
 }) {
@@ -585,12 +662,12 @@ export async function mixAudio(options: {
     if (segments.length) intensity = `volume='${intensity}':eval=frame`;
     chains.push(
       `[${musicIn}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:${o.duration.toFixed(3)},asetpts=N/SR/TB,apad,volume=${o.music.gainDb}dB${segments.length ? `,${intensity}` : ""},afade=t=in:st=0:d=${o.music.fadeInSec},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${o.music.fadeOutSec}[m0]`,
-      `[0:a]asplit=2[duckkey][narration]`,
+      `[0:a]${o.narration ? `${NARRATION_CHAINS[o.narration]},` : ""}asplit=2[duckkey][narration]`,
       `[m0][duckkey]sidechaincompress=threshold=0.02:ratio=${ratio}:attack=10:release=350[music]`,
     );
     mixLabels.push("[narration]", "[music]");
   } else {
-    chains.push(`[0:a]anull[narration]`);
+    chains.push(`[0:a]${o.narration ? NARRATION_CHAINS[o.narration] : "anull"}[narration]`);
     mixLabels.push("[narration]");
   }
   o.sfx.forEach((s, i) => {

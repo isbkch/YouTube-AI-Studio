@@ -1511,21 +1511,170 @@ export const Visual: React.FC<VisualProps> = (props) => {
   );
 };
 
+/**
+ * Punch-line caption overlay. Rendered as its own transparent composition
+ * ("YTAIStudioCaption", VP8/WebM with alpha) and burned over the assembled
+ * cut by the build's captions task. Frames are local to the clip: local 0 is
+ * the event's startFrame on the plan timeline, and karaoke word timings are
+ * relative to the same origin.
+ */
+export type CaptionProps = {
+  style: "pop" | "karaoke";
+  text: string;
+  words: { atFrame: number; text: string }[];
+  brand: VisualProps["brand"];
+  durationFrames: number;
+  width: number;
+  height: number;
+  fps: number;
+};
+const captionDefaults: CaptionProps = {
+  style: "pop",
+  text: "That is why it failed.",
+  words: [{ atFrame: 0, text: "That" }],
+  brand: defaults.brand,
+  durationFrames: 60,
+  width: 1280,
+  height: 720,
+  fps: 30,
+};
+const CAPTION_LINE_CHARS = 34;
+export const Caption: React.FC<CaptionProps> = (props) => {
+  const f = useCurrentFrame();
+  const b = props.brand;
+  const appear = Math.min(1, f / 6);
+  const depart = Math.min(1, Math.max(0, (props.durationFrames - 1 - f) / 6));
+  const opacity = Math.min(appear, depart);
+  // Pop arrives with a small scale-up settle; karaoke just fades the panel in
+  // and lets the word reveal carry the motion.
+  const popScale = 0.9 + 0.1 * Math.min(1, f / 8);
+  const scale = props.style === "pop" ? popScale : 1;
+  // Stable two-line layout: wrap the timed words the same way for both
+  // styles so pop and karaoke events never reflow differently.
+  const timed =
+    props.words.length >= 2 ? props.words : props.text.split(/\s+/).map((text) => ({ atFrame: 0, text }));
+  const lines: { atFrame: number; text: string }[][] = [[]];
+  for (const w of timed) {
+    const current = lines.at(-1)!;
+    const width = current.reduce((n, x) => n + x.text.length + 1, 0);
+    if (width + w.text.length > CAPTION_LINE_CHARS && current.length) lines.push([]);
+    lines.at(-1)!.push(w);
+  }
+  const wordStyle = (active: boolean): React.CSSProperties => ({
+    color: active ? b.accent : b.foreground,
+    opacity: active || props.style === "pop" ? 1 : 0,
+    fontWeight: 800,
+    transform: props.style === "karaoke" && active ? "translateY(-2px)" : undefined,
+    transition: "none",
+    whiteSpace: "pre",
+  });
+  return (
+    <AbsoluteFill style={{ pointerEvents: "none" }}>
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          transform: `scale(${props.width / 1280},${props.height / 720})`,
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            left: 160,
+            right: 160,
+            bottom: 78,
+            display: "flex",
+            justifyContent: "center",
+            opacity,
+            transform: `scale(${scale})`,
+            transformOrigin: "center bottom",
+          }}
+        >
+          <div
+            style={{
+              background: `${b.background}c2`,
+              border: `1px solid ${b.accent}40`,
+              borderRadius: 18,
+              padding: "20px 34px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              alignItems: "center",
+              fontFamily: b.fontFamily,
+            }}
+          >
+            {lines.map((line, li) => (
+              <div
+                key={li}
+                style={{
+                  fontSize: 42,
+                  lineHeight: 1.25,
+                  letterSpacing: 0.2,
+                  color: b.foreground,
+                  display: "flex",
+                  flexWrap: "nowrap",
+                  gap: "0 14px",
+                  textShadow: "0 2px 14px rgba(0,0,0,0.45)",
+                }}
+              >
+                {line.map((w, wi) => {
+                  const globalIndex =
+                    lines.slice(0, li).reduce((n, l) => n + l.length, 0) + wi;
+                  const next =
+                    timed.slice(globalIndex + 1).find((x) => x.atFrame > w.atFrame)
+                      ?.atFrame ?? Number.POSITIVE_INFINITY;
+                  const visible = f >= w.atFrame - 1;
+                  const active =
+                    props.style === "karaoke" &&
+                    visible &&
+                    f < next;
+                  return (
+                    <span key={wi} style={wordStyle(active)}>
+                      {w.text}
+                    </span>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </AbsoluteFill>
+  );
+};
+
 const Root = () => (
-  <Composition
-    id="YTAIStudioVisual"
-    component={Visual}
-    defaultProps={defaults}
-    durationInFrames={180}
-    fps={30}
-    width={1280}
-    height={720}
-    calculateMetadata={({ props }) => ({
-      durationInFrames: props.durationFrames,
-      fps: props.fps,
-      width: props.width,
-      height: props.height,
-    })}
-  />
+  <>
+    <Composition
+      id="YTAIStudioVisual"
+      component={Visual}
+      defaultProps={defaults}
+      durationInFrames={180}
+      fps={30}
+      width={1280}
+      height={720}
+      calculateMetadata={({ props }) => ({
+        durationInFrames: props.durationFrames,
+        fps: props.fps,
+        width: props.width,
+        height: props.height,
+      })}
+    />
+    <Composition
+      id="YTAIStudioCaption"
+      component={Caption}
+      defaultProps={captionDefaults}
+      durationInFrames={60}
+      fps={30}
+      width={1280}
+      height={720}
+      calculateMetadata={({ props }) => ({
+        durationInFrames: props.durationFrames,
+        fps: props.fps,
+        width: props.width,
+        height: props.height,
+      })}
+    />
+  </>
 );
 registerRoot(Root);

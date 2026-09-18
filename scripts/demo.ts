@@ -193,18 +193,32 @@ export async function demo(
     const before = await fileHash(
       path.join(store.dir(p), store.get(p.id).recordings[0].path),
     );
+    // Word timings (even spread across each paragraph's span) make the demo
+    // exercise the full craftsman experience: silence tightening hugs words
+    // and punch-line captions animate off real timings.
+    const withWords = paragraphs.map((text, i) => {
+      const start = i * 12;
+      const words = text.split(/\s+/);
+      const span = 12 / words.length;
+      return {
+        id: `segment-${i + 1}`,
+        start,
+        end: (i + 1) * 12,
+        text,
+        words: words.map((word, w) => ({
+          start: start + w * span,
+          end: start + (w + 1) * span,
+          text: word,
+        })),
+      };
+    });
     const transcript = {
       schemaVersion: "1.0.0",
       recordingId: store.get(p.id).recordings[0].id,
       language: "en",
       provider: "mock",
       model: "aligned-demo-fixture-v1",
-      segments: paragraphs.map((text, i) => ({
-        id: `segment-${i + 1}`,
-        start: i * 12,
-        end: (i + 1) * 12,
-        text,
-      })),
+      segments: withWords,
     };
     await atomicJSON(path.join(repo, "examples/redundancy/transcript.json"), {
       ...transcript,
@@ -221,6 +235,16 @@ export async function demo(
     // Continuous synthetic narration has no dead space to remove, so the
     // A-roll editor may keep it as one scene; real footage cuts into many.
     assert.ok(plan.scenes.length >= 1, "the A-roll editor produced a cut");
+    // The creator default is the craftsman: the plan records the persona and
+    // its punch-line caption + narration polish settings.
+    assert.equal(plan.directorPersona, "craftsman");
+    assert.equal(plan.captionStyle, "pop");
+    assert.equal(plan.audioPolish, "polished");
+    const demoCaptions = studio.captionEvents(p.id);
+    assert.ok(
+      demoCaptions.events.length >= 1,
+      "the craftsman demo must find at least one punch line to caption",
+    );
     const fixturePlan = {
       ...plan,
       projectId: "demo-project",
@@ -346,7 +370,12 @@ export async function demo(
     const bedAssets = store.assets(p.id).filter((a) => a.type === "music-bed");
     assert.equal(stillAssets.length, generatedStills);
     assert.equal(clipAssets.length, treated.length);
-    assert.equal(mixAssets.length, 1);
+    // The craftsman mixes on every build (narration polish runs even before
+    // the visual pass designs a bed), so count mixes for the current plan.
+    assert.ok(
+      mixAssets.length >= 1,
+      "every craftsman build engineers the narration through the mix",
+    );
     assert.equal(
       bedAssets.length,
       1,

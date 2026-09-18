@@ -17,7 +17,8 @@ import {
   buildBlenderSpec,
 } from "../packages/blender-engine/src/index.ts";
 import type { BRollEntry } from "../packages/production-plan/src/index.ts";
-import { renderGraphic } from "../packages/remotion-engine/src/index.ts";
+import { renderGraphic, renderCaption } from "../packages/remotion-engine/src/index.ts";
+import { builtinSfxFile } from "../packages/orchestrator/src/sfx.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
 import {
@@ -281,6 +282,127 @@ test("two real recordings plan and build one timeline end to end", async () => {
         .recordings.map((r) => fileHash(path.join(store.dir(p), r.path))),
     );
     assert.deepEqual(after, originals);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("punch-line captions render transparent clips at preview resolution", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wts-captions-"));
+  try {
+    const plan = fixture();
+    const words = ["This", "is", "not", "high", "availability."];
+    const event = {
+      id: "caption-scene-1-1",
+      sceneId: plan.scenes[0].id,
+      startFrame: 30,
+      endFrame: 102,
+      text: words.join(" "),
+      words: words.map((text, i) => ({ atFrame: 30 + i * 12, text })),
+    };
+    for (const style of ["pop", "karaoke"] as const) {
+      const output = path.join(dir, `caption-${style}.webm`);
+      await renderCaption(event, style, plan, defaultCreator.brand, output);
+      const meta = await verifyOutput(
+        output,
+        (event.endFrame - event.startFrame) / plan.frameRate,
+      );
+      assert.equal(meta.width, PREVIEW.width, `${style} renders full-frame`);
+      assert.equal(meta.height, PREVIEW.height);
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the built-in SFX bank synthesizes deterministic audio", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "wts-sfx-"));
+  try {
+    for (const track of ["builtin.whoosh", "builtin.pop", "builtin.riser"]) {
+      const first = await builtinSfxFile(dir, track);
+      const again = await builtinSfxFile(dir, track);
+      assert.ok(first.duration > 0.15 && first.duration < 1.2, track);
+      assert.equal(await fileHash(first.file), await fileHash(again.file));
+      // The mix probes real audio, so the synthesized files must carry a
+      // decodable audio stream.
+      assert.ok((await inspect(first.file)).hasAudio !== false);
+    }
+    await assert.rejects(builtinSfxFile(dir, "builtin.nope"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("the craftsman build burns captions and engineers the narration", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-craftsman-"));
+  const store = new Store(root);
+  try {
+    const clips = path.join(root, "clips");
+    await mkdir(clips, { recursive: true });
+    const clip = await syntheticClip(clips, "take.mp4", 6, 0x207060);
+    const studio = new Studio(store);
+    const p = store.create("Craftsman build", "Persona integration", 6);
+    await studio.saveScript(
+      p.id,
+      "We just added a second server. This is not high availability.",
+    );
+    await studio.approveScript(p.id, 1);
+    await studio.importMedia(p.id, clip);
+    const rec = store.get(p.id).recordings[0];
+    const sentence = (start: number, text: string, id: string) => {
+      const parts = text.split(" ");
+      return {
+        id,
+        start,
+        end: start + parts.length * 0.4,
+        text,
+        words: parts.map((w, j) => ({
+          start: start + j * 0.4,
+          end: start + (j + 1) * 0.4,
+          text: w,
+        })),
+      };
+    };
+    await studio.loadTranscript(p.id, {
+      schemaVersion: "1.0.0",
+      recordingId: rec.id,
+      language: "en",
+      provider: "mock",
+      model: "fixture",
+      segments: [
+        sentence(0.2, "We just added a second server.", "s-1"),
+        sentence(3.4, "This is not high availability.", "s-2"),
+      ],
+    });
+    await studio.generatePlan(p.id, { director: "craftsman" });
+    const plan = store.get(p.id).plans[0];
+    assert.equal(plan.captionStyle, "pop");
+    assert.equal(plan.audioPolish, "polished");
+    const captions = studio.captionEvents(p.id);
+    assert.equal(captions.events.length, 1, "one punch line qualifies");
+    assert.match(captions.events[0].text, /not high availability/);
+    await studio.approvePlan(p.id, 1);
+    await studio.build(p.id);
+    const latest = store.get(p.id).builds.at(-1)!;
+    const preview = path.join(store.dir(p), latest.previewPath);
+    const meta = await verifyOutput(
+      preview,
+      plan.durationFrames / plan.frameRate,
+    );
+    assert.equal(meta.width, PREVIEW.width);
+    const assets = store.assets(p.id);
+    assert.ok(
+      assets.some((a) => a.type === "caption-render"),
+      "caption clips are recorded as assets",
+    );
+    assert.ok(assets.some((a) => a.type === "caption-burn"));
+    assert.ok(
+      assets.some((a) => a.type === "audio-mix"),
+      "the polished narration runs through the mix task",
+    );
+    const audio = await inspect(preview);
+    assert.ok(audio.hasAudio !== false);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

@@ -12,8 +12,8 @@ import os from "node:os";
 import { z } from "zod";
 import {
   atomicJSON,
-  asSilenceTightening,
-  asVisualDensity,
+  asDirectorPersona,
+  DIRECTOR_PROFILES,
   defaultCreator,
   id,
   inside,
@@ -260,13 +260,16 @@ export class Store {
       .get() as { data: string } | undefined;
     if (!row) return structuredClone(defaultCreator);
     const stored = JSON.parse(row.data) as Partial<CreatorProfile>;
-    // Rows persisted before visualDensity/silenceTightening existed read as
-    // the defaults.
+    // Rows persisted before the director existed read as the craftsman
+    // default, and the director owns the knobs: density/tightening always
+    // re-derive from the persona so the profile stays self-consistent.
+    const director = asDirectorPersona(stored.director);
     return {
       ...structuredClone(defaultCreator),
       ...stored,
-      visualDensity: asVisualDensity(stored.visualDensity),
-      silenceTightening: asSilenceTightening(stored.silenceTightening),
+      director,
+      visualDensity: DIRECTOR_PROFILES[director].visualDensity,
+      silenceTightening: DIRECTOR_PROFILES[director].silenceTightening,
     };
   }
   setCreator(profile: CreatorProfile) {

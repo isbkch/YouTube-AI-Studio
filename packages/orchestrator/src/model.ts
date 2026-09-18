@@ -113,7 +113,10 @@ export interface Asset {
     | "generated-image"
     | "broll-clip"
     | "music-bed"
-    | "audio-mix";
+    | "audio-mix"
+    | "caption-render"
+    | "caption-burn"
+    | "builtin-sfx";
   sceneId: string | null;
   productionPlanVersion: number;
   generator: string;

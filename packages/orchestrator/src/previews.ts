@@ -1,9 +1,11 @@
 import {
+  captionKey,
   graphicKey,
   type ProductionPlan,
 } from "../../production-plan/src/index.ts";
 import { StudioError } from "../../shared/src/index.ts";
 import {
+  renderCaption,
   renderGraphic,
   templateHash,
 } from "../../remotion-engine/src/index.ts";
@@ -17,6 +19,7 @@ import { PREVIEW, verifyOutput } from "../../media/src/index.ts";
 import { Store } from "./store.ts";
 import type { Asset, Project } from "./model.ts";
 import { cachedFile, recordAsset } from "./build.ts";
+import { computeCaptionEvents } from "./captions.ts";
 
 /**
  * Synthetic owner recorded on preview asset rows. Real jobs own their own
@@ -27,7 +30,7 @@ export const PREVIEW_JOB_ID = "storyboard-previews";
 
 export interface PreviewOutcome {
   sceneId: string;
-  kind: "graphic" | "blender";
+  kind: "graphic" | "blender" | "caption";
   label: string;
   asset: Asset | null;
   reused: boolean;
@@ -188,6 +191,76 @@ export async function renderStoryboardPreviews(options: {
         skipped: null,
       });
     }
+  }
+  // Punch-line captions: the same deterministic events the build burns,
+  // rendered with identical keys so storyboard previews are the build's
+  // cache entries and the creator sees the subtitle layer before approving.
+  if (plan.captionStyle !== "none") {
+    const captions = computeCaptionEvents(plan, p.transcripts);
+    for (const event of captions.events) {
+      signal?.throwIfAborted();
+      const key = captionKey(
+        event,
+        plan.captionStyle,
+        plan,
+        p.creator.brand,
+        templateSourceHash,
+      );
+      const c = await cachedFile(
+        dir,
+        key,
+        `assets/generated/caption-${key}.webm`,
+        async (temp) => {
+          await renderCaption(
+            event,
+            plan.captionStyle as "pop" | "karaoke",
+            plan,
+            p.creator.brand,
+            temp,
+            signal,
+          );
+          await verifyOutput(
+            temp,
+            (event.endFrame - event.startFrame) / plan.frameRate,
+            signal,
+          );
+        },
+      );
+      const asset = recordAsset(
+        store,
+        p.id,
+        plan.version,
+        PREVIEW_JOB_ID,
+        "caption-render",
+        key,
+        c,
+        event.sceneId,
+        {
+          template: "PunchLineCaption",
+          parameters: { style: plan.captionStyle, text: event.text },
+          sourceAssets: [event.sceneId],
+          instruction: event.text,
+        },
+      );
+      emit({
+        sceneId: event.sceneId,
+        kind: "caption",
+        label: `Caption • ${event.text.slice(0, 48)}`,
+        asset,
+        reused: c.reused,
+        skipped: null,
+      });
+    }
+    for (const recordingId of captions.skippedRecordings)
+      emit({
+        sceneId: recordingId,
+        kind: "caption",
+        label: `Caption • ${recordingId}`,
+        asset: null,
+        reused: false,
+        skipped:
+          "No word timings in this recording's transcript; its captions are skipped (silence tightening has the same requirement).",
+      });
   }
   return { planVersion: plan.version, outcomes };
 }
