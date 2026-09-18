@@ -105,216 +105,281 @@ struct StoryboardView: View {
       }
     }
   }
-  var body: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 7) {
-          Text("Make the production decisions visible.").studioHeading(20)
-          Text(
-            p.plan?.director.summary ?? "Generate a plan from the approved script and transcript."
-          ).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-          if let plan = p.plan {
-            let bed = plan.audioDesign?.music
-            let sfx = plan.audioDesign?.sfx ?? []
-            if plan.brollCount > 0 || bed != nil || !sfx.isEmpty {
-              Label(
-                "\(plan.brollCount) B-roll · \(bed?.trackId ?? "no music bed") · \(sfx.count) SFX",
-                systemImage: "waveform.and.photo"
-              ).font(.caption).foregroundStyle(Color.studioAccent)
-            } else {
-              Label(
-                "No B-roll or music yet — the visual pass can propose them.",
-                systemImage: "photo.on.rectangle"
-              ).font(.caption).foregroundStyle(.secondary)
-            }
-            if let coverage = plan.scriptCoverage, !coverage.sentences.isEmpty {
-              if coverage.omitted.isEmpty {
-                Label(
-                  "Script coverage: all \(coverage.sentences.count) sentences included",
-                  systemImage: "checklist"
-                ).font(.caption).foregroundStyle(Color.studioSuccess)
-              } else {
-                Menu {
-                  ForEach(Array(coverage.omitted.enumerated()), id: \.offset) { _, sentence in
-                    VStack(alignment: .leading, spacing: 2) {
-                      Text(sentence.text).lineLimit(2)
-                      if let reason = sentence.reason {
-                        Text(reason).font(.caption).foregroundStyle(.secondary)
-                      }
-                    }
-                  }
-                } label: {
-                  Label(
-                    "Script coverage: \(coverage.included.count) included · \(coverage.omitted.count) omitted",
-                    systemImage: "checklist"
-                  ).font(.caption).foregroundStyle(.secondary)
-                }
-              }
-            }
-            if plan.captions != "none" {
-              if m.captions.events.isEmpty {
-                Label(
-                  m.captions.skippedRecordings.isEmpty
-                    ? "No punch lines qualified for captions"
-                    : "Captions skipped: \(m.captions.skippedRecordings.count) recording(s) lack word timings",
-                  systemImage: "captions.bubble"
-                ).font(.caption).foregroundStyle(.secondary)
-              } else {
-                Menu {
-                  ForEach(m.captions.events) { event in
-                    VStack(alignment: .leading, spacing: 2) {
-                      Text(event.text).lineLimit(2)
-                      Text(
-                        "\(timecode(event.startFrame, plan.frameRate)) · \(event.sceneId)"
-                      ).font(.caption).foregroundStyle(.secondary)
-                    }
-                  }
-                } label: {
-                  Label(
-                    "\(m.captions.events.count) punch-line caption(s) · \(plan.captions)",
-                    systemImage: "captions.bubble"
-                  ).font(.caption).foregroundStyle(Color.studioAccent)
-                }
+  private var regenerateAllowed: Bool {
+    !m.busy && ["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].contains(p.status)
+  }
+  private func regenerate() async {
+    await m.perform(
+      "plan.generate", label: "Director • storyboard",
+      params: ["director": m.selectedDirector])
+  }
+  /// Hired-director pull-down beside an existing plan; the accent ring marks a
+  /// pending re-hire that the menu's regenerate item applies.
+  private var directorMenu: some View {
+    let selected = directorOptions.first { $0.id == m.selectedDirector }
+    let rehire = m.selectedDirector != p.plan?.persona
+    return Menu {
+      ForEach(directorOptions) { option in
+        Button {
+          m.selectedDirector = option.id
+        } label: {
+          Label(
+            option.name + (option.id == p.plan?.persona ? " — hired" : ""),
+            systemImage: option.id == m.selectedDirector ? "checkmark" : option.symbol
+          )
+        }.disabled(m.busy)
+      }
+      Divider()
+      Button {
+        Task { await regenerate() }
+      } label: {
+        Label(
+          rehire
+            ? "Regenerate as \(selected?.name ?? m.selectedDirector)"
+            : "Regenerate Storyboard",
+          systemImage: "arrow.clockwise")
+      }.disabled(!regenerateAllowed)
+    } label: {
+      HStack(spacing: 7) {
+        Image(systemName: selected?.symbol ?? "film")
+          .foregroundStyle(rehire ? Color.studioAccent : Color.secondary)
+        Text(selected?.name ?? "Director")
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(rehire ? Color.studioAccent : Color.studioInk)
+        Image(systemName: "chevron.up.chevron.down")
+          .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+      }
+      .padding(.horizontal, 12).frame(height: 30)
+      .background(
+        Capsule()
+          .fill(rehire ? Color.studioAccentSoft : Color.studioSurface)
+          .overlay(
+            Capsule().stroke(
+              rehire ? Color.studioAccent : Color.studioBorder, lineWidth: 0.7))
+      )
+      .contentShape(Capsule())
+    }
+    .menuIndicator(.hidden).fixedSize()
+    .help(
+      rehire
+        ? "Re-hired \(selected?.name ?? m.selectedDirector) — open the menu to regenerate the storyboard."
+        : "Re-hire the director or regenerate the storyboard."
+    )
+  }
+  private func previewsChip(_ plan: Plan) -> some View {
+    let previewable = plan.scenes.filter { $0.enabled && $0.visual.graphic != nil }
+    let rendered = previewable.filter { scene in
+      p.assets?.contains {
+        $0.sceneId == scene.id && $0.type == "remotion-render"
+          && $0.productionPlanVersion == plan.version
+      } ?? false
+    }
+    return Group {
+      if !previewable.isEmpty {
+        Label(
+          "Previews rendered \(rendered.count)/\(previewable.count)",
+          systemImage: "sparkles"
+        ).font(.caption).lineLimit(1)
+          .foregroundStyle(
+            rendered.count == previewable.count ? Color.studioSuccess : Color.secondary)
+      }
+    }
+  }
+  @ViewBuilder private func coverageChip(_ plan: Plan) -> some View {
+    if let coverage = plan.scriptCoverage, !coverage.sentences.isEmpty {
+      if coverage.omitted.isEmpty {
+        Label(
+          "Script coverage: all \(coverage.sentences.count) sentences included",
+          systemImage: "checklist"
+        ).font(.caption).lineLimit(1).foregroundStyle(Color.studioSuccess)
+      } else {
+        Menu {
+          ForEach(Array(coverage.omitted.enumerated()), id: \.offset) { _, sentence in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(sentence.text).lineLimit(2)
+              if let reason = sentence.reason {
+                Text(reason).font(.caption).foregroundStyle(.secondary)
               }
             }
           }
+        } label: {
+          Label(
+            "Script coverage: \(coverage.included.count) included · \(coverage.omitted.count) omitted",
+            systemImage: "checklist"
+          ).font(.caption).lineLimit(1).foregroundStyle(.secondary)
         }
-        Spacer()
-        if let plan = p.plan {
-          VStack(alignment: .trailing, spacing: 8) {
-            Text("\(plan.scenes.count) scenes • v\(plan.version)").font(.caption).foregroundStyle(
-              .secondary)
-            directorCards
-            Button(
-              m.selectedDirector == plan.persona
-                ? "Regenerate Storyboard"
-                : "Regenerate as \(directorOptions.first { $0.id == m.selectedDirector }?.name ?? m.selectedDirector)"
-            ) {
+      }
+    }
+  }
+  @ViewBuilder private func captionsChip(_ plan: Plan) -> some View {
+    if plan.captions != "none" {
+      if m.captions.events.isEmpty {
+        Label(
+          m.captions.skippedRecordings.isEmpty
+            ? "No punch lines qualified for captions"
+            : "Captions skipped: \(m.captions.skippedRecordings.count) recording(s) lack word timings",
+          systemImage: "captions.bubble"
+        ).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+      } else {
+        Menu {
+          ForEach(m.captions.events) { event in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(event.text).lineLimit(2)
+              Text("\(timecode(event.startFrame, plan.frameRate)) · \(event.sceneId)").font(
+                .caption
+              ).foregroundStyle(.secondary)
+            }
+          }
+        } label: {
+          Label(
+            "\(m.captions.events.count) punch-line caption(s) · \(plan.captions)",
+            systemImage: "captions.bubble"
+          ).font(.caption).lineLimit(1).foregroundStyle(Color.studioAccent)
+        }
+      }
+    }
+  }
+  @ViewBuilder private func brollChip(_ plan: Plan) -> some View {
+    let bed = plan.audioDesign?.music
+    let sfx = plan.audioDesign?.sfx ?? []
+    if plan.brollCount > 0 || bed != nil || !sfx.isEmpty {
+      Label(
+        "\(plan.brollCount) B-roll · \(bed?.trackId ?? "no music bed") · \(sfx.count) SFX",
+        systemImage: "waveform.and.photo"
+      ).font(.caption).lineLimit(1).foregroundStyle(Color.studioAccent)
+    } else {
+      Label(
+        "No B-roll or music yet — the visual pass can propose them.",
+        systemImage: "photo.on.rectangle"
+      ).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+    }
+  }
+  var body: some View {
+    VStack(spacing: 0) {
+      if let plan = p.plan {
+        storyboard(plan)
+      } else {
+        hireState
+      }
+    }
+    .sheet(item: $editing) { scene in
+      SceneEditor(p: p, scene: scene).environmentObject(m)
+    }
+    .sheet(isPresented: $showTranscriptReview) { TranscriptListeningReview(projectID: p.id) }
+  }
+  /// The plan is the page: one compact action row, one status row, then the
+  /// scene grid takes every remaining pixel.
+  private func storyboard(_ plan: Plan) -> some View {
+    return VStack(spacing: 0) {
+      VStack(spacing: 9) {
+        HStack(spacing: 10) {
+          VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+              Text("Storyboard").studioHeading(21)
+              Text("\(plan.scenes.count) scenes · v\(plan.version)").font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Text(plan.director.summary).font(.caption).foregroundStyle(.secondary)
+              .lineLimit(1).help(plan.director.summary)
+          }
+          Spacer()
+          directorMenu
+          Button("Re-render Previews") {
+            Task { await m.renderPreviews() }
+          }.buttonStyle(QuietButtonStyle()).disabled(
+            m.busy
+              || ![
+                "AWAITING_STORYBOARD_APPROVAL", "AWAITING_ROUGH_CUT_APPROVAL",
+                "READY_TO_RENDER",
+              ].contains(p.status))
+          Button("Propose Visual Pass") {
+            Task {
+              await m.proposeVisualPass()
+              m.tab = "Review"
+            }
+          }.buttonStyle(QuietButtonStyle()).disabled(
+            m.busy
+              || ![
+                "AWAITING_STORYBOARD_APPROVAL", "AWAITING_ROUGH_CUT_APPROVAL",
+                "READY_TO_RENDER",
+              ].contains(p.status))
+          if p.planApproval?.version == plan.version {
+            Label("Storyboard approved", systemImage: "checkmark.circle.fill").font(.caption)
+              .foregroundStyle(Color.studioSuccess)
+          } else {
+            Button("Approve Storyboard v\(plan.version)") {
               Task {
                 await m.perform(
-                  "plan.generate", label: "Director • storyboard",
-                  params: ["director": m.selectedDirector])
+                  "plan.approve", label: "Storyboard approval", params: ["version": plan.version])
               }
             }.buttonStyle(QuietButtonStyle()).disabled(
-              m.busy
-                || !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].contains(p.status))
-            let previewable = plan.scenes.filter { $0.enabled && $0.visual.graphic != nil }
-            let rendered = previewable.filter { scene in
-              p.assets?.contains {
-                $0.sceneId == scene.id && $0.type == "remotion-render"
-                  && $0.productionPlanVersion == plan.version
-              } ?? false
-            }
-            if !previewable.isEmpty {
-              if rendered.count == previewable.count {
-                Label(
-                  "Previews rendered \(previewable.count)/\(previewable.count)",
-                  systemImage: "sparkles"
-                ).font(.caption).foregroundStyle(Color.studioSuccess)
-              } else {
-                Label(
-                  "Previews rendered \(rendered.count)/\(previewable.count)",
-                  systemImage: "sparkles"
-                ).font(.caption).foregroundStyle(.secondary)
-              }
-            }
-            Button("Re-render Previews") {
-              Task { await m.renderPreviews() }
-            }.buttonStyle(QuietButtonStyle()).disabled(
-              m.busy
-                || ![
-                  "AWAITING_STORYBOARD_APPROVAL", "AWAITING_ROUGH_CUT_APPROVAL",
-                  "READY_TO_RENDER",
-                ].contains(p.status))
-            Button("Propose Visual Pass") {
-              Task {
-                await m.proposeVisualPass()
-                m.tab = "Review"
-              }
-            }.buttonStyle(QuietButtonStyle()).disabled(
-              m.busy
-                || ![
-                  "AWAITING_STORYBOARD_APPROVAL", "AWAITING_ROUGH_CUT_APPROVAL",
-                  "READY_TO_RENDER",
-                ].contains(p.status))
-            if p.planApproval?.version == plan.version {
-              Label("Storyboard approved", systemImage: "checkmark.circle.fill").font(.caption)
-                .foregroundStyle(Color.studioSuccess)
-            } else {
-              Button("Approve Storyboard v\(plan.version)") {
-                Task {
-                  await m.perform(
-                    "plan.approve", label: "Storyboard approval", params: ["version": plan.version])
-                }
-              }.buttonStyle(QuietButtonStyle()).disabled(
-                m.busy || p.status != "AWAITING_STORYBOARD_APPROVAL")
-            }
-            Button("Build Rough Cut") {
-              m.tab = "Production"
-              Task { await m.perform("build", label: "Production") }
-            }.buttonStyle(PrimaryActionButtonStyle()).disabled(
-              m.busy || p.planApproval?.version != plan.version)
+              m.busy || p.status != "AWAITING_STORYBOARD_APPROVAL")
+          }
+          Button("Build Rough Cut") {
+            m.tab = "Production"
+            Task { await m.perform("build", label: "Production") }
+          }.buttonStyle(PrimaryActionButtonStyle()).disabled(
+            m.busy || p.planApproval?.version != plan.version)
+        }
+        HStack(spacing: 16) {
+          previewsChip(plan)
+          coverageChip(plan)
+          captionsChip(plan)
+          brollChip(plan)
+          Spacer()
+          if p.pendingTranscriptIssues > 0 {
+            Text(
+              p.storyboardTranscriptIssueCount.map {
+                "\($0) transcript suggestions in selected footage"
+              } ?? "Transcript suggestions available"
+            ).font(.caption).lineLimit(1).foregroundStyle(.secondary)
+            Button("Review suggestions (optional)…") { showTranscriptReview = true }
+              .buttonStyle(QuietButtonStyle())
           }
         }
-      }
-      if p.plan != nil && p.pendingTranscriptIssues > 0 {
-        HStack {
-          Text(
-            p.storyboardTranscriptIssueCount.map {
-              "\($0) transcript suggestions in selected footage"
-            }
-              ?? "Transcript suggestions available"
-          ).font(.caption).foregroundStyle(.secondary)
-          Spacer()
-          Button("Review suggestions (optional)…") { showTranscriptReview = true }
-            .buttonStyle(QuietButtonStyle())
-        }
-      }
+      }.padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 14)
+      Divider()
       ScrollView {
         LazyVGrid(
           columns: [GridItem(.adaptive(minimum: 300), spacing: 18)], alignment: .leading,
           spacing: 18
         ) {
-          ForEach(p.plan?.scenes ?? []) { scene in SceneCard(p: p, scene: scene) { editing = scene }
+          ForEach(plan.scenes) { scene in SceneCard(p: p, scene: scene) { editing = scene } }
+        }
+      }.padding(28)
+    }
+  }
+  /// No plan yet: hiring the director is the whole page.
+  private var hireState: some View {
+    VStack(spacing: 12) {
+      Spacer()
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Hire your director").font(.headline)
+        Text(
+          "The director drives pacing, visuals, punch-line captions and the sound of the mix. Script and publication approvals always stay yours. You can re-hire before approving the storyboard."
+        ).font(.caption).foregroundStyle(.secondary)
+        directorCards
+        HStack {
+          Button(
+            "Generate Storyboard as \(directorOptions.first { $0.id == m.selectedDirector }?.name ?? m.selectedDirector)"
+          ) {
+            Task { await regenerate() }
+          }.buttonStyle(PrimaryActionButtonStyle()).disabled(!regenerateAllowed)
+          if m.busy {
+            ProgressView().controlSize(.small)
           }
         }
-      }
-      if p.plan == nil {
-        Spacer()
-        VStack(alignment: .leading, spacing: 12) {
-          Text("Hire your director").font(.headline)
+        if !regenerateAllowed && !m.busy {
           Text(
-            "The director drives pacing, visuals, punch-line captions and the sound of the mix. Script and publication approvals always stay yours. You can re-hire before approving the storyboard."
+            "The storyboard generates from the approved script and transcripts once media is imported."
           ).font(.caption).foregroundStyle(.secondary)
-          directorCards
-          HStack {
-            Button(
-              "Generate Storyboard as \(directorOptions.first { $0.id == m.selectedDirector }?.name ?? m.selectedDirector)"
-            ) {
-              Task {
-                await m.perform(
-                  "plan.generate", label: "Director • storyboard",
-                  params: ["director": m.selectedDirector])
-              }
-            }.buttonStyle(PrimaryActionButtonStyle()).disabled(
-              m.busy
-                || !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].contains(p.status))
-            if m.busy {
-              ProgressView().controlSize(.small)
-            }
-          }
-        }.padding(26)
-          .frame(maxWidth: 460, alignment: .leading)
-          .background(Color.primary.opacity(0.04))
-          .clipShape(RoundedRectangle(cornerRadius: 14))
-          .frame(maxWidth: .infinity)
-        Spacer()
-      }
-    }.padding(28)
-      .sheet(item: $editing) { scene in
-        SceneEditor(p: p, scene: scene).environmentObject(m)
-      }
-      .sheet(isPresented: $showTranscriptReview) { TranscriptListeningReview(projectID: p.id) }
+        }
+      }.padding(26)
+        .frame(maxWidth: 460, alignment: .leading)
+        .background(Color.primary.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+      Spacer()
+    }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }
 struct SceneCard: View {
