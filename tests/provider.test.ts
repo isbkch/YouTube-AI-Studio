@@ -5,7 +5,23 @@ import {
   OpenAIProvider,
   PackagingAgent,
   ResearchAgent,
+  openAiWireSchema,
+  visualReviewSchema,
+  stillReviewSchema,
 } from "../packages/agents/src/index.ts";
+import {
+  narrativeSchema,
+  previsualizationSchema,
+  researchSchema,
+  videoScriptSchema,
+} from "../packages/agents/src/preproduction.ts";
+import { packagingSchema } from "../packages/agents/src/packaging.ts";
+import { transcriptReviewOutputSchema } from "../packages/orchestrator/src/transcription-model.ts";
+import {
+  patchSchema,
+  planSchema,
+  visualPassSchema,
+} from "../packages/production-plan/src/index.ts";
 import {
   GeminiImageProvider,
   OpenAIImageProvider,
@@ -81,7 +97,8 @@ test("OpenAI adapter uses Responses strict structured output and records usage w
   assert.equal(result.output.summary, "Use a diagram.");
   assert.equal(result.usage.inputTokens, 100);
   assert.equal(result.usage.outputTokens, 5);
-  assert.equal(result.usage.costUSD, null);
+  // Usage rows are priced against the current table at record time.
+  assert.equal(result.usage.costUSD, 0.000175);
 });
 test("OpenAI wire schema strips unsupported string formats (uri) but keeps strict allowlisted ones", async () => {
   let body: Record<string, unknown> = {};
@@ -135,6 +152,83 @@ test("OpenAI wire schema strips unsupported string formats (uri) but keeps stric
   assert.equal("format" in properties.home, false);
   assert.equal(properties.at.format, "date-time");
   assert.equal(result.output.home, "https://example.com/adr");
+});
+
+test("OpenAI wire schema rewrites tuple items to strict-safe arrays while Zod keeps positional validation", async () => {
+  let body: Record<string, unknown> = {};
+  const provider = new OpenAIProvider("test-key-not-a-secret", "gpt-5.4", {
+    fetch: async (_url, options) => {
+      body = JSON.parse(String(options?.body));
+      return new Response(
+        JSON.stringify({
+          id: "resp_tuple",
+          object: "response",
+          created_at: 1,
+          status: "completed",
+          model: "gpt-5.4",
+          output: [
+            {
+              id: "msg_tuple",
+              type: "message",
+              role: "assistant",
+              status: "completed",
+              content: [
+                {
+                  type: "output_text",
+                  text: '{"targetMinutes":[8,14],"block":{"kind":"note","text":"One take."}}',
+                  annotations: [],
+                },
+              ],
+            },
+          ],
+          usage: { input_tokens: 12, output_tokens: 6, total_tokens: 18 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+  const result = await provider.generateStructured({
+    name: "script_draft_probe",
+    schema: z.strictObject({
+      targetMinutes: z.tuple([
+        z.number().int().min(1).max(90),
+        z.number().int().min(1).max(120),
+      ]),
+      block: z.union([
+        z.strictObject({ kind: z.literal("note"), text: z.string() }),
+        z.strictObject({
+          kind: z.literal("onscreen"),
+          text: z.string().nullable(),
+        }),
+      ]),
+    }),
+    instructions: "Return a minute range and one block.",
+    input: { topic: "tuples" },
+  });
+  const properties = (
+    body.text as {
+      format: {
+        schema: {
+          properties: Record<
+            string,
+            Record<string, unknown> & { items?: unknown }
+          >;
+        };
+      };
+    }
+  ).format.schema.properties;
+  const target = properties.targetMinutes;
+  // Heterogeneous tuple positions collapse to an anyOf with length bounds.
+  assert.equal(Array.isArray(target.items), false);
+  assert.equal((target.items as { anyOf: unknown[] }).anyOf.length, 2);
+  assert.equal(target.minItems, 2);
+  assert.equal(target.maxItems, 2);
+  assert.equal("additionalItems" in target, false);
+  // Unions ride anyOf (never oneOf), and the parse still validates positions.
+  assert.ok(Array.isArray(properties.block.anyOf));
+  assert.equal("oneOf" in properties.block, false);
+  assert.deepEqual(result.output.targetMinutes, [8, 14]);
+  assert.equal(result.output.block.kind, "note");
 });
 
 test("OpenAI refusals are surfaced as actionable failures, never executed as prose", async () => {
@@ -549,4 +643,55 @@ test("packaging agent rides the strict structured transport with the fixed timel
   );
   assert.equal(result.usage.agent, "video_packaging");
   assert.equal(result.usage.inputTokens, 400);
+});
+
+test("every agent wire schema normalizes to OpenAI strict-mode-compatible JSON Schema", () => {
+  const allowed = new Set([
+    "date-time",
+    "time",
+    "date",
+    "duration",
+    "email",
+    "hostname",
+    "uuid",
+    "ipv4",
+    "ipv6",
+  ]);
+  const violations: string[] = [];
+  const visit = (node: unknown, path: string): void => {
+    if (Array.isArray(node)) {
+      node.forEach((child, i) => visit(child, `${path}/${i}`));
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (Array.isArray(record.items)) violations.push(`${path}: tuple items`);
+    if ("additionalItems" in record)
+      violations.push(`${path}: additionalItems`);
+    if ("oneOf" in record) violations.push(`${path}: oneOf`);
+    if (typeof record.format === "string" && !allowed.has(record.format))
+      violations.push(`${path}: format ${record.format}`);
+    if (record.type === "object" && record.additionalProperties !== false)
+      violations.push(`${path}: object not closed`);
+    for (const [key, value] of Object.entries(record))
+      if (key !== "format") visit(value, `${path}/${key}`);
+  };
+  const wireSchemas = {
+    planSchema,
+    patchSchema,
+    visualPassSchema,
+    researchSchema,
+    narrativeSchema,
+    videoScriptSchema,
+    previsualizationSchema,
+    packagingSchema,
+    visualReviewSchema,
+    stillReviewSchema,
+    transcriptReviewOutputSchema,
+  };
+  for (const [name, schema] of Object.entries(wireSchemas)) {
+    violations.length = 0;
+    visit(openAiWireSchema(schema as z.ZodType), name);
+    assert.deepEqual(violations, [], `${name} must be strict-mode clean`);
+  }
 });

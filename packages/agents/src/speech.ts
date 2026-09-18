@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { now, StudioError, type Usage } from "../../shared/src/index.ts";
+import { estimateUsageCost } from "../../shared/src/costs.ts";
 
 export interface SpeechRequest {
   file: string;
@@ -69,6 +70,22 @@ export class OpenAISpeechRecognizer implements SpeechRecognizer {
     );
     const probabilities =
       "logprobs" in response ? (response.logprobs ?? []) : [];
+    const usage: Usage = {
+      agent:
+        r.model === "gpt-transcribe"
+          ? "transcription"
+          : "transcription-verification",
+      provider: "openai",
+      model: r.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      audioSeconds: r.duration,
+      imageCount: 0,
+      costUSD: null,
+      elapsedMs: performance.now() - started,
+      createdAt: now(),
+    };
+    usage.costUSD = estimateUsageCost(usage);
     return {
       text: response.text.trim(),
       language: r.languages?.[0] ?? "en",
@@ -76,21 +93,7 @@ export class OpenAISpeechRecognizer implements SpeechRecognizer {
         ? probabilities.reduce((n, t) => n + (t.logprob ?? 0), 0) /
           probabilities.length
         : null,
-      usage: {
-        agent:
-          r.model === "gpt-transcribe"
-            ? "transcription"
-            : "transcription-verification",
-        provider: "openai",
-        model: r.model,
-        inputTokens: 0,
-        outputTokens: 0,
-        audioSeconds: r.duration,
-        imageCount: 0,
-        costUSD: null,
-        elapsedMs: performance.now() - started,
-        createdAt: now(),
-      },
+      usage,
     };
   }
 }

@@ -510,6 +510,40 @@ struct Usage: Decodable {
   let imageCount: Int
   let costUSD: Double?
 }
+/// One priced agent+provider+model group in a cost summary.
+struct CostLine: Decodable, Identifiable {
+  let agent: String
+  let provider: String
+  let model: String
+  let calls: Int
+  let inputTokens: Int
+  let outputTokens: Int
+  let audioSeconds: Double
+  let images: Int
+  let costUSD: Double
+  let unpricedCalls: Int
+  var id: String { "\(agent)|\(provider)|\(model)" }
+}
+/// Estimated API spend over a set of usage rows, computed by the runtime.
+struct CostSummary: Decodable {
+  let totalUSD: Double
+  let calls: Int
+  let unpricedCalls: Int
+  let freeCalls: Int
+  let lines: [CostLine]
+  let lastCallAt: String?
+}
+/// `costs.get` — the selected project plus library-wide totals.
+struct CostsReport: Decodable {
+  let project: CostSummary
+  let productions: [ProductionCost]
+  let library: CostSummary
+}
+struct ProductionCost: Decodable, Identifiable {
+  let id: String
+  let title: String
+  let costs: CostSummary
+}
 struct Patch: Decodable, Identifiable {
   let id: String
   let originatingRequest: String
@@ -557,6 +591,8 @@ struct Project: Decodable, Identifiable {
   /// Read-backs of creator review markers from Resolve sessions, oldest first.
   let resolveMarkers: [ResolveMarkerReview]?
   let usage: [Usage]
+  /// Estimated API spend over `usage`; nil when connected to an older runtime.
+  let costs: CostSummary?
   let directory: String?
   let assets: [Asset]?
   let jobs: [Job]?

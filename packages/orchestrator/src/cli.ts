@@ -85,6 +85,7 @@ const help = `YouTube-AI-Studio — local production CLI
 bun run wts doctor
 bun run wts project create "Title" --duration 900 --description "Idea" [--autonomy supervised|autonomous]
 bun run wts project list | project inspect <project> | project recover <project>
+bun run wts costs <project>   (estimated API spend: this project and the whole library)
 bun run wts project delete <project> --yes   (files you imported from stay untouched)
 bun run wts autonomy <project> supervised|autonomous   (who satisfies the machine gates)
 bun run wts producer <project>   (autonomous projects: advance machine gates to the next stop; script and publication stay human)
@@ -223,7 +224,9 @@ try {
         Number(v.duration),
         autonomyArg(v.autonomy),
       );
-    else if (a[0] === "project" && a[1] === "list") result = store.list();
+    else if (a[0] === "project" && a[1] === "list")
+      result = studio.listProjects();
+    else if (a[0] === "costs") result = studio.costs(a[1]);
     else if (a[0] === "autonomy") {
       const mode = autonomyArg(a[2]);
       await studio.setAutonomy(a[1], mode);

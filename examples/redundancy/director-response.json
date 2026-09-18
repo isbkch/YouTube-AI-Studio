@@ -24,10 +24,7 @@
       "durationFrames": 530,
       "sourceInFrame": 0,
       "narration": "You have two servers. Two copies of the database. Maybe even two regions. Then one ordinary deployment takes everything down. The architecture was redundant. The service was not available. Redundancy describes the parts you own. Availability describes what a user can actually do.",
-      "transcriptSegmentIds": [
-        "segment-1",
-        "segment-2"
-      ],
+      "transcriptSegmentIds": ["segment-1", "segment-2"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "close",
@@ -104,11 +101,7 @@
       "durationFrames": 545,
       "sourceInFrame": 537,
       "narration": "Adding another copy only helps when the failure that breaks one copy leaves the other useful. Imagine two application servers behind a load balancer. Both depend on one database endpoint. When that shared dependency fails, the second application server is just another machine returning the same error.",
-      "transcriptSegmentIds": [
-        "segment-2",
-        "segment-3",
-        "segment-4"
-      ],
+      "transcriptSegmentIds": ["segment-2", "segment-3", "segment-4"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",
@@ -127,23 +120,15 @@
             "layers": [
               {
                 "name": "Clients",
-                "components": [
-                  "Web",
-                  "Mobile"
-                ]
+                "components": ["Web", "Mobile"]
               },
               {
                 "name": "App tier",
-                "components": [
-                  "App A",
-                  "App B"
-                ]
+                "components": ["App A", "App B"]
               },
               {
                 "name": "Data",
-                "components": [
-                  "Database"
-                ]
+                "components": ["Database"]
               }
             ],
             "failedLayer": 2
@@ -196,10 +181,7 @@
       "durationFrames": 551,
       "sourceInFrame": 1089,
       "narration": "Even independent copies are not enough. Something must detect the failure, route traffic, and preserve the information needed to continue. A standby that nobody can reach is capacity, not recovery. So test the entire path. Break a dependency. Watch detection. Measure the switch. Check a real request.",
-      "transcriptSegmentIds": [
-        "segment-4",
-        "segment-5"
-      ],
+      "transcriptSegmentIds": ["segment-4", "segment-5"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "close",
@@ -215,12 +197,7 @@
           "parameters": {
             "title": "Cascade",
             "subtitle": "Failure propagates through the path.",
-            "nodes": [
-              "Users",
-              "Gateway",
-              "App",
-              "Database"
-            ],
+            "nodes": ["Users", "Gateway", "App", "Database"],
             "failedNode": 3,
             "recovered": true
           }
@@ -284,10 +261,7 @@
       "durationFrames": 514,
       "sourceInFrame": 1646,
       "narration": "Include the control plane, credentials, and the people who have to make the decision. The useful question is not, how many copies do we have? It is, what happens to the next user request when this part fails? Availability is a behavior. Build it, then prove it.",
-      "transcriptSegmentIds": [
-        "segment-5",
-        "segment-6"
-      ],
+      "transcriptSegmentIds": ["segment-5", "segment-6"],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "close",

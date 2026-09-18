@@ -63,6 +63,7 @@ import {
   type SilenceTightening,
   type VisualDensity,
 } from "../../shared/src/index.ts";
+import { costSummary } from "../../shared/src/costs.ts";
 import {
   importRecording,
   inspect,
@@ -191,6 +192,32 @@ export class Studio {
       jobs: this.store.jobs(p.id),
       assets: this.store.assets(p.id),
       events: this.store.events(p.id),
+      costs: costSummary(p.usage),
+    };
+  }
+  /** Project documents with their cost summary, for list views. */
+  listProjects() {
+    return this.store
+      .list()
+      .map((p) => ({ ...p, costs: costSummary(p.usage) }));
+  }
+  /**
+   * Cost estimate for one project plus library-wide totals. Pure traversal of
+   * recorded usage rows priced against the current table — nothing here calls
+   * a provider, and unpriced models are reported rather than hidden.
+   */
+  costs(projectId: string) {
+    const projects = this.store.list();
+    const productions = projects.map((p) => ({
+      id: p.id,
+      title: p.title,
+      costs: costSummary(p.usage),
+    }));
+    return {
+      project:
+        productions.find((s) => s.id === projectId)?.costs ?? costSummary([]),
+      productions,
+      library: costSummary(projects.flatMap((p) => p.usage)),
     };
   }
   private async locked<T>(

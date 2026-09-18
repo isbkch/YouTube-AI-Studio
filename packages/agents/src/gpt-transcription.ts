@@ -28,6 +28,7 @@ import { differingWords } from "./speech-diff.ts";
 import { OpenAISpeechRecognizer, type SpeechRecognizer } from "./speech.ts";
 import {
   OpenAIProvider,
+  priced,
   validateTranscript,
   type AIProvider,
   type Transcriber,
@@ -649,7 +650,7 @@ export class GPTTranscriber implements Transcriber {
         output: transcript,
         review,
         usages,
-        usage: {
+        usage: priced({
           agent: "transcription-qa",
           provider: "openai",
           model: "gpt-transcribe",
@@ -660,7 +661,7 @@ export class GPTTranscriber implements Transcriber {
           costUSD: null,
           elapsedMs: usages.reduce((n, u) => n + u.elapsedMs, 0),
           createdAt: now(),
-        },
+        }),
       };
     } finally {
       await rm(dir, { recursive: true, force: true });
