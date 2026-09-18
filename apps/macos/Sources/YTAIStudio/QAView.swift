@@ -26,7 +26,7 @@ struct VisualQAView: View {
   private var qaJob: Job? { currentRunJobs.first { $0.type == "qa" } }
   private var building: Bool { currentRunJobs.contains { $0.status != "COMPLETE" } }
   private var isStale: Bool {
-    guard let qa, !building else { return false }
+    guard qa != nil, !building else { return false }
     return p.latestBuild?.planVersion != plan?.version
   }
 
@@ -144,6 +144,11 @@ struct VisualQAView: View {
     let flagged = flaggedSceneIds(qa)
     let passed = scenes.count - scenes.filter { $0.verdict != "pass" }.count
     let meta = qa.metadata
+    let resolution =
+      meta.flatMap { meta -> String? in
+        guard let width = meta.width, let height = meta.height else { return nil }
+        return "\(width)×\(height)"
+      } ?? "—"
     return VStack(alignment: .leading, spacing: 20) {
       HStack(alignment: .center, spacing: 16) {
         Image(
@@ -162,7 +167,7 @@ struct VisualQAView: View {
       HStack(spacing: 20) {
         Metric(value: timestamp(meta?.duration ?? 0), label: "Duration")
         Metric(
-          value: meta.map { "\($0.width)×\($0.height)" } ?? "—",
+          value: resolution,
           label: meta.map { "\(fpsLabel($0.frameRate)) fps · \($0.codec ?? "video")" }
             ?? "Resolution"
         )
@@ -210,7 +215,7 @@ struct VisualQAView: View {
 
   private func checkedAt(_ iso: String?) -> String? {
     guard let iso else { return nil }
-    var formatter = ISO8601DateFormatter()
+    let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let date =
       formatter.date(from: iso)

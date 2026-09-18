@@ -33,7 +33,7 @@ struct SettingsView: View {
           }.pickerStyle(.segmented)
           TextField("Director model", text: $m.modelName)
           SecureField("OpenAI API key (optional — .env also works)", text: $key)
-            .onChange(of: key) { _ in keySaved = false }
+            .onChange(of: key) { keySaved = false }
           HStack {
             Button("Save Key in Keychain") {
               do {
@@ -77,7 +77,7 @@ struct SettingsView: View {
           SecureField(
             "Gemini API key (optional — .env GEMINI_API_KEY also works)", text: $geminiKey
           )
-          .onChange(of: geminiKey) { _ in geminiKeySaved = false }
+          .onChange(of: geminiKey) { geminiKeySaved = false }
           HStack {
             Button("Save Gemini Key in Keychain") {
               do {
