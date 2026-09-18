@@ -2,8 +2,16 @@
 import argparse
 import contextlib
 import json
+import os
 import sys
 from importlib.metadata import version
+
+
+# ONNX Runtime is imported indirectly by the alignment dependencies. Its macOS
+# telemetry uploader can race native teardown (PosixTelemetry::Shutdown), aborting
+# an otherwise completed worker. Opt out before any native ML library initializes.
+# https://github.com/microsoft/onnxruntime/blob/main/docs/Privacy.md
+os.environ["ORT_DISABLE_TELEMETRY"] = "1"
 
 
 def main():
