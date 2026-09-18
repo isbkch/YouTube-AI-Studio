@@ -27,31 +27,31 @@
     },
     "packages/agents": {
       "name": "@wts/agents",
-      "version": "0.1.7",
+      "version": "0.7.1",
     },
     "packages/media": {
       "name": "@wts/media",
-      "version": "0.1.7",
+      "version": "0.7.1",
     },
     "packages/orchestrator": {
       "name": "@wts/orchestrator",
-      "version": "0.1.7",
+      "version": "0.7.1",
     },
     "packages/production-plan": {
       "name": "@wts/production-plan",
-      "version": "0.1.7",
+      "version": "0.7.1",
     },
     "packages/remotion-engine": {
       "name": "@wts/remotion-engine",
-      "version": "0.1.7",
+      "version": "0.7.1",
     },
     "packages/resolve-engine": {
       "name": "@wts/resolve-engine",
-      "version": "0.1.7",
+      "version": "0.7.1",
     },
     "packages/shared": {
       "name": "@wts/shared",
-      "version": "0.1.7",
+      "version": "0.7.1",
     },
   },
   "trustedDependencies": [

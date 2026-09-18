@@ -4,6 +4,104 @@ Notable changes to YouTube-AI-Studio are documented here. Releases are
 numbered from `package.json`; while pre-1.0, expect breaking changes between
 alphas without a major-version bump.
 
+## [0.7.1] — 2026-09-18
+
+The first alpha's first follow-up, one day later. Three additions lead it:
+you can now **hire a director** — one of three editing personas that drives
+visual density, pacing, captions and sound for the whole video; delegate the
+machine gates to **the Producer** on autonomous projects; and
+**render, compare and edit thumbnail variants** before publishing.
+The production-plan schema moved 4.2.0 → 4.5.0 (legacy plans migrate on read
+and build exactly as before), the app rebranded to YouTube-AI-Studio, and the
+mocked suite expanded to cover the new production workflows.
+
+### Hire your director
+
+- **Three personas** — the Purist, the Craftsman (the default hire), and the
+  Showman — replace a wall of editing knobs. The hire resolves visual density
+  (`minimal|balanced|rich`), silence tightening (`natural|tight|punchy`),
+  caption style (`none|pop|karaoke`) and audio polish
+  (`natural|polished|loud`), and steers the Director's prompts; explicit
+  `--density`/`--tightening` still override individual knobs. Pick from the
+  storyboard's director cards or pass `--director` to `wts plan` / `wts aroll`.
+  Existing plans keep the Purist's behaviour and build exactly as before.
+- **Punch-line captions** are computed deterministically from the approved
+  plan and word-timed transcripts — never model output — so the viewer only
+  ever reads what was spoken. Pop captions punch the line; karaoke reveals
+  each spoken word as it is said. Timing is proven by pixel-level checks in
+  the test suite, storyboard previews flag scenes that cannot be captioned,
+  and captioned cuts finish through the verified FFmpeg path (Resolve would
+  re-edit from FCPXML and lose the burn-ins).
+- **Dependable sound**: every director's SFX and narration engineering stay
+  identical across rebuilds, drawn from a built-in synthesized SFX bank
+  (whoosh, pop, riser — no downloads, no licensing) that resolves like
+  library tracks.
+
+### The Producer — autonomy for the machine gates
+
+- Each project is **supervised** (default) or **autonomous**; switch any time
+  in the Overview tab or with `wts autonomy`. On autonomous projects a
+  deterministic reviewer (`deterministic-v1`, pure functions, zero cost)
+  carries the machine gates: it reviews the storyboard — escalating when more
+  than 25% of approved sentences are omitted or the duration leaves the
+  0.4×–1.6× budget — applies the visual pass once per script lineage, builds,
+  holds the rough cut to a spotless QA `PASS`, awaits the final render, and
+  generates packaging, stopping at the first failed check with a triaged
+  findings list. Nothing rolls back; the project waits for you.
+- **The script and publication gates stay permanently human** in both modes.
+  Every review persists on the project with `approvedBy`/`decidedBy`
+  attribution, auto-approvals are labelled as such, and **Run Producer**
+  (`wts producer`) is the manual catch-up button.
+
+### Thumbnails — decide the A/B before the upload
+
+- Packaging's first two thumbnail concepts become renderable variants
+  (**Render A/B**, `wts thumbnails`) through the image provider selected in
+  Settings — at most one image-generation request per variant, so a failure
+  never double-bills.
+- **Compare & edit…** shows large and feed-size previews side by side. Edit
+  headlines locally on the saved background without another image call,
+  regenerate an individual background with revision history, pin the exact
+  revision for upload, or export both as exact 1280×720 JPEGs with a manifest
+  for a manual YouTube Studio experiment.
+- Packaging approval now binds to the document hash **and the selected
+  thumbnail's bytes** (a selected thumbnail is optional). Changing the
+  selection clears publication approval, `WTS_YOUTUBE_ARGS` cannot override
+  the approved thumbnail, and the uploader records the video ID the moment
+  the CLI reports it, so a late failure cannot cause a duplicate upload.
+
+### A quieter edit
+
+- Alignment algorithm v4 with retake grouping: consecutive repeated
+  sentences within a clip keep the last complete delivery — small filler and
+  article differences are ignored, while negation, numbers and content words
+  stay significant. **Show all attempts** reveals the original transcript;
+  approved storyboards keep their selections.
+- **Silence tightening** (`natural|tight|punchy`) cuts scene interiors at
+  word gaps and trims edges toward the spoken words using word-level
+  transcript timings; recordings without word timings are skipped and
+  reported in edit stats. `natural` is exactly the previous cut.
+- The QA report gained audio, metadata and per-recording coverage detail.
+
+### Renamed to YouTube-AI-Studio
+
+- The installed app is now `/Applications/YouTube-AI-Studio.app`, the
+  default library is `~/Movies/YouTube-AI-Studio`, and the Keychain service
+  is `com.isbkch.YouTube-AI-Studio`. After upgrading, point Settings (or
+  `WTS_HOME`) at your existing library and re-save provider keys once.
+
+### Engineering
+
+- Expanded mocked tests (`bun run check`): new producer, tightening,
+  directors and thumbnails (unit, IPC and integration). The first Swift test target (`YTAIStudioTests`)
+  covers native payload decoding.
+- Plan schema 4.5.0 with regenerated checked-in JSON Schemas; v1–v4 plans
+  migrate on read.
+- CI installs FFmpeg on the runner so the hosted suite exercises real media
+  paths again.
+
+[0.7.1]: https://github.com/isbkch/YouTube-AI-Studio/releases/tag/0.7.1
+
 ## [0.1.7] — 2026-09-17
 
 First public alpha. YouTube-AI-Studio is a native macOS production dashboard for technical YouTube videos: a SwiftUI app and a CLI (`wts`) sharing one local TypeScript runtime that takes you from idea to uploaded video — with a human approval gate at every stage and no cloud backend. The pipeline ingests real camera files, aligns your approved script against every take, builds a deterministic edit, renders a 1080p/30 rough cut, finishes through Resolve, and publishes through your own local YouTube CLI. Mock providers are the default, so the whole workflow runs without any API keys.
