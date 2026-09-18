@@ -143,6 +143,16 @@ export function validatePackaging(
   input: Pick<PackagingInput, "chapters" | "finalSeconds">,
 ): VideoPackaging {
   if (
+    new Set(doc.thumbnailConcepts.map((c) => c.id)).size !==
+    doc.thumbnailConcepts.length
+  )
+    throw new StudioError(
+      "INVALID_PLAN",
+      "Thumbnail concept IDs must be distinct.",
+      "Retry packaging.",
+      true,
+    );
+  if (
     doc.recommendedTitleIndex >= doc.titleCandidates.length ||
     new Set(doc.titleCandidates.map((c) => c.title)).size !==
       doc.titleCandidates.length
@@ -203,7 +213,7 @@ INPUT: the video title and thesis, the exact chapter markers of the rendered tim
 
 TITLES: 3–6 distinct candidates, each ≤100 characters, each a different angle (curiosity, concrete stakes, searchable plain statement). Recommend one via recommendedTitleIndex — the one a technical viewer clicks without feeling baited.
 
-THUMBNAIL CONCEPTS: 2–4 concepts. headline is ≤50 characters of on-image text with an emotional second half the title cannot carry (the example channel avoids repeating the title); direction describes composition, face and the one background element; emotionalHook names the feeling. Never promise content the video does not deliver.
+THUMBNAIL CONCEPTS: 2–4 distinct concepts with unique IDs. headline is 3–6 words, ≤50 characters of on-image text with an emotional second half the title cannot carry (avoid repeating the title); direction describes one technical subject or object on the right and quiet space for headline text on the left. No people, faces or presenter likeness: the image engine has no portrait input. The runtime adds exact headline typography separately; never request text in the generated background. emotionalHook names the feeling. Make the first two concepts meaningfully different. Never promise content the video does not deliver.
 
 DESCRIPTION: opening is the first two or three lines a viewer sees before “…more” — thesis, not filler. body paragraphs say what the viewer learns and who the video is for. sources lists only URLs supplied in the input; never invent links.
 
@@ -286,16 +296,16 @@ export function mockPackaging(input: PackagingInput): VideoPackaging {
     thumbnailConcepts: [
       {
         id: "thumb-1",
-        headline: keep(seed.toUpperCase(), 40) || `${topic.toUpperCase()}?`,
+        headline: "WHAT COULD GO WRONG?",
         direction:
-          "Concerned, skeptical face looking toward a laptop or code; one clean background element; no full sentences on the image.",
+          "A single laptop with a fractured screen on the right, dramatic amber lighting and a quiet dark left side; no people or text.",
         emotionalHook: "Worry — the tool works, but something is wrong.",
       },
       {
         id: "thumb-2",
-        headline: "IT WORKS.",
+        headline: "IT WORKS UNTIL PROD.",
         direction:
-          "Green deployment checkmark turning into red errors behind the presenter; minimal, high-contrast.",
+          "A fragile tower of server blocks on the right with one glowing red weak link; dark quiet space on the left; no people or text.",
         emotionalHook: "Irony — success is the trap.",
       },
     ],

@@ -29,6 +29,8 @@ A configured `WTS_<TOOL>_PATH` overrides PATH lookup. Otherwise the runtime sear
 
 `bun run test:integration` produces actual short FFmpeg media and a Remotion graphic, then fully decodes the outputs. It requires local tools and may download Remotion's official browser on first use. `bun run demo` is the full end-to-end test: assertions verify media duration, graph execution, four rendered graphics, incremental cache reuse and unchanged source hash. Each run creates a new project so previous evidence remains intact.
 
+For thumbnails, `node --import tsx --test tests/thumbnails.test.ts tests/thumbnails-ipc.test.ts` covers persistence, retries, cancellation, approval integrity, exact exports and mocked YouTube CLI failures. `node --import tsx --test tests/thumbnails.integration.ts` renders the actual still template, checks decoding and dimensions, exercises headline overflow and verifies exported hashes. Set `WTS_THUMBNAIL_VERIFY_ROOT` to an explicit disposable directory to retain that integration fixture for native UI checks. None of these tests calls a paid image provider or uploads to YouTube. Use `swift build --package-path apps/macos -c release` to compile without replacing the installed development app.
+
 FCPXML can additionally be validated against the DTD shipped with Final Cut Pro. Copy the DTD to a path without spaces before passing it to `xmllint --dtdvalid` on macOS; the system libxml parser did not resolve the spaced DTD path directly. OTIO can be decoded with the upstream Python package:
 
 ```sh

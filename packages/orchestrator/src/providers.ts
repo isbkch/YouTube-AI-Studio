@@ -72,6 +72,19 @@ export interface AppliedProviders {
   geminiCredentialSource: CredentialSource;
 }
 
+/** Strict image-only setup; offline thumbnail edits need no other engine credentials. */
+export function configuredImageProvider(
+  selection: Pick<ProviderSelection, "images" | "imageModel">,
+  credentials: ProviderCredentials,
+) {
+  const options = { model: selection.imageModel || undefined };
+  if (selection.images === "openai")
+    return new OpenAIImageProvider(credentials.openAI, options);
+  if (selection.images === "gemini")
+    return new GeminiImageProvider(credentials.gemini, options);
+  return new MockImageProvider();
+}
+
 /**
  * Turn a provider selection into live engines on a Studio. Strict mode (the
  * Settings "Apply") fails loudly when a billed provider lacks its credential;
@@ -109,24 +122,10 @@ export function applyProviderSelection(
             new MockAIProvider(),
           )
         : new MockAIProvider();
-  studio.images =
-    selection.images === "openai"
-      ? attempt(
-          () =>
-            new OpenAIImageProvider(credentials.openAI, {
-              model: selection.imageModel || undefined,
-            }),
-          null,
-        )
-      : selection.images === "gemini"
-        ? attempt(
-            () =>
-              new GeminiImageProvider(credentials.gemini, {
-                model: selection.imageModel || undefined,
-              }),
-            null,
-          )
-        : new MockImageProvider();
+  studio.images = attempt(
+    () => configuredImageProvider(selection, credentials),
+    null,
+  );
   studio.music =
     selection.music === "gemini"
       ? attempt(
