@@ -48,6 +48,16 @@ async function dispatch(
   params: Record<string, unknown>,
   signal: AbortSignal,
 ): Promise<unknown> {
+  if (
+    [
+      "analytics.",
+      "channel.strategy.",
+      "outcomes.",
+      "reviews.",
+      "topics.",
+    ].some((prefix) => method.startsWith(prefix))
+  )
+    return studio.analytics.dispatch(method, params, signal);
   switch (method) {
     case "projects.list":
       return store.list();

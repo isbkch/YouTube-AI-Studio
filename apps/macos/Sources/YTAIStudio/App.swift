@@ -99,6 +99,17 @@ struct StudioView: View {
         } label: {
           Label("New Project", systemImage: "plus").frame(maxWidth: .infinity)
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(m.busy)
+        Button {
+          m.showingChannel = true
+          Task { await m.channel.open() }
+        } label: {
+          Label("Channel", systemImage: "chart.bar.xaxis").frame(
+            maxWidth: .infinity, alignment: .leading
+          ).padding(12)
+            .background(
+              m.showingChannel ? Color.studioAccent.opacity(0.10) : .clear,
+              in: RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(.plain)
         Text("PRODUCTIONS").font(.system(size: 10, weight: .semibold)).tracking(2).foregroundStyle(
           .secondary)
         ScrollView {
@@ -142,7 +153,10 @@ struct StudioView: View {
       }.padding(.horizontal, 18).frame(minWidth: 220).background(Color.studioBackground)
     } detail: {
       VStack(spacing: 0) {
-        if let p = m.project {
+        if m.showingChannel {
+          statusBanners
+          ChannelWorkspace(a: m.channel)
+        } else if let p = m.project {
           HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 8) {
               Text(p.title).font(.system(size: 25, weight: .semibold))

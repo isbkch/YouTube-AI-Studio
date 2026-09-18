@@ -63,6 +63,10 @@ Thumbnail rendering makes at most one image-generation request per requested var
 
 Multiple A-roll recordings per project are supported — imported before planning, each with its own transcript — plus 1080p/30fps rough cuts, hard cuts, full-frame graphics from the 11-template catalog, generated B-roll insets with motion, animated punch-line captions burned over the cut, a curated music/SFX bed with engineered narration mixed under it, modest presenter punch-ins and audio gain. Sources may have another frame rate or resolution (4K/23.976 camera files verified); conformed 1080p proxies provide a stable edit timebase and originals are never overwritten. Scenes select sub-ranges of any take in script order: retakes, false starts and dead space stay on the cutting room floor, and a QA coverage report lists which recordings the cut actually used. Changing an approved script after media import requires a new project; scene revisions remain available.
 
+## Choose the next topic
+
+Open **Channel** to import YouTube Studio reports or connect read-only YouTube analytics, record business outcomes, and build a shortlist aimed at **business leads and authority**. Editable briefs create IDEA projects; completed 7/28/90-day reviews can create follow-up drafts. Sample data is isolated. See [the analytics workflow and setup](docs/analytics.md) for OAuth, CSV, privacy, CLI and live-verification boundaries.
+
 ## Architecture
 
 The SwiftUI app communicates with a local Node.js runtime over private JSON-lines IPC. The CLI calls the same `Studio` domain service, which owns approvals, versioned artifacts, and the persisted job graph. SQLite stores project state; media and exported artifacts stay in the local library.

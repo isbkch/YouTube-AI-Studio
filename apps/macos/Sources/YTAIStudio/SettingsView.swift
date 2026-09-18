@@ -20,6 +20,17 @@ struct SettingsView: View {
           Spacer()
           Button("Done") { dismiss() }.buttonStyle(QuietButtonStyle())
         }
+        VStack(alignment: .leading, spacing: 12) {
+          Text("Channel analytics").studioHeading(18)
+          Text(
+            "Manage read-only YouTube access, Studio imports and the business objective in the Channel workspace."
+          ).foregroundStyle(.secondary)
+          Button("Open Channel") {
+            m.showingChannel = true
+            dismiss()
+            Task { await m.channel.open() }
+          }.buttonStyle(QuietButtonStyle())
+        }.padding(20).studioCard(cornerRadius: 14)
         VStack(alignment: .leading, spacing: 14) {
           Text("Director & transcription").studioHeading(18)
           Picker("Director", selection: $m.provider) {

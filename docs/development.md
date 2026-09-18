@@ -53,3 +53,9 @@ Primary implementation references, inspected September 16, 2026:
 - [Apple FCPXML](https://developer.apple.com/documentation/professional-video-applications/fcpxml-reference)
 - [OpenTimelineIO file format](https://opentimelineio.readthedocs.io/en/latest/tutorials/otio-file-format-specification.html)
 - Resolve 21.1 installed vendor `Developer/Scripting/README.md` (updated August 31, 2026) and `DaVinciResolveScript.pyi`.
+
+## Channel analytics development
+
+See [analytics.md](analytics.md) for contracts, provider setup and verification boundaries. The runtime's only HTTP listener is a temporary loopback OAuth callback; there is no application HTTP API or backend. Analytics schema migration is transactional and channel operations use locks independent of production jobs. Native channel activity has separate progress and cancellation. Use `node --import tsx --test tests/analytics.test.ts tests/ipc.test.ts` for the focused loop. `swift test --package-path apps/macos -c release` verifies the native analytics payload boundary.
+
+A fresh worktree also needs the locally ignored `docs/video-script-example.md` fixture from the existing checkout for `tests/m4.test.ts`; do not synthesize a replacement or edit the original file.

@@ -7,6 +7,7 @@ import SwiftUI
   @Published var root = ""
   @Published var startupError: String?
   var onJob: (() -> Void)?
+  var onAnalyticsProgress: (([String: Any]) -> Void)?
   private var process: Process?
   private var stdin: FileHandle?
   private var buffer = Data()
@@ -91,6 +92,10 @@ import SwiftUI
       if obj["event"] as? String == "ready" {
         connected = true
         root = obj["root"] as? String ?? ""
+        continue
+      }
+      if obj["event"] as? String == "analytics.progress" {
+        onAnalyticsProgress?(obj)
         continue
       }
       if obj["event"] as? String == "job" {

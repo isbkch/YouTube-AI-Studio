@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 
 @MainActor final class StudioModel: ObservableObject {
   let runtime = Runtime()
+  lazy var channel = ChannelModel(runtime: runtime)
+  @Published var showingChannel = false
   @Published var projects: [Project] = []
   @Published var project: Project?
   @Published var selectedID: String?
@@ -40,6 +42,10 @@ import UniformTypeIdentifiers
   /** Plan version storyboard previews were last auto-rendered for. */
   private var autoPreviewedVersion: Int?
   init() {
+    runtime.onAnalyticsProgress = { [weak self] event in
+      guard let self, event["channelId"] as? String == self.channel.channelId else { return }
+      self.channel.progress = event["stage"] as? String ?? "Refreshing"
+    }
     runtime.onJob = { [weak self] in
       guard let self, Date().timeIntervalSince(self.lastRefresh) > 0.3 else { return }
       self.lastRefresh = Date()
@@ -107,6 +113,7 @@ import UniformTypeIdentifiers
     await perform("previews.render", label: "Storyboard previews")
   }
   func select(_ id: String?) async {
+    showingChannel = false
     selectedID = id
     project = nil
     error = nil

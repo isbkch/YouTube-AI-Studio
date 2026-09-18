@@ -51,6 +51,7 @@ export const researchSchema = z.strictObject({
 });
 export type ResearchNotes = z.infer<typeof researchSchema>;
 export interface ResearchInput {
+  editorialContext?: { buyerProblem: string; hypothesis: string };
   projectId: string;
   idea: string;
   creator: CreatorProfile;
@@ -81,6 +82,7 @@ export class ResearchAgent {
       input: {
         projectId: input.projectId,
         idea: input.idea,
+        editorialContext: input.editorialContext,
         creator: {
           name: input.creator.name,
           channel: input.creator.channel,
