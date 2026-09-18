@@ -19,7 +19,8 @@ import UniformTypeIdentifiers
   @Published var previsualization: Previsualization?
   @Published var teleprompter: TeleprompterDocument?
   @Published var packaging: PackagingDocument?
-  @Published var captions: CaptionList = CaptionList(style: "none", events: [], skippedRecordings: [])
+  @Published var captions: CaptionList = CaptionList(
+    style: "none", events: [], skippedRecordings: [])
   @Published var finalMacros: [String] = []
   @Published var finalPresets: [String] = [
     "H.264 Master", "H.264 Narrative", "ProRes 422 HQ", "ProRes 422",
@@ -77,7 +78,9 @@ import UniformTypeIdentifiers
       selectedID == id,
       project?.plan?.version == version,
       project?.plan?.captions == style
-    { captions = list }
+    {
+      captions = list
+    }
   }
   /** Storyboard previews render themselves once per new plan version so the
    * creator sees the actual graphics and 3D clips before approving. Cache
@@ -133,14 +136,28 @@ import UniformTypeIdentifiers
     await refresh()
     return succeeded
   }
-  func create(title: String, description: String, minutes: Double) async {
+  func create(title: String, description: String, minutes: Double, autonomy: String = "supervised")
+    async
+  {
     do {
       let p: Project = try await runtime.call(
         "project.create",
-        ["title": title, "description": description, "targetDuration": minutes * 60])
+        [
+          "title": title, "description": description,
+          "targetDuration": minutes * 60, "autonomy": autonomy,
+        ])
       await select(p.id)
       tab = "Pre-Production"
     } catch { self.error = error.localizedDescription }
+  }
+  /// The Producer — deterministic autonomy for the machine gates. Manual
+  /// catch-up for autonomous projects; script and publication stay human.
+  func runProducer() async {
+    await perform("producer.advance", label: "Run Producer")
+  }
+  func setAutonomy(_ mode: String) async {
+    await perform(
+      "project.autonomy", label: "Autonomy • \(mode)", params: ["mode": mode])
   }
   /** Deleting removes the project's workspace; the files the creator imported
    * from live outside the library and are never touched. */

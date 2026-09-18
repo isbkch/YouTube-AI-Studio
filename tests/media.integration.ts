@@ -21,6 +21,7 @@ import {
   renderGraphic,
   renderCaption,
 } from "../packages/remotion-engine/src/index.ts";
+import { MockImageProvider } from "../packages/image-engine/src/index.ts";
 import { builtinSfxFile } from "../packages/orchestrator/src/sfx.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
@@ -506,6 +507,130 @@ test("blender EEVEE renders a trusted template clip end-to-end", async () => {
     await writeFile(clip, result.file);
     await verifyOutput(clip, spec.durationFrames / spec.frameRate);
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the Producer drives an autonomous project through the full chain to the human publication gate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-producer-chain-"));
+  const clips = path.join(root, "clips");
+  const store = new Store(root);
+  try {
+    await mkdir(clips, { recursive: true });
+    const clip = await syntheticClip(clips, "take.mp4", 7, 0x3a6a8a);
+    const studio = new Studio(store);
+    // The mock visual pass proposes generated stills; the deterministic mock
+    // engine keeps the whole chain free of paid providers.
+    studio.images = new MockImageProvider();
+    const p = store.create(
+      "Autonomous chain",
+      "The Producer carries the machine gates end to end",
+      6,
+      "autonomous",
+    );
+    await studio.saveScript(
+      p.id,
+      "We just added a second server. This is not high availability.",
+    );
+    await studio.approveScript(p.id, 1);
+    await studio.importMedia(p.id, clip);
+    const rec = store.get(p.id).recordings[0];
+    const sentence = (start: number, text: string, id: string) => {
+      const parts = text.split(" ");
+      return {
+        id,
+        start,
+        end: start + parts.length * 0.4,
+        text,
+        words: parts.map((w, j) => ({
+          start: start + j * 0.4,
+          end: start + (j + 1) * 0.4,
+          text: w,
+        })),
+      };
+    };
+    // A non-mock provider keeps the QA's mock-transcript warning (which the
+    // strict rough-cut review would escalate on) out of the document.
+    await studio.loadTranscript(p.id, {
+      schemaVersion: "1.0.0",
+      recordingId: rec.id,
+      language: "en",
+      provider: "apple-final-cut",
+      model: "speech-analysis-1",
+      segments: [
+        sentence(1, "We just added a second server.", "s-1"),
+        sentence(3.4, "This is not high availability.", "s-2"),
+      ],
+    });
+    // The auto-trigger advances fire-and-forget: storyboard review + approval,
+    // visual pass apply + re-approval, real build, QA review, rough-cut
+    // approval, awaited final render, packaging — then it stops at the
+    // publication gate, which stays human.
+    await studio.generatePlan(p.id);
+    const eventNames = () =>
+      store
+        .events(p.id)
+        .map((e) => JSON.parse(e.data as string).event as string);
+    let settled = false;
+    for (let i = 0; i < 1200 && !settled; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      const x = store.get(p.id);
+      settled =
+        x.status === "AWAITING_PUBLISH_APPROVAL" ||
+        eventNames().includes("producer.failed");
+    }
+    const after = store.get(p.id);
+    assert.equal(
+      after.status,
+      "AWAITING_PUBLISH_APPROVAL",
+      `the chain parked at the publication gate (events: ${eventNames().slice(0, 12).join(", ")})`,
+    );
+    assert.equal(after.planApproval?.approvedBy, "producer");
+    assert.ok(after.planApproval.version >= 2, "the visual pass ran");
+    const visualPass = after.revisions.find((r) =>
+      r.patch.originatingRequest.startsWith("Visual direction pass"),
+    );
+    assert.equal(visualPass?.status, "APPLIED");
+    assert.equal(visualPass?.decidedBy, "producer");
+    assert.equal(after.roughCutApproval?.approvedBy, "producer");
+    const reviews = after.producerReviews.map(
+      (r) => `${r.gate}:v${r.planVersion}:${r.verdict}`,
+    );
+    assert.ok(
+      reviews.includes("storyboard:v1:approved") &&
+        reviews.includes("storyboard:v2:approved") &&
+        reviews.includes("rough-cut:v2:approved"),
+      `deterministic reviews back every auto-approval (${reviews.join(", ")})`,
+    );
+    const roughCut = after.producerReviews.find(
+      (r) => r.gate === "rough-cut" && r.verdict === "approved",
+    );
+    assert.equal(roughCut?.evidence.qaStatus, "PASS");
+    // The craftsman's captions and polish finish through the verified FFmpeg
+    // path; the final render exists and is verified.
+    assert.ok(after.finalRender);
+    assert.equal(after.finalRenderEngine, "ffmpeg");
+    await verifyOutput(
+      path.join(store.dir(after), after.finalRender!),
+      after.plans.at(-1)!.durationFrames / after.plans.at(-1)!.frameRate,
+    );
+    assert.ok(after.packaging?.version, "the packaging document was generated");
+    // The human gate held: nothing publishes without the creator.
+    assert.equal(after.publishApproval, null);
+    assert.equal(after.publication, null);
+    const stops = store
+      .events(p.id)
+      .map(
+        (e) =>
+          JSON.parse(e.data as string) as { event: string; reason?: string },
+      )
+      .filter((e) => e.event === "producer.stopped");
+    assert.ok(
+      stops.some((e) => e.reason === "publication"),
+      "the Producer stopped at the publication gate",
+    );
+  } finally {
+    store.close();
     await rm(root, { recursive: true, force: true });
   }
 });

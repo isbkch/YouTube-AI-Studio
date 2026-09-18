@@ -23,7 +23,26 @@ import {
   StudioError,
 } from "../../shared/src/index.ts";
 import type { CreatorProfile } from "../../shared/src/index.ts";
-import type { Asset, Job, Project } from "./model.ts";
+import type { Approval, Asset, Job, Project } from "./model.ts";
+/**
+ * Tolerant read for persisted project rows: documents written before the
+ * Producer existed carry no `autonomy`/`producerReviews`/attribution fields,
+ * and read as supervised projects whose every gate was the creator's. The
+ * same pattern `creator()` applies to the director persona.
+ */
+function normalizeProject(p: Project): Project {
+  const approval = (a: Approval | null): Approval | null =>
+    a ? { ...a, approvedBy: a.approvedBy ?? "creator" } : null;
+  return {
+    ...p,
+    autonomy: p.autonomy === "autonomous" ? "autonomous" : "supervised",
+    producerReviews: Array.isArray(p.producerReviews) ? p.producerReviews : [],
+    scriptApproval: approval(p.scriptApproval),
+    planApproval: approval(p.planApproval),
+    roughCutApproval: approval(p.roughCutApproval),
+    publishApproval: approval(p.publishApproval),
+  };
+}
 export const providerSelectionSchema = z.strictObject({
   director: z.enum(["mock", "openai"]),
   transcription: z.enum(["mock", "whisper", "openai"]),
@@ -85,7 +104,7 @@ export class Store {
       this.db
         .prepare("SELECT data FROM projects ORDER BY rowid DESC")
         .all() as { data: string }[]
-    ).map((r) => JSON.parse(r.data));
+    ).map((r) => normalizeProject(JSON.parse(r.data)));
   }
   get(projectId: string): Project {
     const row = this.db
@@ -96,7 +115,7 @@ export class Store {
         "INVALID_INPUT",
         `Project ${projectId} does not exist.`,
       );
-    return JSON.parse(row.data);
+    return normalizeProject(JSON.parse(row.data));
   }
   dir(project: Project) {
     const base = inside(path.join(this.root, "projects"), project.slug);
@@ -107,7 +126,12 @@ export class Store {
       );
     return base;
   }
-  create(title: string, description = "", targetDuration = 900): Project {
+  create(
+    title: string,
+    description = "",
+    targetDuration = 900,
+    autonomy: Project["autonomy"] = "supervised",
+  ): Project {
     if (
       !title.trim() ||
       title.length > 200 ||
@@ -127,6 +151,8 @@ export class Store {
       slug: `${slugify(title)}-${projectId.slice(-8)}`,
       description,
       targetDuration,
+      autonomy,
+      producerReviews: [],
       status: "IDEA",
       createdAt: now(),
       updatedAt: now(),
