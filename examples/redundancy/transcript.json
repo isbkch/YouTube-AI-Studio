@@ -9,37 +9,969 @@
       "id": "segment-1",
       "start": 0,
       "end": 12,
-      "text": "You have two servers. Two copies of the database. Maybe even two regions. Then one ordinary deployment takes everything down. The architecture was redundant. The service was not available."
+      "text": "You have two servers. Two copies of the database. Maybe even two regions. Then one ordinary deployment takes everything down. The architecture was redundant. The service was not available.",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.41379310344827586,
+          "text": "You"
+        },
+        {
+          "start": 0.41379310344827586,
+          "end": 0.8275862068965517,
+          "text": "have"
+        },
+        {
+          "start": 0.8275862068965517,
+          "end": 1.2413793103448276,
+          "text": "two"
+        },
+        {
+          "start": 1.2413793103448276,
+          "end": 1.6551724137931034,
+          "text": "servers."
+        },
+        {
+          "start": 1.6551724137931034,
+          "end": 2.0689655172413794,
+          "text": "Two"
+        },
+        {
+          "start": 2.0689655172413794,
+          "end": 2.4827586206896552,
+          "text": "copies"
+        },
+        {
+          "start": 2.4827586206896552,
+          "end": 2.896551724137931,
+          "text": "of"
+        },
+        {
+          "start": 2.896551724137931,
+          "end": 3.310344827586207,
+          "text": "the"
+        },
+        {
+          "start": 3.310344827586207,
+          "end": 3.7241379310344827,
+          "text": "database."
+        },
+        {
+          "start": 3.7241379310344827,
+          "end": 4.137931034482759,
+          "text": "Maybe"
+        },
+        {
+          "start": 4.137931034482759,
+          "end": 4.551724137931035,
+          "text": "even"
+        },
+        {
+          "start": 4.551724137931035,
+          "end": 4.9655172413793105,
+          "text": "two"
+        },
+        {
+          "start": 4.9655172413793105,
+          "end": 5.379310344827586,
+          "text": "regions."
+        },
+        {
+          "start": 5.379310344827586,
+          "end": 5.793103448275862,
+          "text": "Then"
+        },
+        {
+          "start": 5.793103448275862,
+          "end": 6.206896551724138,
+          "text": "one"
+        },
+        {
+          "start": 6.206896551724138,
+          "end": 6.620689655172414,
+          "text": "ordinary"
+        },
+        {
+          "start": 6.620689655172414,
+          "end": 7.0344827586206895,
+          "text": "deployment"
+        },
+        {
+          "start": 7.0344827586206895,
+          "end": 7.448275862068965,
+          "text": "takes"
+        },
+        {
+          "start": 7.448275862068965,
+          "end": 7.862068965517241,
+          "text": "everything"
+        },
+        {
+          "start": 7.862068965517241,
+          "end": 8.275862068965518,
+          "text": "down."
+        },
+        {
+          "start": 8.275862068965518,
+          "end": 8.689655172413794,
+          "text": "The"
+        },
+        {
+          "start": 8.689655172413794,
+          "end": 9.10344827586207,
+          "text": "architecture"
+        },
+        {
+          "start": 9.10344827586207,
+          "end": 9.517241379310345,
+          "text": "was"
+        },
+        {
+          "start": 9.517241379310345,
+          "end": 9.931034482758621,
+          "text": "redundant."
+        },
+        {
+          "start": 9.931034482758621,
+          "end": 10.344827586206897,
+          "text": "The"
+        },
+        {
+          "start": 10.344827586206897,
+          "end": 10.758620689655173,
+          "text": "service"
+        },
+        {
+          "start": 10.758620689655173,
+          "end": 11.172413793103448,
+          "text": "was"
+        },
+        {
+          "start": 11.172413793103448,
+          "end": 11.586206896551724,
+          "text": "not"
+        },
+        {
+          "start": 11.586206896551724,
+          "end": 12,
+          "text": "available."
+        }
+      ]
     },
     {
       "id": "segment-2",
       "start": 12,
       "end": 24,
-      "text": "Redundancy describes the parts you own. Availability describes what a user can actually do. Adding another copy only helps when the failure that breaks one copy leaves the other useful."
+      "text": "Redundancy describes the parts you own. Availability describes what a user can actually do. Adding another copy only helps when the failure that breaks one copy leaves the other useful.",
+      "words": [
+        {
+          "start": 12,
+          "end": 12.4,
+          "text": "Redundancy"
+        },
+        {
+          "start": 12.4,
+          "end": 12.8,
+          "text": "describes"
+        },
+        {
+          "start": 12.8,
+          "end": 13.2,
+          "text": "the"
+        },
+        {
+          "start": 13.2,
+          "end": 13.6,
+          "text": "parts"
+        },
+        {
+          "start": 13.6,
+          "end": 14,
+          "text": "you"
+        },
+        {
+          "start": 14,
+          "end": 14.4,
+          "text": "own."
+        },
+        {
+          "start": 14.4,
+          "end": 14.8,
+          "text": "Availability"
+        },
+        {
+          "start": 14.8,
+          "end": 15.2,
+          "text": "describes"
+        },
+        {
+          "start": 15.2,
+          "end": 15.6,
+          "text": "what"
+        },
+        {
+          "start": 15.6,
+          "end": 16,
+          "text": "a"
+        },
+        {
+          "start": 16,
+          "end": 16.4,
+          "text": "user"
+        },
+        {
+          "start": 16.4,
+          "end": 16.8,
+          "text": "can"
+        },
+        {
+          "start": 16.8,
+          "end": 17.2,
+          "text": "actually"
+        },
+        {
+          "start": 17.2,
+          "end": 17.6,
+          "text": "do."
+        },
+        {
+          "start": 17.6,
+          "end": 18,
+          "text": "Adding"
+        },
+        {
+          "start": 18,
+          "end": 18.4,
+          "text": "another"
+        },
+        {
+          "start": 18.4,
+          "end": 18.8,
+          "text": "copy"
+        },
+        {
+          "start": 18.8,
+          "end": 19.2,
+          "text": "only"
+        },
+        {
+          "start": 19.2,
+          "end": 19.6,
+          "text": "helps"
+        },
+        {
+          "start": 19.6,
+          "end": 20,
+          "text": "when"
+        },
+        {
+          "start": 20,
+          "end": 20.4,
+          "text": "the"
+        },
+        {
+          "start": 20.4,
+          "end": 20.8,
+          "text": "failure"
+        },
+        {
+          "start": 20.8,
+          "end": 21.200000000000003,
+          "text": "that"
+        },
+        {
+          "start": 21.200000000000003,
+          "end": 21.6,
+          "text": "breaks"
+        },
+        {
+          "start": 21.6,
+          "end": 22,
+          "text": "one"
+        },
+        {
+          "start": 22,
+          "end": 22.4,
+          "text": "copy"
+        },
+        {
+          "start": 22.4,
+          "end": 22.8,
+          "text": "leaves"
+        },
+        {
+          "start": 22.8,
+          "end": 23.200000000000003,
+          "text": "the"
+        },
+        {
+          "start": 23.200000000000003,
+          "end": 23.6,
+          "text": "other"
+        },
+        {
+          "start": 23.6,
+          "end": 24,
+          "text": "useful."
+        }
+      ]
     },
     {
       "id": "segment-3",
       "start": 24,
       "end": 36,
-      "text": "Imagine two application servers behind a load balancer. Both depend on one database endpoint. When that shared dependency fails, the second application server is just another machine returning the same error."
+      "text": "Imagine two application servers behind a load balancer. Both depend on one database endpoint. When that shared dependency fails, the second application server is just another machine returning the same error.",
+      "words": [
+        {
+          "start": 24,
+          "end": 24.387096774193548,
+          "text": "Imagine"
+        },
+        {
+          "start": 24.387096774193548,
+          "end": 24.774193548387096,
+          "text": "two"
+        },
+        {
+          "start": 24.774193548387096,
+          "end": 25.161290322580644,
+          "text": "application"
+        },
+        {
+          "start": 25.161290322580644,
+          "end": 25.548387096774192,
+          "text": "servers"
+        },
+        {
+          "start": 25.548387096774192,
+          "end": 25.935483870967744,
+          "text": "behind"
+        },
+        {
+          "start": 25.935483870967744,
+          "end": 26.32258064516129,
+          "text": "a"
+        },
+        {
+          "start": 26.32258064516129,
+          "end": 26.70967741935484,
+          "text": "load"
+        },
+        {
+          "start": 26.70967741935484,
+          "end": 27.096774193548388,
+          "text": "balancer."
+        },
+        {
+          "start": 27.096774193548388,
+          "end": 27.483870967741936,
+          "text": "Both"
+        },
+        {
+          "start": 27.483870967741936,
+          "end": 27.870967741935484,
+          "text": "depend"
+        },
+        {
+          "start": 27.870967741935484,
+          "end": 28.258064516129032,
+          "text": "on"
+        },
+        {
+          "start": 28.258064516129032,
+          "end": 28.64516129032258,
+          "text": "one"
+        },
+        {
+          "start": 28.64516129032258,
+          "end": 29.032258064516128,
+          "text": "database"
+        },
+        {
+          "start": 29.032258064516128,
+          "end": 29.419354838709676,
+          "text": "endpoint."
+        },
+        {
+          "start": 29.419354838709676,
+          "end": 29.806451612903224,
+          "text": "When"
+        },
+        {
+          "start": 29.806451612903224,
+          "end": 30.193548387096776,
+          "text": "that"
+        },
+        {
+          "start": 30.193548387096776,
+          "end": 30.58064516129032,
+          "text": "shared"
+        },
+        {
+          "start": 30.58064516129032,
+          "end": 30.967741935483872,
+          "text": "dependency"
+        },
+        {
+          "start": 30.967741935483872,
+          "end": 31.35483870967742,
+          "text": "fails,"
+        },
+        {
+          "start": 31.35483870967742,
+          "end": 31.741935483870968,
+          "text": "the"
+        },
+        {
+          "start": 31.741935483870968,
+          "end": 32.12903225806451,
+          "text": "second"
+        },
+        {
+          "start": 32.12903225806451,
+          "end": 32.516129032258064,
+          "text": "application"
+        },
+        {
+          "start": 32.516129032258064,
+          "end": 32.903225806451616,
+          "text": "server"
+        },
+        {
+          "start": 32.903225806451616,
+          "end": 33.29032258064516,
+          "text": "is"
+        },
+        {
+          "start": 33.29032258064516,
+          "end": 33.67741935483871,
+          "text": "just"
+        },
+        {
+          "start": 33.67741935483871,
+          "end": 34.064516129032256,
+          "text": "another"
+        },
+        {
+          "start": 34.064516129032256,
+          "end": 34.45161290322581,
+          "text": "machine"
+        },
+        {
+          "start": 34.45161290322581,
+          "end": 34.83870967741935,
+          "text": "returning"
+        },
+        {
+          "start": 34.83870967741935,
+          "end": 35.225806451612904,
+          "text": "the"
+        },
+        {
+          "start": 35.225806451612904,
+          "end": 35.61290322580645,
+          "text": "same"
+        },
+        {
+          "start": 35.61290322580645,
+          "end": 36,
+          "text": "error."
+        }
+      ]
     },
     {
       "id": "segment-4",
       "start": 36,
       "end": 48,
-      "text": "Even independent copies are not enough. Something must detect the failure, route traffic, and preserve the information needed to continue. A standby that nobody can reach is capacity, not recovery."
+      "text": "Even independent copies are not enough. Something must detect the failure, route traffic, and preserve the information needed to continue. A standby that nobody can reach is capacity, not recovery.",
+      "words": [
+        {
+          "start": 36,
+          "end": 36.4,
+          "text": "Even"
+        },
+        {
+          "start": 36.4,
+          "end": 36.8,
+          "text": "independent"
+        },
+        {
+          "start": 36.8,
+          "end": 37.2,
+          "text": "copies"
+        },
+        {
+          "start": 37.2,
+          "end": 37.6,
+          "text": "are"
+        },
+        {
+          "start": 37.6,
+          "end": 38,
+          "text": "not"
+        },
+        {
+          "start": 38,
+          "end": 38.4,
+          "text": "enough."
+        },
+        {
+          "start": 38.4,
+          "end": 38.8,
+          "text": "Something"
+        },
+        {
+          "start": 38.8,
+          "end": 39.2,
+          "text": "must"
+        },
+        {
+          "start": 39.2,
+          "end": 39.6,
+          "text": "detect"
+        },
+        {
+          "start": 39.6,
+          "end": 40,
+          "text": "the"
+        },
+        {
+          "start": 40,
+          "end": 40.4,
+          "text": "failure,"
+        },
+        {
+          "start": 40.4,
+          "end": 40.8,
+          "text": "route"
+        },
+        {
+          "start": 40.8,
+          "end": 41.2,
+          "text": "traffic,"
+        },
+        {
+          "start": 41.2,
+          "end": 41.6,
+          "text": "and"
+        },
+        {
+          "start": 41.6,
+          "end": 42,
+          "text": "preserve"
+        },
+        {
+          "start": 42,
+          "end": 42.4,
+          "text": "the"
+        },
+        {
+          "start": 42.4,
+          "end": 42.8,
+          "text": "information"
+        },
+        {
+          "start": 42.8,
+          "end": 43.2,
+          "text": "needed"
+        },
+        {
+          "start": 43.2,
+          "end": 43.6,
+          "text": "to"
+        },
+        {
+          "start": 43.6,
+          "end": 44,
+          "text": "continue."
+        },
+        {
+          "start": 44,
+          "end": 44.4,
+          "text": "A"
+        },
+        {
+          "start": 44.4,
+          "end": 44.8,
+          "text": "standby"
+        },
+        {
+          "start": 44.8,
+          "end": 45.2,
+          "text": "that"
+        },
+        {
+          "start": 45.2,
+          "end": 45.6,
+          "text": "nobody"
+        },
+        {
+          "start": 45.6,
+          "end": 46,
+          "text": "can"
+        },
+        {
+          "start": 46,
+          "end": 46.4,
+          "text": "reach"
+        },
+        {
+          "start": 46.4,
+          "end": 46.8,
+          "text": "is"
+        },
+        {
+          "start": 46.8,
+          "end": 47.2,
+          "text": "capacity,"
+        },
+        {
+          "start": 47.2,
+          "end": 47.6,
+          "text": "not"
+        },
+        {
+          "start": 47.6,
+          "end": 48,
+          "text": "recovery."
+        }
+      ]
     },
     {
       "id": "segment-5",
       "start": 48,
       "end": 60,
-      "text": "So test the entire path. Break a dependency. Watch detection. Measure the switch. Check a real request. Include the control plane, credentials, and the people who have to make the decision."
+      "text": "So test the entire path. Break a dependency. Watch detection. Measure the switch. Check a real request. Include the control plane, credentials, and the people who have to make the decision.",
+      "words": [
+        {
+          "start": 48,
+          "end": 48.38709677419355,
+          "text": "So"
+        },
+        {
+          "start": 48.38709677419355,
+          "end": 48.774193548387096,
+          "text": "test"
+        },
+        {
+          "start": 48.774193548387096,
+          "end": 49.16129032258065,
+          "text": "the"
+        },
+        {
+          "start": 49.16129032258065,
+          "end": 49.54838709677419,
+          "text": "entire"
+        },
+        {
+          "start": 49.54838709677419,
+          "end": 49.935483870967744,
+          "text": "path."
+        },
+        {
+          "start": 49.935483870967744,
+          "end": 50.32258064516129,
+          "text": "Break"
+        },
+        {
+          "start": 50.32258064516129,
+          "end": 50.70967741935484,
+          "text": "a"
+        },
+        {
+          "start": 50.70967741935484,
+          "end": 51.096774193548384,
+          "text": "dependency."
+        },
+        {
+          "start": 51.096774193548384,
+          "end": 51.483870967741936,
+          "text": "Watch"
+        },
+        {
+          "start": 51.483870967741936,
+          "end": 51.87096774193549,
+          "text": "detection."
+        },
+        {
+          "start": 51.87096774193549,
+          "end": 52.25806451612903,
+          "text": "Measure"
+        },
+        {
+          "start": 52.25806451612903,
+          "end": 52.64516129032258,
+          "text": "the"
+        },
+        {
+          "start": 52.64516129032258,
+          "end": 53.03225806451613,
+          "text": "switch."
+        },
+        {
+          "start": 53.03225806451613,
+          "end": 53.41935483870968,
+          "text": "Check"
+        },
+        {
+          "start": 53.41935483870968,
+          "end": 53.806451612903224,
+          "text": "a"
+        },
+        {
+          "start": 53.806451612903224,
+          "end": 54.193548387096776,
+          "text": "real"
+        },
+        {
+          "start": 54.193548387096776,
+          "end": 54.58064516129032,
+          "text": "request."
+        },
+        {
+          "start": 54.58064516129032,
+          "end": 54.96774193548387,
+          "text": "Include"
+        },
+        {
+          "start": 54.96774193548387,
+          "end": 55.354838709677416,
+          "text": "the"
+        },
+        {
+          "start": 55.354838709677416,
+          "end": 55.74193548387097,
+          "text": "control"
+        },
+        {
+          "start": 55.74193548387097,
+          "end": 56.12903225806451,
+          "text": "plane,"
+        },
+        {
+          "start": 56.12903225806451,
+          "end": 56.516129032258064,
+          "text": "credentials,"
+        },
+        {
+          "start": 56.516129032258064,
+          "end": 56.903225806451616,
+          "text": "and"
+        },
+        {
+          "start": 56.903225806451616,
+          "end": 57.29032258064516,
+          "text": "the"
+        },
+        {
+          "start": 57.29032258064516,
+          "end": 57.67741935483871,
+          "text": "people"
+        },
+        {
+          "start": 57.67741935483871,
+          "end": 58.064516129032256,
+          "text": "who"
+        },
+        {
+          "start": 58.064516129032256,
+          "end": 58.45161290322581,
+          "text": "have"
+        },
+        {
+          "start": 58.45161290322581,
+          "end": 58.83870967741935,
+          "text": "to"
+        },
+        {
+          "start": 58.83870967741935,
+          "end": 59.225806451612904,
+          "text": "make"
+        },
+        {
+          "start": 59.225806451612904,
+          "end": 59.61290322580645,
+          "text": "the"
+        },
+        {
+          "start": 59.61290322580645,
+          "end": 60,
+          "text": "decision."
+        }
+      ]
     },
     {
       "id": "segment-6",
       "start": 60,
       "end": 72,
-      "text": "The useful question is not, how many copies do we have? It is, what happens to the next user request when this part fails? Availability is a behavior. Build it, then prove it."
+      "text": "The useful question is not, how many copies do we have? It is, what happens to the next user request when this part fails? Availability is a behavior. Build it, then prove it.",
+      "words": [
+        {
+          "start": 60,
+          "end": 60.36363636363637,
+          "text": "The"
+        },
+        {
+          "start": 60.36363636363637,
+          "end": 60.72727272727273,
+          "text": "useful"
+        },
+        {
+          "start": 60.72727272727273,
+          "end": 61.09090909090909,
+          "text": "question"
+        },
+        {
+          "start": 61.09090909090909,
+          "end": 61.45454545454545,
+          "text": "is"
+        },
+        {
+          "start": 61.45454545454545,
+          "end": 61.81818181818182,
+          "text": "not,"
+        },
+        {
+          "start": 61.81818181818182,
+          "end": 62.18181818181818,
+          "text": "how"
+        },
+        {
+          "start": 62.18181818181818,
+          "end": 62.54545454545455,
+          "text": "many"
+        },
+        {
+          "start": 62.54545454545455,
+          "end": 62.90909090909091,
+          "text": "copies"
+        },
+        {
+          "start": 62.90909090909091,
+          "end": 63.27272727272727,
+          "text": "do"
+        },
+        {
+          "start": 63.27272727272727,
+          "end": 63.63636363636364,
+          "text": "we"
+        },
+        {
+          "start": 63.63636363636364,
+          "end": 64,
+          "text": "have?"
+        },
+        {
+          "start": 64,
+          "end": 64.36363636363636,
+          "text": "It"
+        },
+        {
+          "start": 64.36363636363636,
+          "end": 64.72727272727273,
+          "text": "is,"
+        },
+        {
+          "start": 64.72727272727273,
+          "end": 65.0909090909091,
+          "text": "what"
+        },
+        {
+          "start": 65.0909090909091,
+          "end": 65.45454545454545,
+          "text": "happens"
+        },
+        {
+          "start": 65.45454545454545,
+          "end": 65.81818181818181,
+          "text": "to"
+        },
+        {
+          "start": 65.81818181818181,
+          "end": 66.18181818181819,
+          "text": "the"
+        },
+        {
+          "start": 66.18181818181819,
+          "end": 66.54545454545455,
+          "text": "next"
+        },
+        {
+          "start": 66.54545454545455,
+          "end": 66.9090909090909,
+          "text": "user"
+        },
+        {
+          "start": 66.9090909090909,
+          "end": 67.27272727272728,
+          "text": "request"
+        },
+        {
+          "start": 67.27272727272728,
+          "end": 67.63636363636364,
+          "text": "when"
+        },
+        {
+          "start": 67.63636363636364,
+          "end": 68,
+          "text": "this"
+        },
+        {
+          "start": 68,
+          "end": 68.36363636363636,
+          "text": "part"
+        },
+        {
+          "start": 68.36363636363636,
+          "end": 68.72727272727272,
+          "text": "fails?"
+        },
+        {
+          "start": 68.72727272727272,
+          "end": 69.0909090909091,
+          "text": "Availability"
+        },
+        {
+          "start": 69.0909090909091,
+          "end": 69.45454545454545,
+          "text": "is"
+        },
+        {
+          "start": 69.45454545454545,
+          "end": 69.81818181818181,
+          "text": "a"
+        },
+        {
+          "start": 69.81818181818181,
+          "end": 70.18181818181819,
+          "text": "behavior."
+        },
+        {
+          "start": 70.18181818181819,
+          "end": 70.54545454545455,
+          "text": "Build"
+        },
+        {
+          "start": 70.54545454545455,
+          "end": 70.9090909090909,
+          "text": "it,"
+        },
+        {
+          "start": 70.9090909090909,
+          "end": 71.27272727272728,
+          "text": "then"
+        },
+        {
+          "start": 71.27272727272728,
+          "end": 71.63636363636364,
+          "text": "prove"
+        },
+        {
+          "start": 71.63636363636364,
+          "end": 72,
+          "text": "it."
+        }
+      ]
     }
   ]
 }

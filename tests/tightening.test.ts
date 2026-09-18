@@ -272,12 +272,12 @@ test("tightening a bridged scene hugs its proven words without claiming the gap 
         );
 });
 
-test("v4.3 plans migrate to v4.4 recording the natural tightening level", () => {
+test("v4.3 plans migrate through v4.5 recording the natural tightening level", () => {
   const legacy = JSON.parse(
     JSON.stringify({ ...fixture(), schemaVersion: "4.3.0" }),
   );
   const migrated = validatePlan(migratePlan(legacy));
-  assert.equal(migrated.schemaVersion, "4.4.0");
+  assert.equal(migrated.schemaVersion, "4.5.0");
   assert.equal(migrated.silenceTightening, "natural");
 });
 
@@ -304,9 +304,11 @@ test("generatePlan honors the tightening override and records it on the plan", a
       ];
       x.status = "MEDIA_IMPORTED";
     });
-    const natural = await studio.generatePlan(p.id);
+    // The purist director keeps natural pacing; the creator default
+    // (craftsman) would already tighten.
+    const natural = await studio.generatePlan(p.id, { director: "purist" });
     assert.equal(natural.plans.at(-1)!.silenceTightening, "natural");
-    const tight = await studio.generatePlan(p.id, { tightening: "tight" });
+    const tight = await studio.generatePlan(p.id, { director: "purist", tightening: "tight" });
     const plan = tight.plans.at(-1)!;
     assert.equal(plan.silenceTightening, "tight");
     assert.ok(

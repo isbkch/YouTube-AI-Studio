@@ -317,6 +317,9 @@ struct Plan: Decodable {
   let director: Director
   let visualDensity: String?
   let silenceTightening: String?
+  let directorPersona: String?
+  let captionStyle: String?
+  let audioPolish: String?
   let audioDesign: AudioDesign?
   let scriptCoverage: ScriptCoverage?
   var brollCount: Int { scenes.reduce(0) { $0 + ($1.broll?.count ?? 0) } }
@@ -328,6 +331,31 @@ struct Plan: Decodable {
     ["natural", "tight", "punchy"].contains(silenceTightening ?? "")
       ? silenceTightening! : "natural"
   }
+  /// The hired director; legacy plans decode as the purist, matching the
+  /// plan schema default so old storyboards never change meaning.
+  var persona: String {
+    ["purist", "craftsman", "showman"].contains(directorPersona ?? "")
+      ? directorPersona! : "purist"
+  }
+  var captions: String {
+    ["pop", "karaoke"].contains(captionStyle ?? "") ? captionStyle! : "none"
+  }
+  var polish: String {
+    ["polished", "loud"].contains(audioPolish ?? "") ? audioPolish! : "natural"
+  }
+}
+/// Derived punch-line captions (IPC `captions.list`); never plan data.
+struct CaptionEvent: Decodable, Identifiable {
+  let id: String
+  let sceneId: String
+  let startFrame: Int
+  let endFrame: Int
+  let text: String
+}
+struct CaptionList: Decodable {
+  let style: String
+  let events: [CaptionEvent]
+  let skippedRecordings: [String]
 }
 struct Asset: Decodable, Identifiable {
   var id: String { assetId }
@@ -583,6 +611,7 @@ struct Creator: Codable {
   var format: String
   var targetMinutes: [Double]
   var subjects: [String]
+  var director: String = "craftsman"
   var visualDensity: String = "balanced"
   var silenceTightening: String = "natural"
   var brand: Brand
@@ -594,6 +623,12 @@ struct Creator: Codable {
     format = try c.decode(String.self, forKey: .format)
     targetMinutes = try c.decode([Double].self, forKey: .targetMinutes)
     subjects = try c.decode([String].self, forKey: .subjects)
+    // Profiles persisted before the director existed decode as the craftsman
+    // default; the runtime re-derives the knobs from the persona on save.
+    let persona = try c.decodeIfPresent(String.self, forKey: .director)
+    director =
+      ["purist", "craftsman", "showman"].contains(persona ?? "")
+      ? persona! : "craftsman"
     // Profiles persisted before the knob existed decode as the default.
     let density = try c.decodeIfPresent(String.self, forKey: .visualDensity)
     visualDensity =

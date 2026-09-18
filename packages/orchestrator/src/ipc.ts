@@ -118,21 +118,30 @@ async function dispatch(
     case "aroll.draft": {
       const p = project
         .extend({
+          director: z.enum(["purist", "craftsman", "showman"]).optional(),
           tightening: z.enum(["natural", "tight", "punchy"]).optional(),
         })
         .parse(params);
-      return studio.draftAroll(p.projectId, p.tightening);
+      return studio.draftAroll(p.projectId, {
+        director: p.director,
+        tightening: p.tightening,
+      });
     }
     case "plan.generate": {
       const p = project
         .extend({
+          director: z.enum(["purist", "craftsman", "showman"]).optional(),
           density: z.enum(["minimal", "balanced", "rich"]).optional(),
           tightening: z.enum(["natural", "tight", "punchy"]).optional(),
         })
         .parse(params);
       return studio.generatePlan(
         p.projectId,
-        { density: p.density, tightening: p.tightening },
+        {
+          director: p.director,
+          density: p.density,
+          tightening: p.tightening,
+        },
         signal,
       );
     }
@@ -148,6 +157,8 @@ async function dispatch(
       return studio.build(project.parse(params).projectId, signal);
     case "previews.render":
       return studio.renderPreviews(project.parse(params).projectId, signal);
+    case "captions.list":
+      return studio.captionEvents(project.parse(params).projectId);
     case "revision.propose": {
       const p = project
         .extend({ request: z.string(), sceneId: z.string() })

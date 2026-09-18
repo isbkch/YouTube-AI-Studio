@@ -50,9 +50,16 @@ import {
   now,
   safePath,
   StudioError,
+  asAudioPolish,
+  asCaptionStyle,
+  asDirectorPersona,
   asSilenceTightening,
   asVisualDensity,
+  DIRECTOR_PROFILES,
+  type AudioPolish,
+  type CaptionStyle,
   type CreatorProfile,
+  type DirectorId,
   type SilenceTightening,
   type VisualDensity,
 } from "../../shared/src/index.ts";
@@ -84,6 +91,7 @@ import { JobGraph } from "./jobs.ts";
 import { engineCapabilities, validateEngines } from "./engines.ts";
 import { publishToYouTube } from "./youtube.ts";
 import { readLibrary, trackRefs } from "./library.ts";
+import { builtinSfxTrack, builtinSfxTracks } from "./sfx.ts";
 import {
   ALIGNMENT_ALGORITHM,
   alignScript,
@@ -91,6 +99,7 @@ import {
   type Alignment,
 } from "./alignment.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
+import { computeCaptionEvents } from "./captions.ts";
 import {
   discoverFCPTranscripts,
   fcpToTranscriptInput,
@@ -913,18 +922,28 @@ export class Studio {
   }
   async generatePlan(
     projectId: string,
-    options: { density?: VisualDensity; tightening?: SilenceTightening } = {},
+    options: {
+      director?: DirectorId;
+      density?: VisualDensity;
+      tightening?: SilenceTightening;
+      captions?: CaptionStyle;
+      polish?: AudioPolish;
+    } = {},
     signal?: AbortSignal,
   ) {
     return this.locked(projectId, async (p) => {
-      // An explicit density or tightening level overrides the project's
-      // snapshotted creator default; the plan records whichever was used.
-      const density = asVisualDensity(
-        options.density ?? p.creator.visualDensity,
-      );
+      // The hired director owns the defaults: its persona resolves the density,
+      // tightening, caption style and audio polish this plan is directed at.
+      // Explicit options still override individual knobs for advanced calls;
+      // the plan records whichever values were used.
+      const director = asDirectorPersona(options.director ?? p.creator.director);
+      const style = DIRECTOR_PROFILES[director];
+      const density = asVisualDensity(options.density ?? style.visualDensity);
       const tightening = asSilenceTightening(
-        options.tightening ?? p.creator.silenceTightening,
+        options.tightening ?? style.silenceTightening,
       );
+      const captions = asCaptionStyle(options.captions ?? style.captionStyle);
+      const polish = asAudioPolish(options.polish ?? style.audioPolish);
       const transcripts = p.recordings
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
         .filter((t): t is Transcript => !!t);
@@ -976,10 +995,13 @@ export class Studio {
                 script: p.scripts.at(-1)!,
                 transcripts,
                 recordings: p.recordings,
-                creator: {
-                  ...p.creator,
+                creator: p.creator,
+                directed: {
+                  director,
                   visualDensity: density,
                   silenceTightening: tightening,
+                  captionStyle: captions,
+                  audioPolish: polish,
                 },
                 version: p.plans.length + 1,
                 targetDuration: p.targetDuration,
@@ -1090,20 +1112,33 @@ export class Studio {
     });
   }
   /** Draft the deterministic A-roll edit for review; the Director refines it. */
-  async draftAroll(projectId: string, tightening?: SilenceTightening) {
+  async draftAroll(
+    projectId: string,
+    options: { director?: DirectorId; tightening?: SilenceTightening } = {},
+  ) {
     const p = this.store.get(projectId);
     const alignment = await this.computeAlignment(projectId);
+    const style =
+      DIRECTOR_PROFILES[asDirectorPersona(options.director ?? p.creator.director)];
     return buildEditDecision(
       alignment,
       p.recordings.map((r) =>
         p.transcripts.findLast((t) => t.recordingId === r.id)!,
       ),
-      asVisualDensity(p.creator.visualDensity),
-      asSilenceTightening(tightening ?? p.creator.silenceTightening),
+      style.visualDensity,
+      asSilenceTightening(options.tightening ?? style.silenceTightening),
     );
   }
-  async approvePlan(projectId: string, version: number) {
-    return this.locked(projectId, async (p) => {
+  /**
+   * Punch-line captions for the current plan. Derived on demand — never
+   * persisted — so the UI, previews and builds always agree with the exact
+   * approved plan and transcript bytes.
+   */
+  captionEvents(projectId: string) {
+    const p = this.store.get(projectId);
+    return computeCaptionEvents(validatePlan(p.plans.at(-1)), p.transcripts);
+  }
+  async approvePlan(projectId: string, version: number) {    return this.locked(projectId, async (p) => {
       const plan = validatePlan(p.plans.at(-1));
       if (
         plan.version !== version ||
@@ -1540,13 +1575,22 @@ export class Studio {
             loopable: t.loopable,
             duration: t.duration,
           })),
-        sfxTracks: library.tracks
-          .filter((t) => t.kind === "sfx")
-          .map((t) => ({
+        sfxTracks: [
+          ...library.tracks
+            .filter((t) => t.kind === "sfx")
+            .map((t) => ({
+              trackId: t.trackId,
+              title: t.title,
+              duration: t.duration,
+            })),
+          // The built-in synthesized bank joins the citable track list so
+          // persona-driven passes can propose SFX with an empty library.
+          ...builtinSfxTracks().map((t) => ({
             trackId: t.trackId,
-            title: t.title,
+            title: builtinSfxTrack(t.trackId)!.label,
             duration: t.duration,
           })),
+        ],
       };
       const budget = {
         maxGeneratedStills: Math.max(
@@ -1615,9 +1659,13 @@ export class Studio {
             await this.blenderEngine(),
             this.music,
           );
-          validateAudioDesign(next, trackRefs(library.tracks), {
-            musicGeneration: !!this.music,
-          });
+          validateAudioDesign(
+            next,
+            [...trackRefs(library.tracks), ...builtinSfxTracks()],
+            {
+              musicGeneration: !!this.music,
+            },
+          );
           this.store.update(p.id, (x) => {
             x.usage.push(result.usage);
           });
@@ -1836,36 +1884,46 @@ export class Studio {
             return fallback;
           };
           let produced: string | null = null;
+          // Punch-line captions and narration processing are burned into the
+          // rough cut; Resolve would re-edit from FCPXML and silently lose
+          // them, so such plans finish from the verified rough-cut bytes.
+          const burnIn =
+            plan.captionStyle !== "none" || plan.audioPolish !== "natural";
           try {
-            const result = await resolveCommand(
-              "render",
-              await safePath(dir, build.exportPath),
-              `WTS Final ${p.title.slice(0, 60)} ${plan.version} ${Date.now()}`,
-              output,
-              preset,
-              options.macroId,
-              signal ?? options.signal,
-            );
-            if (!result.available)
-              throw new StudioError(
-                "EXTERNAL_TOOL",
-                result.reason ?? "Resolve is unavailable for final rendering.",
-                "Check Resolve and its render queue, then retry.",
-                true,
+            if (burnIn) {
+              engine = "ffmpeg";
+              produced = await finishWithFFmpeg();
+            } else {
+              const result = await resolveCommand(
+                "render",
+                await safePath(dir, build.exportPath),
+                `WTS Final ${p.title.slice(0, 60)} ${plan.version} ${Date.now()}`,
+                output,
+                preset,
+                options.macroId,
+                signal ?? options.signal,
               );
-            if (!result.output)
-              throw new StudioError(
-                "EXTERNAL_TOOL",
-                `Resolve render did not produce ${path.basename(output)} (status ${result.renderStatus ?? "unknown"}).`,
-                "Check the Resolve render queue, then retry.",
-                true,
+              if (!result.available)
+                throw new StudioError(
+                  "EXTERNAL_TOOL",
+                  result.reason ?? "Resolve is unavailable for final rendering.",
+                  "Check Resolve and its render queue, then retry.",
+                  true,
+                );
+              if (!result.output)
+                throw new StudioError(
+                  "EXTERNAL_TOOL",
+                  `Resolve render did not produce ${path.basename(output)} (status ${result.renderStatus ?? "unknown"}).`,
+                  "Check the Resolve render queue, then retry.",
+                  true,
+                );
+              await verifyOutput(
+                result.output,
+                plan.durationFrames / plan.frameRate,
+                signal,
               );
-            await verifyOutput(
-              result.output,
-              plan.durationFrames / plan.frameRate,
-              signal,
-            );
-            produced = result.output;
+              produced = result.output;
+            }
           } catch (err) {
             if (signal?.aborted || options.signal?.aborted) throw err;
             if (!options.autonomous) throw err;
@@ -2149,6 +2207,7 @@ export class Studio {
         format: z.string().max(300),
         targetMinutes: z.tuple([z.number().positive(), z.number().positive()]),
         subjects: z.array(z.string().max(100)),
+        director: z.enum(["purist", "craftsman", "showman"]).default("craftsman"),
         visualDensity: z
           .enum(["minimal", "balanced", "rich"])
           .default("balanced"),
@@ -2171,8 +2230,17 @@ export class Studio {
         ),
       })
       .parse(profile);
-    this.store.setCreator(parsed);
-    return parsed;
+    // The director owns the knobs: whatever density/tightening the caller
+    // supplied, the persisted profile always carries the persona's bundle.
+    const director = asDirectorPersona(parsed.director);
+    const derived = {
+      ...parsed,
+      director,
+      visualDensity: DIRECTOR_PROFILES[director].visualDensity,
+      silenceTightening: DIRECTOR_PROFILES[director].silenceTightening,
+    };
+    this.store.setCreator(derived);
+    return derived;
   }
 }
 export async function readJSONFile(file: string) {

@@ -27,9 +27,15 @@ import {
   id,
   now,
   StudioError,
+  asAudioPolish,
+  asCaptionStyle,
+  asDirectorPersona,
   asSilenceTightening,
   asVisualDensity,
+  DIRECTOR_PROFILES,
   type CreatorProfile,
+  type DirectorId,
+  type DirectedStyle,
   type Usage,
   type VisualDensity,
 } from "../../shared/src/index.ts";
@@ -367,11 +373,29 @@ export interface DirectorInput {
   transcripts: Transcript[];
   recordings: Recording[];
   creator: CreatorProfile;
+  /**
+   * The resolved direction (persona + the knobs it drove). Studio always
+   * supplies it; direct callers fall back to the creator's persona.
+   */
+  directed?: DirectedStyle;
   version: number;
   /** Seconds the creator asked the video to run. */
   targetDuration: number;
   /** Sentence-level source timing; null when no alignment was computed. */
   alignment: Alignment | null;
+}
+/** Resolve the direction a plan is generated under, tolerating older inputs. */
+export function resolveDirected(input: DirectorInput): DirectedStyle {
+  if (input.directed) return input.directed;
+  const director = asDirectorPersona(input.creator.director);
+  const style = DIRECTOR_PROFILES[director];
+  return {
+    director,
+    visualDensity: asVisualDensity(input.creator.visualDensity),
+    silenceTightening: asSilenceTightening(input.creator.silenceTightening),
+    captionStyle: asCaptionStyle(style.captionStyle),
+    audioPolish: asAudioPolish(style.audioPolish),
+  };
 }
 const directorInstructions = `You are the editorial Director for a technical YouTube channel. Return a frame-accurate production plan as strict JSON.
 
@@ -399,6 +423,17 @@ const densityDirectives: Record<VisualDensity, string> = {
 };
 const densityDirective = (density: VisualDensity) =>
   `\nVISUAL DENSITY: the creator set this production to "${density}" — ${densityDirectives[density]}`;
+/** The hired director's temperament, appended to every direction prompt. */
+const personaDirectives: Record<DirectorId, string> = {
+  purist:
+    "keep the cut invisible. Straight cuts, no decorative layers, punch lines stay spoken rather than subtitled, sound stays exactly as recorded. Trust the content.",
+  craftsman:
+    "make it feel hand-finished. Brisk pacing, deliberate graphics, clear emphasis beats. The runtime layers animated punch-line captions, engineered narration and restrained accents over this plan after approval — structure scenes so those layers land where they should.",
+  showman:
+    "keep every minute earning the next. Relentless forward motion, short purposeful scenes, hard emphasis beats. The runtime layers karaoke punch-line captions, dense SFX and a loud compressed mix over this plan after approval — favor clarity of beat over subtlety.",
+};
+const personaDirective = (persona: DirectorId) =>
+  `\nDIRECTOR: this production is directed by ${DIRECTOR_PROFILES[persona].name} — ${personaDirectives[persona]}`;
 const storyboardDirectionSchema = z.strictObject({
   summary: planSchema.shape.director.shape.summary,
   scenes: z
@@ -434,11 +469,15 @@ export class DirectorAgent {
     const cut = bindTranscriptSegments(mockPlan(input), input.transcripts);
     validateSources(cut, input.recordings, input.transcripts);
     const density = asVisualDensity(input.creator.visualDensity);
+    const directed = resolveDirected(input);
     const result = await this.provider.generateStructured({
       name: "storyboard_direction",
       schema: storyboardDirectionSchema,
       signal,
-      instructions: storyboardDirectionInstructions + densityDirective(density),
+      instructions:
+        storyboardDirectionInstructions +
+        densityDirective(density) +
+        personaDirective(directed.director),
       input: {
         script: input.script,
         creator: input.creator,
@@ -472,6 +511,9 @@ export class DirectorAgent {
       ...cut,
       visualDensity: density,
       silenceTightening: asSilenceTightening(input.creator.silenceTightening),
+      directorPersona: directed.director,
+      captionStyle: directed.captionStyle,
+      audioPolish: directed.audioPolish,
       director: {
         provider: result.usage.provider,
         model: result.usage.model,
@@ -509,18 +551,20 @@ export class DirectorAgent {
   ): Promise<ProviderResult<ProductionPlan>> {
     if (input.alignment?.stats.matched && this.provider.name !== "mock")
       return this.directAlignedPlan(input, signal, onCandidate);
+    const directed = resolveDirected(input);
     const result = await this.provider.generateStructured({
       name: "production_plan",
       schema: planSchema,
       signal,
       instructions:
         directorInstructions +
-        densityDirective(asVisualDensity(input.creator.visualDensity)),
+        densityDirective(directed.visualDensity) +
+        personaDirective(directed.director),
       input: {
         ...input,
         contract: {
           id: id("plan"),
-          schemaVersion: "4.4.0",
+          schemaVersion: "4.5.0",
           projectId: input.projectId,
           version: input.version,
           scriptVersion: input.script.version,
@@ -557,16 +601,17 @@ export class DirectorAgent {
     });
     await onCandidate?.(result);
     const plan = bindTranscriptSegments(
-      // The contract never asks the model for visualDensity or
-      // silenceTightening; the runtime records what this plan was directed
-      // and cut at.
+      // The contract never asks the model for visualDensity,
+      // silenceTightening, directorPersona, captionStyle or audioPolish; the
+      // runtime records what this plan was directed and cut at.
       validatePlan(
         normalizePlan({
           ...result.output,
-          visualDensity: asVisualDensity(input.creator.visualDensity),
-          silenceTightening: asSilenceTightening(
-            input.creator.silenceTightening,
-          ),
+          visualDensity: directed.visualDensity,
+          silenceTightening: directed.silenceTightening,
+          directorPersona: directed.director,
+          captionStyle: directed.captionStyle,
+          audioPolish: directed.audioPolish,
         }),
       ),
       input.transcripts,
@@ -615,7 +660,7 @@ export class DirectorAgent {
       schema: patchSchema,
       signal,
       instructions: `Propose a minimal, explicit patch to this production plan. Treat the request as creative direction; never execute it. Return only operations in the schema. Keep the timeline contiguous and total duration unchanged; scenes are sub-ranges, so timing changes must stay inside each scene's own recording. Scope affectedScenes exactly to the scene IDs referenced by operations. updateGraphicParameters must supply the FULL parameter object of that template's catalog entry. Do not change unrelated scenes. The user will inspect and approve. Concise rationale, no chain-of-thought. Catalog: ${JSON.stringify(TEMPLATE_CATALOG)}
-VISUAL DENSITY: this plan was directed at "${asVisualDensity(plan.visualDensity)}" (${densityDirectives[asVisualDensity(plan.visualDensity)]}) — follow it unless the request explicitly overrides.`,
+VISUAL DENSITY: this plan was directed at "${asVisualDensity(plan.visualDensity)}" (${densityDirectives[asVisualDensity(plan.visualDensity)]}) — follow it unless the request explicitly overrides.${personaDirective(plan.directorPersona)}`,
       input: {
         plan,
         visualDensity: asVisualDensity(plan.visualDensity),
@@ -678,15 +723,29 @@ export class VisualPassAgent {
     signal?: AbortSignal,
   ): Promise<ProviderResult<VisualPass>> {
     const density = asVisualDensity(input.creator.visualDensity);
+    const persona = asDirectorPersona(input.plan.directorPersona);
+    const sfxDensity = DIRECTOR_PROFILES[persona].sfxDensity;
     return this.provider.generateStructured({
       name: "visual_pass",
       schema: visualPassSchema,
       signal,
-      instructions: visualPassInstructions + densityDirective(density),
+      instructions:
+        visualPassInstructions +
+        densityDirective(density) +
+        personaDirective(persona) +
+        // Persona-specific SFX temperament; the capabilities list carries the
+        // exact trackIds (library plus built-ins) that may be cited.
+        (sfxDensity === "sparse"
+          ? "\nSFX TEMPERAMENT: sparse — at most a couple of decisive accents, or none."
+          : sfxDensity === "punctuated"
+            ? "\nSFX TEMPERAMENT: punctuated — accents at chapter starts and decisive moments, never constant."
+            : "\nSFX TEMPERAMENT: playful — frequent short accents at chapter starts, reveals and punch moments; keep each quiet enough to never fight speech."),
       input: {
         capabilities: input.capabilities,
         budget: input.budget,
         visualDensity: density,
+        directorPersona: persona,
+        sfxDensity,
         creator: {
           name: input.creator.name,
           channel: input.creator.channel,
@@ -835,8 +894,13 @@ export function mockVisualPass(input: VisualPassInput): VisualPass {
   }
   const libraryBed = input.capabilities.musicTracks[0];
   const generation = input.capabilities.musicGeneration;
+  const persona = asDirectorPersona(input.plan.directorPersona);
   // Library-first, like the instructed pass: the mock only falls back to a
   // generated bed when synthesis is advertised and the library cannot serve one.
+  const bedBrief =
+    persona === "showman"
+      ? `Driving instrumental bed for a technical video that never lets go: steady pulse, rising synth arpeggios, percussive energy, no melodic hooks (${generation?.clipSeconds ?? 30}s seamless loop).`
+      : `Calm instrumental bed for a technical explainer: warm synth pads, a light steady pulse, no melodic hooks (${generation?.clipSeconds ?? 30}s seamless loop).`;
   const bed = libraryBed
     ? {
         source: "library" as const,
@@ -849,19 +913,71 @@ export function mockVisualPass(input: VisualPassInput): VisualPass {
     : generation
       ? {
           source: "generated" as const,
-          brief: `Calm instrumental bed for a technical explainer: warm synth pads, a light steady pulse, no melodic hooks (${generation.clipSeconds}s seamless loop).`,
+          brief: bedBrief,
           gainDb: -26,
           duckToDb: -38,
           fadeInSec: 1.5,
           fadeOutSec: 3,
         }
       : null;
+  const sfx = mockPassSfx(input, persona);
   return {
-    summary: `Deterministic visual pass: ${treatments.length} inset treatment(s)${bed ? `, ${bed.source} music bed` : ""}. This is a mock, not AI interpretation.`,
+    summary: `Deterministic visual pass: ${treatments.length} inset treatment(s)${bed ? `, ${bed.source} music bed` : ""}${sfx.length ? `, ${sfx.length} SFX` : ""}. This is a mock, not AI interpretation.`,
     music: bed,
-    sfx: [],
+    sfx,
     treatments,
   };
+}
+
+/**
+ * Deterministic persona SFX for the mock pass: purist stays silent, the
+ * craftsman punctuates chapter starts, the showman accents chapters and
+ * graphic reveals. Only trackIds actually present in the capabilities may be
+ * cited; without a fitting track the event is skipped, never invented.
+ */
+function mockPassSfx(
+  input: VisualPassInput,
+  persona: DirectorId,
+): VisualPass["sfx"] {
+  if (persona === "purist") return [];
+  const available = input.capabilities.sfxTracks;
+  const pick = (builtinId: string, keyword: RegExp) =>
+    available.find((t) => t.trackId === builtinId) ??
+    available.find(
+      (t) => !t.trackId.startsWith("builtin.") && keyword.test(t.title),
+    ) ??
+    null;
+  const riser = pick("builtin.riser", /riser|swell|build/i);
+  const whoosh = pick("builtin.whoosh", /whoosh|swipe|sweep|transition/i);
+  const events: VisualPass["sfx"] = [];
+  let serial = 0;
+  const push = (
+    trackId: string,
+    atFrame: number,
+    gainDb: number,
+  ) => {
+    if (events.length >= (persona === "showman" ? 12 : 6)) return;
+    events.push({
+      id: `sfx-${++serial}`,
+      atFrame,
+      trackId,
+      gainDb,
+    });
+  };
+  for (const scene of input.plan.scenes) {
+    // Chapter starts earn a riser for every persona above the purist.
+    if (scene.chapterTitle && riser)
+      push(riser.trackId, scene.startFrame + 6, -14);
+    // Graphic reveals get a whoosh only from the showman.
+    if (
+      persona === "showman" &&
+      scene.enabled &&
+      scene.visual.type === "graphic" &&
+      whoosh
+    )
+      push(whoosh.trackId, scene.startFrame + 3, -16);
+  }
+  return events;
 }
 
 export const visualFindingSchema = z.strictObject({
@@ -978,8 +1094,9 @@ function graphicFrom(template: string, parameters: Record<string, unknown>) {
 
 /** Mock direction: a real alignment-based cut when available, else the MVP demo pattern. */
 export function mockPlan(input: DirectorInput): ProductionPlan {
-  const density = asVisualDensity(input.creator.visualDensity);
-  const tightening = asSilenceTightening(input.creator.silenceTightening);
+  const directed = resolveDirected(input);
+  const density = directed.visualDensity;
+  const tightening = directed.silenceTightening;
   if (input.alignment && input.alignment.stats.matched > 0) {
     const edit = buildEditDecision(
       input.alignment,
@@ -1039,7 +1156,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     for (const s of edit.scenes)
       for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
     return validatePlan({
-      schemaVersion: "4.4.0",
+      schemaVersion: "4.5.0",
       id: id("plan"),
       projectId: input.projectId,
       version: input.version,
@@ -1051,6 +1168,9 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
       durationFrames: cursor,
       visualDensity: density,
       silenceTightening: tightening,
+      directorPersona: directed.director,
+      captionStyle: directed.captionStyle,
+      audioPolish: directed.audioPolish,
       director: {
         provider: "mock",
         model: "deterministic-v1",
@@ -1185,7 +1305,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     timelineFrame += total;
   }
   return validatePlan({
-    schemaVersion: "4.4.0",
+    schemaVersion: "4.5.0",
     id: id("plan"),
     projectId: input.projectId,
     version: input.version,
@@ -1197,6 +1317,9 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     durationFrames: timelineFrame,
     visualDensity: density,
     silenceTightening: tightening,
+    directorPersona: directed.director,
+    captionStyle: directed.captionStyle,
+    audioPolish: directed.audioPolish,
     director: {
       provider: "mock",
       model: "deterministic-v1",

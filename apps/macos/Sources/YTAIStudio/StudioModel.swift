@@ -19,6 +19,7 @@ import UniformTypeIdentifiers
   @Published var previsualization: Previsualization?
   @Published var teleprompter: TeleprompterDocument?
   @Published var packaging: PackagingDocument?
+  @Published var captions: CaptionList = CaptionList(style: "none", events: [], skippedRecordings: [])
   @Published var finalMacros: [String] = []
   @Published var finalPresets: [String] = [
     "H.264 Master", "H.264 Narrative", "ProRes 422 HQ", "ProRes 422",
@@ -55,7 +56,20 @@ import UniformTypeIdentifiers
         if selectedID == id { project = snapshot }
       }
     } catch { self.error = error.localizedDescription }
+    await loadCaptions()
     await maybeRenderPreviews()
+  }
+  /// Punch-line captions are derived from the approved plan + transcripts on
+  /// demand, so the storyboard badge always matches what the build will burn.
+  private func loadCaptions() async {
+    guard let id = selectedID, let plan = project?.plan, plan.captions != "none"
+    else {
+      captions = CaptionList(style: "none", events: [], skippedRecordings: [])
+      return
+    }
+    if let list: CaptionList = try? await runtime.call(
+      "captions.list", ["projectId": id]), selectedID == id
+    { captions = list }
   }
   /** Storyboard previews render themselves once per new plan version so the
    * creator sees the actual graphics and 3D clips before approving. Cache

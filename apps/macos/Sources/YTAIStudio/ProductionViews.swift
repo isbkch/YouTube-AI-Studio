@@ -30,12 +30,38 @@ struct MediaThumbnail: View {
     }
   }
 }
+struct DirectorOption: Identifiable {
+  let id: String
+  let name: String
+  let tagline: String
+  let detail: String
+  let symbol: String
+}
+/** Frames → m:ss for caption list rows. */
+private func timecode(_ frame: Int, _ fps: Int) -> String {
+  let total = Int((Double(frame) / Double(max(1, fps))).rounded())
+  return String(format: "%d:%02d", total / 60, total % 60)
+}
+/// The three directors a creator can hire; ids match the plan schema enum.
+let directorOptions = [
+  DirectorOption(
+    id: "purist", name: "The Purist", tagline: "Let the content speak.",
+    detail: "Straight cuts · minimal visuals · sound as recorded",
+    symbol: "film"),
+  DirectorOption(
+    id: "craftsman", name: "The Craftsman", tagline: "Polish it until it shines.",
+    detail: "Rich visuals · tight pacing · punch-line captions · engineered audio",
+    symbol: "paintbrush"),
+  DirectorOption(
+    id: "showman", name: "The Showman", tagline: "Keep them watching, by all means.",
+    detail: "Fast cuts · karaoke captions · dense SFX · loud mix",
+    symbol: "bolt.fill"),
+]
 struct StoryboardView: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
   @State private var editing: ProductionScene?
-  @State private var density = "balanced"
-  @State private var tightening = "natural"
+  @State private var director = "craftsman"
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .top) {
@@ -67,7 +93,7 @@ struct StoryboardView: View {
               } else {
                 Menu {
                   ForEach(Array(coverage.omitted.enumerated()), id: \.offset) { _, sentence in
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 2) {
                       Text(sentence.text).lineLimit(2)
                       if let reason = sentence.reason {
                         Text(reason).font(.caption).foregroundStyle(.secondary)
@@ -82,6 +108,32 @@ struct StoryboardView: View {
                 }
               }
             }
+            if plan.captions != "none" {
+              if m.captions.events.isEmpty {
+                Label(
+                  m.captions.skippedRecordings.isEmpty
+                    ? "No punch lines qualified for captions"
+                    : "Captions skipped: \(m.captions.skippedRecordings.count) recording(s) lack word timings",
+                  systemImage: "captions.bubble"
+                ).font(.caption).foregroundStyle(.secondary)
+              } else {
+                Menu {
+                  ForEach(m.captions.events) { event in
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(event.text).lineLimit(2)
+                      Text(
+                        "\(timecode(event.startFrame, plan.frameRate)) · \(event.sceneId)"
+                      ).font(.caption).foregroundStyle(.secondary)
+                    }
+                  }
+                } label: {
+                  Label(
+                    "\(m.captions.events.count) punch-line caption(s) · \(plan.captions)",
+                    systemImage: "captions.bubble"
+                  ).font(.caption).foregroundStyle(Color.studioAccent)
+                }
+              }
+            }
           }
         }
         Spacer()
@@ -89,31 +141,52 @@ struct StoryboardView: View {
           VStack(alignment: .trailing, spacing: 8) {
             Text("\(plan.scenes.count) scenes • v\(plan.version)").font(.caption).foregroundStyle(
               .secondary)
-            HStack(spacing: 8) {
-              Text("Visual density").font(.caption).foregroundStyle(.secondary)
-              Picker("", selection: $density) {
-                Text("Minimal").tag("minimal")
-                Text("Balanced").tag("balanced")
-                Text("Rich").tag("rich")
-              }.pickerStyle(.segmented).frame(width: 200).disabled(m.busy)
-            }
-            HStack(spacing: 8) {
-              Text("Silence").font(.caption).foregroundStyle(.secondary)
-              Picker("", selection: $tightening) {
-                Text("Natural").tag("natural")
-                Text("Tight").tag("tight")
-                Text("Punchy").tag("punchy")
-              }.pickerStyle(.segmented).frame(width: 200).disabled(m.busy)
+            VStack(alignment: .leading, spacing: 5) {
+              Text("Hired Director").font(.caption).foregroundStyle(.secondary)
+              ForEach(directorOptions) { option in
+                Button {
+                  director = option.id
+                } label: {
+                  HStack(spacing: 9) {
+                    Image(systemName: option.symbol)
+                      .frame(width: 20)
+                      .foregroundStyle(director == option.id ? Color.studioAccent : .secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                      Text(option.name).font(.callout.weight(.semibold))
+                      Text(option.tagline).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if director == option.id {
+                      Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.studioAccent)
+                    }
+                  }
+                  .padding(.horizontal, 10)
+                  .padding(.vertical, 7)
+                  .frame(width: 272)
+                  .background(
+                    director == option.id
+                      ? Color.studioAccent.opacity(0.1) : Color.primary.opacity(0.04))
+                  .clipShape(RoundedRectangle(cornerRadius: 9))
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                      .stroke(
+                        director == option.id ? Color.studioAccent : .clear, lineWidth: 1))
+                  .contentShape(RoundedRectangle(cornerRadius: 9))
+                }
+                .buttonStyle(.plain)
+                .disabled(m.busy)
+              }
             }
             Button(
-              density == plan.density && tightening == plan.tightening
+              director == plan.persona
                 ? "Regenerate Storyboard"
-                : "Regenerate as \(density) · \(tightening)"
+                : "Regenerate as \(directorOptions.first { $0.id == director }?.name ?? director)"
             ) {
               Task {
                 await m.perform(
                   "plan.generate", label: "Director • storyboard",
-                  params: ["density": density, "tightening": tightening])
+                  params: ["director": director])
               }
             }.buttonStyle(QuietButtonStyle()).disabled(
               m.busy
@@ -193,13 +266,9 @@ struct StoryboardView: View {
         Spacer()
       }
     }.padding(28)
-      .onAppear {
-        density = p.plan?.density ?? "balanced"
-        tightening = p.plan?.tightening ?? "natural"
-      }
+      .onAppear { director = p.plan?.persona ?? "craftsman" }
       .onChange(of: p.plan?.version) { _, _ in
-        density = p.plan?.density ?? "balanced"
-        tightening = p.plan?.tightening ?? "natural"
+        director = p.plan?.persona ?? "craftsman"
       }
       .sheet(item: $editing) { scene in
         SceneEditor(p: p, scene: scene).environmentObject(m)
