@@ -10,7 +10,10 @@ dist/
 *.log
 .cache/
 coverage/
+config/youtube-oauth-client.json
+client_secret_*.apps.googleusercontent.com.json
 .zcode
 AGENTS.md
 PROGRESS.md
 examples/video-script-example.md
+client_secret_200386695274-ej0that4ukkdft89f2ebi29ds9p37h2s.apps.googleusercontent.com.json

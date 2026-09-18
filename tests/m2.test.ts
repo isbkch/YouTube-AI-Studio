@@ -33,6 +33,11 @@ import type {
   Recording,
   Transcript,
 } from "../packages/orchestrator/src/model.ts";
+import {
+  reviewRetakes,
+  discardedRetakes,
+  crossesRetake,
+} from "../packages/orchestrator/src/retakes.ts";
 
 const recording = (id: string, duration: number, name = id): Recording => ({
   id,
@@ -164,6 +169,221 @@ test("alignment picks the best take per sentence and stays monotonic", () => {
   assert.equal(alignment.sentences[2].match!.recordingId, good.id);
   assert.ok(alignment.sentences[0].match!.score > 0.4);
   assert.ok(alignment.sentences[1].match!.score > 0.9);
+});
+
+test("consecutive retakes keep the last delivery, including minor filler differences", () => {
+  for (const wordTimes of [true, false]) {
+    const rec = recording("rec-retakes", 120);
+    const transcript = transcriptWithWords(rec.id, [
+      { start: 80, text: "And not because AI is bad at writing code." },
+      { start: 85.4, text: "Actually the quite the opposite." },
+      { start: 93.96, text: "Actually quite the opposite." },
+      { start: 98.24, text: "Actually quite the opposite." },
+      { start: 101, text: "AI has become incredibly good at writing code." },
+    ]);
+    if (!wordTimes) for (const s of transcript.segments) delete s.words;
+    const original = structuredClone(transcript);
+    const script =
+      "And not because AI is bad at writing code. Actually quite the opposite. AI has become incredibly good at writing code.";
+    const review = reviewRetakes(
+      transcript,
+      splitScriptSentences(script).map((s) => s.text),
+    );
+    assert.equal(review.groups.length, 1);
+    assert.equal(review.groups[0].discarded.length, 2);
+    assert.equal(review.groups[0].kept.start, 98.24);
+    assert.deepEqual(
+      review.segments.map((s) => s.start),
+      [80, 98.24, 101],
+    );
+    assert.deepEqual(
+      transcript,
+      original,
+      "raw transcript and word timings are immutable",
+    );
+    const alignment = alignScript({
+      script,
+      scriptVersion: 1,
+      recordings: [rec],
+      transcripts: [transcript],
+    });
+    assert.equal(alignment.stats.matched, 3);
+    assert.ok(alignment.sentences[1].match!.start >= 98);
+    assert.deepEqual(alignment.sentences[1].match!.segmentIds, ["seg-4"]);
+    for (const level of ["natural", "tight", "punchy"] as const) {
+      const edit = buildEditDecision(
+        alignment,
+        [transcript],
+        "balanced",
+        level,
+      );
+      assert.equal(edit.dropped.length, 0);
+      for (const scene of edit.scenes)
+        assert.ok(
+          !crossesRetake(scene.start, scene.end, discardedRetakes(review)),
+          "cut must exclude both earlier attempts",
+        );
+    }
+  }
+});
+
+test("retakes inside a single word-timed segment retain their real source boundaries", () => {
+  const rec = recording("rec-inline", 30);
+  const transcript = transcriptWithWords(rec.id, [
+    {
+      start: 1,
+      text: "Actually quite the opposite. Actually quite the opposite. Actually quite the opposite.",
+    },
+  ]);
+  const review = reviewRetakes(transcript);
+  assert.equal(review.groups[0].discarded.length, 2);
+  assert.equal(review.segments.length, 1);
+  assert.equal(
+    review.segments[0].start,
+    transcript.segments[0].words![8].start,
+  );
+  const alignment = alignScript({
+    script: "Actually quite the opposite.",
+    scriptVersion: 1,
+    recordings: [rec],
+    transcripts: [transcript],
+  });
+  assert.equal(
+    alignment.sentences[0].match!.start,
+    review.segments[0].start,
+    "head padding cannot include the previous attempt",
+  );
+  const edit = buildEditDecision(alignment, [transcript], "balanced", "tight");
+  assert.equal(edit.scenes[0].start, review.segments[0].start);
+});
+
+test("sentences split across transcript segments still form one retake", () => {
+  const transcript = transcriptWithWords("rec-1", [
+    { start: 1, text: "Actually quite" },
+    { start: 2, text: "the opposite." },
+    { start: 4, text: "Actually quite the opposite." },
+  ]);
+  const review = reviewRetakes(transcript);
+  assert.equal(review.groups.length, 1);
+  assert.equal(
+    review.groups[0].discarded[0].text,
+    "Actually quite the opposite.",
+  );
+  assert.equal(review.groups[0].kept.start, 4);
+});
+
+test("retake detection preserves distinct claims, distant repeats, short beats and unfinished last attempts", () => {
+  for (const texts of [
+    [
+      "The service is production ready.",
+      "The service is not production ready.",
+    ],
+    ["The service costs 30 dollars.", "The service costs 40 dollars."],
+    [
+      "Actually quite the opposite.",
+      "A separate thought belongs here.",
+      "Actually quite the opposite.",
+    ],
+    ["Why?", "Why?", "Why?"],
+    ["Actually quite the opposite.", "Actually quite"],
+    ["Actually quite the opposite.", "Actually quite the opposite"],
+  ]) {
+    const transcript = transcriptWithWords(
+      "rec-1",
+      texts.map((text, i) => ({ start: i * 4, text })),
+    );
+    assert.equal(reviewRetakes(transcript).groups.length, 0, texts.join(" / "));
+  }
+  const distant = transcriptWithWords("rec-1", [
+    { start: 1, text: "Actually quite the opposite." },
+    { start: 40, text: "Actually quite the opposite." },
+  ]);
+  assert.equal(reviewRetakes(distant).groups.length, 0);
+});
+
+test("intentional script repetition gets distinct source occurrences in script order", () => {
+  const rec = recording("rec-1", 30);
+  const text = "Actually quite the opposite.";
+  const transcript = transcriptWithWords(rec.id, [
+    { start: 1, text },
+    { start: 4, text },
+  ]);
+  assert.equal(reviewRetakes(transcript, [text, text]).groups.length, 0);
+  const alignment = alignScript({
+    script: `${text} ${text}`,
+    scriptVersion: 1,
+    recordings: [rec],
+    transcripts: [transcript],
+  });
+  assert.equal(alignment.stats.matched, 2);
+  assert.ok(alignment.sentences[0].match!.start < 2);
+  assert.ok(alignment.sentences[1].match!.start > 3);
+});
+
+test("short discarded attempts cannot sneak back through A-roll grouping or bridging", () => {
+  const rec = recording("rec-1", 30);
+  const transcript = transcriptWithWords(rec.id, [
+    { start: 0, text: "The opening establishes the demo." },
+    { start: 2.2, text: "Actually quite the opposite." },
+    { start: 3.7, text: "Actually quite the opposite." },
+    { start: 5.2, text: "The closing thought moves on." },
+  ]);
+  const script =
+    "The opening establishes the demo. Actually quite the opposite. The closing thought moves on.";
+  const alignment = alignScript({
+    script,
+    scriptVersion: 1,
+    recordings: [rec],
+    transcripts: [transcript],
+  });
+  const discarded = discardedRetakes(reviewRetakes(transcript));
+  const edit = buildEditDecision(alignment, [transcript]);
+  assert.equal(edit.dropped.length, 0);
+  assert.ok(edit.scenes.length >= 2);
+  for (const scene of edit.scenes)
+    assert.ok(!crossesRetake(scene.start, scene.end, discarded));
+  // Even a low-confidence sentence cannot be bridged across discarded takes.
+  alignment.sentences[1].match = null;
+  assert.equal(buildEditDecision(alignment, [transcript]).dropped.length, 1);
+});
+
+test("snapshot derives retake review without changing persisted transcripts or approved plans, and rejects old alignment", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-retakes-"));
+  const store = new Store(root);
+  try {
+    const studio = new Studio(store);
+    const p = store.create("Retake review", "", 60);
+    const rec = recording("rec-1", 30);
+    const text = "Actually quite the opposite.";
+    const transcript = transcriptWithWords(rec.id, [
+      { start: 1, text },
+      { start: 4, text },
+      { start: 7, text },
+    ]);
+    await studio.saveScript(p.id, text);
+    await studio.approveScript(p.id, 1);
+    store.update(p.id, (x) => {
+      x.recordings = [rec];
+      x.transcripts = [transcript];
+    });
+    const before = store.get(p.id);
+    const snapshot = studio.snapshot(p.id);
+    assert.equal(snapshot.transcripts[0].segments.length, 3);
+    assert.equal(snapshot.transcripts[0].retakeReview.segments.length, 1);
+    assert.deepEqual(store.get(p.id), before);
+    const alignment = await studio.computeAlignment(p.id);
+    await store.artifact(p, "alignment/alignment-v1.json", {
+      ...alignment,
+      algorithm: "smith-waterman-v4",
+    });
+    assert.equal(studio.alignment(p.id), null);
+    const refreshed = await studio.computeAlignment(p.id);
+    assert.equal(studio.alignment(p.id)?.algorithm, ALIGNMENT_ALGORITHM);
+    assert.ok(refreshed.sentences[0].match!.start > 6.8);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("A-roll editor groups takes, drops dead space and reports cut statistics", () => {

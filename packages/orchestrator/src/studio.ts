@@ -111,8 +111,10 @@ import {
   ALIGNMENT_ALGORITHM,
   alignScript,
   alignmentSchema,
+  splitScriptSentences,
   type Alignment,
 } from "./alignment.ts";
+import { reviewRetakes } from "./retakes.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import { computeCaptionEvents } from "./captions.ts";
 import {
@@ -162,8 +164,15 @@ export class Studio {
   }
   snapshot(projectId: string) {
     const p = this.store.get(projectId);
+    const sentences = splitScriptSentences(p.scripts.at(-1)?.text ?? "").map(
+      (s) => s.text,
+    );
     return {
       ...p,
+      transcripts: p.transcripts.map((t) => ({
+        ...t,
+        retakeReview: reviewRetakes(t, sentences),
+      })),
       directory: this.store.dir(p),
       jobs: this.store.jobs(p.id),
       assets: this.store.assets(p.id),

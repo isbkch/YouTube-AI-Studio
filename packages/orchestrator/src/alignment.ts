@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { hash, now, StudioError } from "../../shared/src/index.ts";
 import type { Recording, Transcript } from "./model.ts";
+import { crossesRetake, discardedRetakes, reviewRetakes } from "./retakes.ts";
 
 /**
  * Script↔recording alignment: which sentence of the approved script is spoken
@@ -12,6 +13,8 @@ export interface TimedToken {
   token: string;
   start: number;
   end: number;
+  /** A discarded attempt precedes this token; matching cannot bridge it. */
+  breakBefore?: boolean;
 }
 
 const normalize = (word: string) =>
@@ -136,7 +139,7 @@ export interface SpanMatch {
 }
 
 /** Smith-Waterman local alignment of sentence tokens inside a token stream. */
-function bestSpan(
+function bestContiguousSpan(
   tokens: string[],
   stream: TimedToken[],
 ): { start: number; end: number; score: number } | null {
@@ -209,12 +212,29 @@ function bestSpan(
   return { start: spanStart, end: spanEnd - 1, score: best / (2 * n) };
 }
 
+function bestSpan(tokens: string[], stream: TimedToken[]) {
+  let best: ReturnType<typeof bestContiguousSpan> = null;
+  let from = 0;
+  for (let end = 1; end <= stream.length; end++) {
+    if (end !== stream.length && !stream[end].breakBefore) continue;
+    const span = bestContiguousSpan(tokens, stream.slice(from, end));
+    if (span && (!best || span.score > best.score))
+      best = {
+        start: span.start + from,
+        end: span.end + from,
+        score: span.score,
+      };
+    from = end;
+  }
+  return best;
+}
+
 /**
  * Identity of the matching algorithm that produced an alignment. Stored
  * alongside the artifact so a library can detect alignments computed by an
  * older algorithm and recompute instead of silently reusing them.
  */
-export const ALIGNMENT_ALGORITHM = "smith-waterman-v4";
+export const ALIGNMENT_ALGORITHM = "smith-waterman-v5-last-retake";
 
 export const alignmentSchema = z.strictObject({
   schemaVersion: z.literal("2.0.0"),
@@ -297,7 +317,23 @@ export function alignScript(input: AlignInput): Alignment {
         "CONFLICT",
         `Recording ${r.name} has no transcript; align after transcribing every recording.`,
       );
-    return { recording: r, transcript, stream: tokenStream(transcript) };
+    const discarded = discardedRetakes(
+      reviewRetakes(
+        transcript,
+        sentences.map((s) => s.text),
+      ),
+    );
+    const stream: TimedToken[] = [];
+    let breakBefore = false;
+    for (const token of tokenStream(transcript)) {
+      if (crossesRetake(token.start, token.end, discarded)) {
+        breakBefore = true;
+        continue;
+      }
+      stream.push({ ...token, breakBefore });
+      breakBefore = false;
+    }
+    return { recording: r, transcript, stream, discarded };
   });
   const lastEnd = new Map<string, number>();
   const used: Alignment["sentences"] = sentences.map((s) => ({
@@ -310,8 +346,24 @@ export function alignScript(input: AlignInput): Alignment {
   }));
   let previousRecording: string | null = null;
   for (const sentence of sentences) {
+    const short = sentence.tokens.length <= 2;
+    const repeatedInScript = sentences.some(
+      (s) =>
+        s.index < sentence.index &&
+        s.tokens.join(" ") === sentence.tokens.join(" "),
+    );
     const candidates: SpanMatch[] = [];
-    for (const { recording, transcript, stream } of streams) {
+    for (const { recording, transcript, stream: all, discarded } of streams) {
+      // Intentional script repetitions need a distinct occurrence. Other
+      // sentences retain normal best-take ranking and neighbor-bounded rescue.
+      const stream =
+        short || !repeatedInScript
+          ? all
+          : all.filter(
+              (t) =>
+                t.start - HEAD_PAD >=
+                (lastEnd.get(recording.id) ?? 0) - MONOTONIC_TOLERANCE,
+            );
       const span = bestSpan(sentence.tokens, stream);
       if (!span) continue;
       const from = span.start;
@@ -320,6 +372,11 @@ export function alignScript(input: AlignInput): Alignment {
       let end = stream[to].end + TAIL_PAD;
       start = Math.max(0, start);
       end = Math.min(end, recording.duration);
+      // Padding must never put an earlier attempt back into the selected cut.
+      for (const cut of discarded) {
+        if (cut.end <= stream[from].start) start = Math.max(start, cut.end);
+        if (cut.start >= stream[to].end) end = Math.min(end, cut.start);
+      }
       if (end <= start) continue;
       const overlapping = transcript.segments
         .filter((seg) => seg.start < end && seg.end > start)
@@ -340,7 +397,6 @@ export function alignScript(input: AlignInput): Alignment {
           : sentence.tokens.length,
       });
     }
-    const short = sentence.tokens.length <= 2;
     const bonus = short ? SHORT_CONTINUITY_BONUS : CONTINUITY_BONUS;
     // Rhetorical beats belong to the current take; the same-take pool only
     // counts when its candidate is actually plausible.
@@ -424,7 +480,7 @@ export function alignScript(input: AlignInput): Alignment {
         if (m) preferredRecording = m.recordingId;
       }
     const fillIns: SpanMatch[] = [];
-    for (const { recording, transcript, stream } of streams) {
+    for (const { recording, transcript, stream, discarded } of streams) {
       // A rescue belongs between its script neighbors in this recording.
       // Searching the entire take again can select an earlier repeated beat
       // ("Okay.", "Why?") and move backwards through footage already used.
@@ -443,11 +499,17 @@ export function alignScript(input: AlignInput): Alignment {
       );
       const span = bestSpan(sentence.tokens, available);
       if (!span) continue;
-      const start = Math.max(0, available[span.start].start - HEAD_PAD);
-      const end = Math.min(
+      let start = Math.max(0, available[span.start].start - HEAD_PAD);
+      let end = Math.min(
         recording.duration,
         available[span.end].end + TAIL_PAD,
       );
+      for (const cut of discarded) {
+        if (cut.end <= available[span.start].start)
+          start = Math.max(start, cut.end);
+        if (cut.start >= available[span.end].end)
+          end = Math.min(end, cut.start);
+      }
       if (end <= start) continue;
       const overlaps = (claimed.get(recording.id) ?? []).some(
         (c) => start < c.end - 0.4 && end > c.start + 0.4,

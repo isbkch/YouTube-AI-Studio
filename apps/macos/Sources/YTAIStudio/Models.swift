@@ -230,6 +230,16 @@ struct Transcript: Decodable {
   let provider: String
   let model: String
   let segments: [Segment]
+  let retakeReview: RetakeReview?
+}
+struct RetakeReview: Decodable {
+  let segments: [Segment]
+  let groups: [RetakeGroup]
+  var discardedCount: Int { groups.reduce(0) { $0 + $1.discarded.count } }
+}
+struct RetakeGroup: Decodable {
+  let kept: Segment
+  let discarded: [Segment]
 }
 struct Segment: Decodable, Identifiable {
   let id: String

@@ -7,6 +7,7 @@ import {
 } from "../../shared/src/index.ts";
 import { tokenize, type Alignment } from "./alignment.ts";
 import type { TemplateName } from "../../production-plan/src/index.ts";
+import { crossesRetake, discardedRetakes, reviewRetakes } from "./retakes.ts";
 
 /**
  * Deterministic A-roll editor: turns an alignment into structured edit
@@ -48,6 +49,7 @@ export interface EditScene {
 export interface BridgeTranscript {
   recordingId: string;
   segments: {
+    id?: string;
     start: number;
     end: number;
     text: string;
@@ -327,6 +329,24 @@ export function buildEditDecision(
 ): EditDecision {
   const latest = new Map<string, BridgeTranscript>();
   for (const t of transcripts) latest.set(t.recordingId, t);
+  const discarded = new Map(
+    [...latest].map(([recordingId, t]) => [
+      recordingId,
+      discardedRetakes(
+        reviewRetakes(
+          {
+            segments: t.segments.map((s, i) => ({
+              ...s,
+              id: s.id ?? `segment-${i}`,
+            })),
+          },
+          alignment.sentences.map((s) => s.text),
+        ),
+      ),
+    ]),
+  );
+  const crossesDiscarded = (recordingId: string, start: number, end: number) =>
+    crossesRetake(start, end, discarded.get(recordingId) ?? []);
   const spokenIn = (recordingId: string, start: number, end: number) => {
     const t = latest.get(recordingId);
     if (!t) return "";
@@ -356,6 +376,7 @@ export function buildEditDecision(
       after &&
       before.recordingId === after.recordingId &&
       after.start >= before.end &&
+      !crossesDiscarded(before.recordingId, before.end, after.start) &&
       after.start - before.end <= BRIDGE_MAX
     ) {
       const start = Math.max(0, before.end - 0.1);
@@ -395,6 +416,7 @@ export function buildEditDecision(
       last &&
       sentence.heading === null &&
       last.recordingId === m.recordingId &&
+      !crossesDiscarded(m.recordingId, last.end, m.start) &&
       m.start - last.end <= GROUP_GAP &&
       m.start >= last.end - 0.05
     ) {
@@ -462,6 +484,7 @@ export function buildEditDecision(
       prev &&
       !g.sentences.some((s) => s.heading !== null) &&
       prev.recordingId === g.recordingId &&
+      !crossesDiscarded(g.recordingId, prev.end, g.start) &&
       g.end - g.start < MIN_SCENE &&
       g.start >= prev.end - 0.05 &&
       g.start - prev.end <= GROUP_GAP * 1.5
@@ -554,7 +577,7 @@ export function buildEditDecision(
       for (const part of parts)
         result.push({
           recordingId: g.recordingId,
-          start: Math.max(0, part.first - level.headPad),
+          start: Math.max(g.start, part.first - level.headPad),
           // The group end is already clamped to the recording; never tighten
           // an edge past media that exists.
           end: Math.min(g.end, part.last + level.tailPad),
