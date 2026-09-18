@@ -581,18 +581,21 @@ struct TranscriptView: View {
           m.transcriptionProvider == "mock"
             ? "Mock Transcribe"
             : m.transcriptionProvider == "whisper"
-              ? "Transcribe Locally (whisper)" : "Transcribe with OpenAI"
+              ? "Transcribe Locally (whisper)" : "GPT Transcribe + review"
         ) {
           Task {
             // Apply the current Settings selection first so the label and the
             // engine that runs can never diverge (e.g. picking Local whisper
             // but transcribing with OpenAI because Apply was never pressed).
+            let requestedProvider = m.transcriptionProvider
             await m.configureProvider()
+            guard m.transcriptionProvider == requestedProvider, m.error == nil else { return }
             await m.perform("transcript.generate", label: "Transcription")
           }
         }.buttonStyle(QuietButtonStyle()).disabled(
           p.status != "MEDIA_IMPORTED" || m.busy || p.pendingRecordings.isEmpty)
       }
+      TranscriptReviewPanel(p: p)
       if discardedCount > 0 {
         HStack(spacing: 16) {
           VStack(alignment: .leading, spacing: 4) {
@@ -674,7 +677,7 @@ struct TranscriptView: View {
       HStack {
         Button("Draft A-Roll Cut") { Task { await m.draftAroll() } }.buttonStyle(
           QuietButtonStyle()
-        ).disabled(!p.pendingRecordings.isEmpty || m.busy)
+        ).disabled(!p.pendingRecordings.isEmpty || m.busy || p.pendingTranscriptIssues > 0)
         Spacer()
         Menu {
           ForEach(directorOptions) { option in
@@ -688,18 +691,21 @@ struct TranscriptView: View {
         }.disabled(!p.pendingRecordings.isEmpty || m.busy)
           .fixedSize()
         Button("Import Plan…") { Task { await m.importPlan() } }.buttonStyle(QuietButtonStyle())
-          .disabled(!p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
-        Button("Generate Storyboard") {
+          .disabled(
+            !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED"
+              || p.pendingTranscriptIssues > 0)
+        Button(p.plans.isEmpty ? "Generate Storyboard" : "New Storyboard from Transcript") {
           Task {
             if await m.perform(
               "plan.generate", label: "Director planning",
-              params: ["director": m.selectedDirector])
+              params: ["director": m.selectedDirector, "fromReviewedTranscripts": !p.plans.isEmpty])
             {
               m.tab = "Storyboard"
             }
           }
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(
-          !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
+          !p.pendingRecordings.isEmpty || m.busy || !p.transcriptReviewIdle
+            || p.pendingTranscriptIssues > 0)
       }
     }.padding(28)
   }

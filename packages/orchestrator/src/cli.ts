@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { z } from "zod";
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
 import { Store, type ProviderSelection } from "./store.ts";
@@ -64,6 +65,7 @@ const { positionals: a, values: v } = parseArgs({
     macro: { type: "string" },
     apply: { type: "boolean" },
     yes: { type: "boolean" },
+    "from-reviewed-transcripts": { type: "boolean" },
     help: { type: "boolean" },
   },
 });
@@ -105,6 +107,8 @@ bun run wts thumbnails export <project> <absolute-destination-folder>
 bun run wts media inspect <file> | media import <project> <file>
 bun run wts transcript load <project> <transcript.json>
 bun run wts transcript fcp <project> <fcpbundle-or-folder>
+bun run wts transcript review <project> --transcriber openai [--recording <id>]
+bun run wts transcript decide <project> --file <decision.json>
 bun run wts transcribe <project> [--transcriber whisper|openai]
 bun run wts align <project>
 bun run wts aroll <project> [--director purist|craftsman|showman] [--tightening natural|tight|punchy]
@@ -363,7 +367,33 @@ try {
       );
     else if (a[0] === "transcript" && a[1] === "fcp")
       result = await studio.importFCPTranscripts(a[2], a[3], abort.signal);
-    else if (a[0] === "transcribe")
+    else if (a[0] === "transcript" && a[1] === "review")
+      result = await studio.reviewTranscription(
+        a[2],
+        v.recording,
+        abort.signal,
+      );
+    else if (a[0] === "transcript" && a[1] === "correct") {
+      const input = z
+        .object({
+          reviewId: z.string(),
+          issueId: z.string(),
+          expectedHash: z.string(),
+          text: z.string().min(1).max(20000),
+        })
+        .parse(await readJSONFile(v.file!));
+      result = await studio.correctTranscriptIssue(a[2], input, abort.signal);
+    } else if (a[0] === "transcript" && a[1] === "decide") {
+      const input = z
+        .object({
+          reviewId: z.string(),
+          issueId: z.string(),
+          action: z.enum(["accept", "keep"]),
+          expectedHash: z.string(),
+        })
+        .parse(await readJSONFile(v.file!));
+      result = await studio.decideTranscriptIssue(a[2], input);
+    } else if (a[0] === "transcribe")
       result = await studio.transcribe(a[1], abort.signal);
     else if (a[0] === "align") result = await studio.computeAlignment(a[1]);
     else if (a[0] === "aroll") {
@@ -393,6 +423,7 @@ try {
         a[1],
         {
           director: directorArg(v.director),
+          fromReviewedTranscripts: v["from-reviewed-transcripts"],
           density: v.density as "minimal" | "balanced" | "rich" | undefined,
           tightening: tighteningArg(v.tightening),
         },

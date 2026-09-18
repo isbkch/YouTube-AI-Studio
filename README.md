@@ -190,3 +190,7 @@ software, with three limitations — you may not offer it to third parties as a
 hosted or managed service, may not circumvent any license-key protection, and
 may not remove or obscure licensing, copyright, or trademark notices.
 Dependencies brought in at install time remain under their own licenses.
+
+### Transcript quality
+
+[GPT Transcribe, audio checks, listening review, revision history and the recording benchmark](docs/transcription-quality.md).

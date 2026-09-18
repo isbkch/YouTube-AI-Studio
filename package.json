@@ -39,7 +39,9 @@
     "schema": "tsx scripts/schema.ts",
     "macos:demo": "bash scripts/launch-macos.sh --demo",
     "test:e2e": "bun run demo",
-    "swift:format": "swift format format --in-place --recursive apps/macos/Sources"
+    "swift:format": "swift format format --in-place --recursive apps/macos/Sources",
+    "transcription:setup": "bash scripts/setup-transcription.sh",
+    "transcription:benchmark": "tsx scripts/transcription-benchmark.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.526",

@@ -28,3 +28,17 @@ import Testing
   #expect(reviewed.retakeReview?.segments.first?.start == 98.24)
   #expect(reviewed.retakeReview?.discardedCount == 2)
 }
+
+@Test func transcriptionReviewDecodesIndependentEvidenceAndPendingDecisions() throws {
+  let payload = """
+    {"id":"review-1","recordingId":"rec-1","candidateHash":"hash","status":"needs-review","summary":"Check words.",
+     "issues":[{"id":"issue-1","kind":"wording","reason":"Recognizers disagree.","start":2,"end":5,
+       "originalText":"Post grass","suggestedText":"Postgres","status":"pending",
+       "proposed":[{"id":"verified-1","start":2.1,"end":4.8,"text":"Postgres"}],
+       "verification":{"model":"whisper-1","text":"Postgres","alignmentCoverage":1}}]}
+    """
+  let review = try JSONDecoder().decode(TranscriptionReview.self, from: Data(payload.utf8))
+  #expect(review.issues.first?.proposed?.first?.text == "Postgres")
+  #expect(review.issues.first?.verification?.alignmentCoverage == 1)
+  #expect(review.issues.first?.status == "pending")
+}

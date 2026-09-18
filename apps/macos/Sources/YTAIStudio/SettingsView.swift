@@ -29,7 +29,7 @@ struct SettingsView: View {
           Picker("Transcription", selection: $m.transcriptionProvider) {
             Text("Mock").tag("mock")
             Text("Local whisper · free").tag("whisper")
-            Text("OpenAI").tag("openai")
+            Text("GPT Transcribe + review").tag("openai")
           }.pickerStyle(.segmented)
           TextField("Director model", text: $m.modelName)
           SecureField("OpenAI API key (optional — .env also works)", text: $key)
@@ -54,7 +54,7 @@ struct SettingsView: View {
             ).disabled(!m.runtime.connected || m.busy)
           }
           Text(
-            "Local whisper transcribes on this Mac with whisper.cpp — no credits, no uploads. OpenAI sends the approved script and transcript for planning, and extracted audio for transcription; the key is read from OPENAI_API_KEY in the repository .env or macOS Keychain, and is passed only to the private local runtime. Final Cut speech analysis can be imported directly in Transcript."
+            "Local whisper transcribes on this Mac with whisper.cpp — no credits, no uploads. GPT Transcribe uploads audio for recognition and independent checks, reviews text with an LLM, and aligns words locally. The first run downloads alignment tools and models. OpenAI also receives the script as review context; the key is read from OPENAI_API_KEY in the repository .env or macOS Keychain, and is passed only to the private local runtime. Final Cut speech analysis can be imported directly in Transcript."
           ).font(.caption).foregroundStyle(.secondary)
         }.padding(20).studioCard(cornerRadius: 12)
         VStack(alignment: .leading, spacing: 14) {

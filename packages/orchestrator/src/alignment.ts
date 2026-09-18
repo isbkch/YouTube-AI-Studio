@@ -234,7 +234,7 @@ function bestSpan(tokens: string[], stream: TimedToken[]) {
  * alongside the artifact so a library can detect alignments computed by an
  * older algorithm and recompute instead of silently reusing them.
  */
-export const ALIGNMENT_ALGORITHM = "smith-waterman-v5-last-retake";
+export const ALIGNMENT_ALGORITHM = "smith-waterman-v6-transcript-qa";
 
 export const alignmentSchema = z.strictObject({
   schemaVersion: z.literal("2.0.0"),

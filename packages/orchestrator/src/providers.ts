@@ -4,6 +4,7 @@ import {
   type AIProvider,
   type Transcriber,
 } from "../../agents/src/index.ts";
+import { GPTTranscriber } from "../../agents/src/gpt-transcription.ts";
 import { WhisperCLIProvider } from "../../agents/src/whisper.ts";
 import {
   GeminiImageProvider,
@@ -118,7 +119,7 @@ export function applyProviderSelection(
       ? new WhisperCLIProvider(options.whisperModel)
       : selection.transcription === "openai"
         ? attempt<Transcriber>(
-            () => new OpenAIProvider(credentials.openAI, directorModel),
+            () => new GPTTranscriber(credentials.openAI),
             new MockAIProvider(),
           )
         : new MockAIProvider();

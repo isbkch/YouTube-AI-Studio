@@ -149,6 +149,36 @@ async function dispatch(
       const p = project.extend({ path: z.string() }).parse(params);
       return studio.importFCPTranscripts(p.projectId, p.path, signal);
     }
+    case "transcript.history":
+      return studio.store.get(project.parse(params).projectId).transcripts;
+    case "transcript.review": {
+      const p = project
+        .extend({ recordingId: z.string().optional() })
+        .parse(params);
+      return studio.reviewTranscription(p.projectId, p.recordingId, signal);
+    }
+    case "transcript.correct": {
+      const p = project
+        .extend({
+          reviewId: z.string(),
+          issueId: z.string(),
+          expectedHash: z.string(),
+          text: z.string().min(1).max(20000),
+        })
+        .parse(params);
+      return studio.correctTranscriptIssue(p.projectId, p, signal);
+    }
+    case "transcript.decide": {
+      const p = project
+        .extend({
+          reviewId: z.string(),
+          issueId: z.string(),
+          action: z.enum(["accept", "keep"]),
+          expectedHash: z.string(),
+        })
+        .parse(params);
+      return studio.decideTranscriptIssue(p.projectId, p);
+    }
     case "transcript.generate":
       return studio.transcribe(project.parse(params).projectId, signal);
     case "alignment.compute":
@@ -171,6 +201,7 @@ async function dispatch(
       const p = project
         .extend({
           director: z.enum(["purist", "craftsman", "showman"]).optional(),
+          fromReviewedTranscripts: z.boolean().optional(),
           density: z.enum(["minimal", "balanced", "rich"]).optional(),
           tightening: z.enum(["natural", "tight", "punchy"]).optional(),
         })
@@ -179,6 +210,7 @@ async function dispatch(
         p.projectId,
         {
           director: p.director,
+          fromReviewedTranscripts: p.fromReviewedTranscripts,
           density: p.density,
           tightening: p.tightening,
         },

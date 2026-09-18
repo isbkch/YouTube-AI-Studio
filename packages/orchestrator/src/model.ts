@@ -129,6 +129,12 @@ export interface Transcript {
   language: string;
   provider: string;
   model: string;
+  revision?: {
+    id: string;
+    parentHash: string | null;
+    reviewId: string;
+    createdAt: string;
+  };
   segments: {
     id: string;
     start: number;
@@ -208,6 +214,8 @@ export interface Project {
   scriptApproval: Approval | null;
   recordings: Recording[];
   transcripts: Transcript[];
+  transcriptHistory?: import("./transcription-model.ts").TranscriptSet[];
+  transcriptionReviews?: import("./transcription-model.ts").TranscriptionReview[];
   plans: ProductionPlan[];
   planApproval: Approval | null;
   roughCutApproval: Approval | null;

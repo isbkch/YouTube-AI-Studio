@@ -1,3 +1,4 @@
+import { transcriptsForPlan } from "./transcript-history.ts";
 import { copyFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -154,7 +155,7 @@ export async function buildProject(
       hash(p.scripts.find((s) => s.version === plan.scriptVersion))
     )
       throw new StudioError("CONFLICT", "Approved script content changed.");
-    validateSources(plan, p.recordings, p.transcripts);
+    validateSources(plan, p.recordings, transcriptsForPlan(p, plan));
     // Engine capability gates (ADR 007): unavailable engines fail the build
     // before any pixels are spent, and the audio design must resolve in-library
     // (generated beds resolve against the configured music engine instead).
@@ -173,7 +174,7 @@ export async function buildProject(
     const design = plan.audioDesign;
     // Punch-line captions are derived from the approved plan + transcripts,
     // never stored on the plan, so patches can never leave stale frames.
-    const captions = computeCaptionEvents(plan, p.transcripts);
+    const captions = computeCaptionEvents(plan, transcriptsForPlan(p, plan));
     const hasCaptions = captions.events.length > 0;
     const captionStyle = plan.captionStyle as "pop" | "karaoke";
     // The showman punctuates caption onsets with the built-in pop; a mix-time
@@ -1150,7 +1151,7 @@ export async function buildProject(
             `${silentSources.length} recording(s) have no narration audio; their preview segments contain silence.`,
           );
         const latestTranscripts = p.recordings.map((r) =>
-          p.transcripts.findLast((t) => t.recordingId === r.id),
+          transcriptsForPlan(p, plan).findLast((t) => t.recordingId === r.id),
         );
         if (latestTranscripts.some((t) => t?.provider === "mock"))
           warnings.push(

@@ -63,11 +63,7 @@ import {
   type SilenceTightening,
   type VisualDensity,
 } from "../../shared/src/index.ts";
-import {
-  importRecording,
-  extractAudio,
-  verifyOutput,
-} from "../../media/src/index.ts";
+import { importRecording, verifyOutput } from "../../media/src/index.ts";
 import {
   MockImageProvider,
   GeminiImageProvider,
@@ -114,6 +110,18 @@ import {
   splitScriptSentences,
   type Alignment,
 } from "./alignment.ts";
+import {
+  latestTranscripts,
+  rememberTranscripts,
+  requireReviewedTranscripts,
+  transcriptsForPlan,
+} from "./transcript-history.ts";
+import {
+  transcribeRecording,
+  decideTranscriptIssue,
+  correctTranscriptIssue,
+  requireTranscriptIdle,
+} from "./transcription.ts";
 import { reviewRetakes } from "./retakes.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import { computeCaptionEvents } from "./captions.ts";
@@ -169,7 +177,8 @@ export class Studio {
     );
     return {
       ...p,
-      transcripts: p.transcripts.map((t) => ({
+      transcriptHistory: undefined,
+      transcripts: latestTranscripts(p).map((t) => ({
         ...t,
         retakeReview: reviewRetakes(t, sentences),
       })),
@@ -890,7 +899,11 @@ export class Studio {
       );
       // An alignment from a different matching algorithm is not evidence about
       // this code's take selection; recompute instead of reusing it.
-      if (stored.algorithm !== ALIGNMENT_ALGORITHM) return null;
+      if (
+        stored.algorithm !== ALIGNMENT_ALGORITHM ||
+        stored.transcriptHash !== hash(latestTranscripts(p))
+      )
+        return null;
       return stored;
     } catch {
       return null;
@@ -919,31 +932,19 @@ export class Studio {
           `Extract and transcribe ${pending.length} recording${pending.length === 1 ? "" : "s"}`,
           async (signal) => {
             for (const r of pending) {
-              const format = this.transcription.audioFormat;
-              const audio = await safePath(
-                this.store.dir(p),
-                `cache/transcription-${r.hash}.${format}`,
-              );
-              await extractAudio(
-                await safePath(this.store.dir(p), r.path),
-                audio,
-                signal,
-                format,
-              );
-              const result = await this.transcription.transcribe({
-                file: audio,
-                recording: r,
-                signal,
-              });
-              await this.store.artifact(
+              await transcribeRecording(
+                this.store,
                 p,
-                `transcripts/transcript-${hash(result.output).slice(0, 16)}.json`,
-                result.output,
+                r,
+                this.transcription,
+                signal,
+                (message) =>
+                  this.notify?.({
+                    event: "transcription.progress",
+                    message,
+                    recordingId: r.id,
+                  }),
               );
-              this.store.update(p.id, (x) => {
-                x.transcripts.push(result.output);
-                x.usage.push(result.usage);
-              });
             }
           },
           signal,
@@ -956,6 +957,78 @@ export class Studio {
       return this.snapshot(p.id);
     });
   }
+  async reviewTranscription(
+    projectId: string,
+    recordingId?: string,
+    signal?: AbortSignal,
+  ) {
+    return this.locked(projectId, async (p) => {
+      requireTranscriptIdle(p);
+      if (this.transcription.name !== "openai")
+        throw new StudioError(
+          "CONFLICT",
+          "Select GPT Transcribe in Settings before running an audio review.",
+        );
+      const recordings = p.recordings.filter(
+        (r) => !recordingId || r.id === recordingId,
+      );
+      if (!recordings.length)
+        throw new StudioError(
+          "INVALID_INPUT",
+          "No matching recordings to review.",
+        );
+      await this.operation(
+        p,
+        "transcription-review",
+        `Transcribe and review ${recordings.length} recording(s)`,
+        async (signal) => {
+          for (const r of recordings)
+            await transcribeRecording(
+              this.store,
+              p,
+              r,
+              this.transcription,
+              signal,
+              (message) =>
+                this.notify?.({
+                  event: "transcription.progress",
+                  message,
+                  recordingId: r.id,
+                }),
+            );
+        },
+        signal,
+      );
+      return this.snapshot(p.id);
+    });
+  }
+  async decideTranscriptIssue(
+    projectId: string,
+    input: Parameters<typeof decideTranscriptIssue>[2],
+  ) {
+    return this.locked(projectId, async (p) => {
+      await decideTranscriptIssue(this.store, p, input);
+      return this.snapshot(p.id);
+    });
+  }
+  async correctTranscriptIssue(
+    projectId: string,
+    input: Parameters<typeof correctTranscriptIssue>[2],
+    signal?: AbortSignal,
+  ) {
+    return this.locked(projectId, async (p) => {
+      await this.operation(
+        p,
+        "transcript-correction",
+        "Align creator correction",
+        async (signal) => {
+          await correctTranscriptIssue(this.store, p, input, signal);
+        },
+        signal,
+      );
+      return this.snapshot(p.id);
+    });
+  }
   async generatePlan(
     projectId: string,
     options: {
@@ -964,10 +1037,13 @@ export class Studio {
       tightening?: SilenceTightening;
       captions?: CaptionStyle;
       polish?: AudioPolish;
+      fromReviewedTranscripts?: boolean;
     } = {},
     signal?: AbortSignal,
   ) {
     const result = await this.locked(projectId, async (p) => {
+      requireReviewedTranscripts(p);
+      if (options.fromReviewedTranscripts) requireTranscriptIdle(p);
       // The hired director owns the defaults: its persona resolves the density,
       // tightening, caption style and audio polish this plan is directed at.
       // Explicit options still override individual knobs for advanced calls;
@@ -986,9 +1062,10 @@ export class Studio {
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
         .filter((t): t is Transcript => !!t);
       if (
-        !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].includes(
+        (!["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].includes(
           p.status,
-        ) ||
+        ) &&
+          !options.fromReviewedTranscripts) ||
         !p.recordings.length ||
         transcripts.length !== p.recordings.length ||
         !p.scriptApproval
@@ -999,9 +1076,10 @@ export class Studio {
           "Import or transcribe a transcript for each recording, then retry.",
         );
       this.store.update(p.id, (x) => {
-        x.status = transition(x.status, "PLANNING");
-        x.planApproval = null;
-        x.roughCutApproval = null;
+        rememberTranscripts(x);
+        x.status = options.fromReviewedTranscripts
+          ? "PLANNING"
+          : transition(x.status, "PLANNING");
       });
       try {
         await this.operation(
@@ -1068,6 +1146,11 @@ export class Studio {
             );
             this.store.update(p.id, (x) => {
               x.plans.push(result.output);
+              x.planApproval = null;
+              x.roughCutApproval = null;
+              x.finalRender = null;
+              x.finalRenderEngine = null;
+              x.publishApproval = null;
               x.status = transition(x.status, "AWAITING_STORYBOARD_APPROVAL");
             });
             this.store.event(p.id, {
@@ -1080,8 +1163,7 @@ export class Studio {
         );
       } catch (e) {
         this.store.update(p.id, (x) => {
-          if (x.status === "PLANNING")
-            x.status = transition(x.status, "MEDIA_IMPORTED");
+          if (x.status === "PLANNING") x.status = p.status;
         });
         throw e;
       }
@@ -1098,6 +1180,7 @@ export class Studio {
    */
   async importPlan(projectId: string, input: unknown, signal?: AbortSignal) {
     const result = await this.locked(projectId, async (p) => {
+      requireReviewedTranscripts(p);
       const transcripts = p.recordings
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
         .filter((t): t is Transcript => !!t);
@@ -1125,7 +1208,7 @@ export class Studio {
           "Imported plan does not match this project's contract (id, next version, script or transcripts).",
           "Regenerate the plan against the current project state.",
         );
-      validateSources(plan, p.recordings, p.transcripts);
+      validateSources(plan, p.recordings, transcripts);
       await this.operation(
         p,
         "plan-import",
@@ -1137,6 +1220,7 @@ export class Studio {
             plan,
           );
           this.store.update(p.id, (x) => {
+            rememberTranscripts(x);
             x.plans.push(plan);
             x.planApproval = null;
             x.roughCutApproval = null;
@@ -1163,6 +1247,7 @@ export class Studio {
     options: { director?: DirectorId; tightening?: SilenceTightening } = {},
   ) {
     const p = this.store.get(projectId);
+    requireReviewedTranscripts(p);
     const alignment = await this.computeAlignment(projectId);
     const style =
       DIRECTOR_PROFILES[
@@ -1184,7 +1269,8 @@ export class Studio {
    */
   captionEvents(projectId: string) {
     const p = this.store.get(projectId);
-    return computeCaptionEvents(validatePlan(p.plans.at(-1)), p.transcripts);
+    const plan = validatePlan(p.plans.at(-1));
+    return computeCaptionEvents(plan, transcriptsForPlan(p, plan));
   }
   async approvePlan(
     projectId: string,
@@ -1402,7 +1488,7 @@ export class Studio {
         intent.illustrate &&
         /first|then|after that/i.test(request);
       const transcriptsByRecording = new Map<string, Transcript>();
-      for (const t of p.transcripts)
+      for (const t of transcriptsForPlan(p, plan))
         transcriptsByRecording.set(t.recordingId, t);
       /** Scene-relative frame where the scene's second transcript segment starts. */
       const firstSentenceSplit = (scene: (typeof plan)["scenes"][number]) => {
@@ -1758,7 +1844,7 @@ export class Studio {
   private validateProposal(p: Project, input: unknown) {
     const patch = patchSchema.parse(input);
     const next = applyPatch(p.plans.at(-1)!, patch);
-    validateSources(next, p.recordings, p.transcripts);
+    validateSources(next, p.recordings, transcriptsForPlan(p, next));
     return patch;
   }
   async decidePatch(
@@ -1962,8 +2048,8 @@ export class Studio {
           // re-edit from FCPXML and silently lose real burn-ins, so those
           // plans finish from the verified rough-cut bytes.
           const burnIn =
-            computeCaptionEvents(plan, p.transcripts).events.length > 0 ||
-            plan.audioPolish !== "natural";
+            computeCaptionEvents(plan, transcriptsForPlan(p, plan)).events
+              .length > 0 || plan.audioPolish !== "natural";
           try {
             if (burnIn) {
               engine = "ffmpeg";
@@ -2226,7 +2312,7 @@ export class Studio {
     let tightening: TighteningStats | null = null;
     if (plan.silenceTightening !== "natural") {
       const alignment = this.alignment(p.id);
-      if (alignment) {
+      if (alignment && alignment.transcriptHash === plan.transcriptHash) {
         try {
           const decision = buildEditDecision(
             alignment,
@@ -2247,7 +2333,8 @@ export class Studio {
     }
     let captions: number | null = null;
     try {
-      captions = computeCaptionEvents(plan, p.transcripts).events.length;
+      captions = computeCaptionEvents(plan, transcriptsForPlan(p, plan)).events
+        .length;
     } catch {
       captions = null;
     }

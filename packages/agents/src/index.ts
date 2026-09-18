@@ -53,6 +53,14 @@ export const transcriptSchema = z.strictObject({
   language: z.string(),
   provider: z.string(),
   model: z.string(),
+  revision: z
+    .strictObject({
+      id: z.string(),
+      parentHash: z.string().nullable(),
+      reviewId: z.string(),
+      createdAt: z.iso.datetime(),
+    })
+    .optional(),
   segments: z
     .array(
       z.strictObject({
@@ -159,7 +167,16 @@ export interface Transcriber {
     recording: Recording;
     signal?: AbortSignal;
     fixture?: Transcript;
-  }): Promise<ProviderResult<Transcript>>;
+    context?: { script: string; keywords?: string[]; languages?: string[] };
+    onProgress?: (message: string) => void;
+    onEvidence?: (evidence: {
+      stage: string;
+      output: unknown;
+      usage: Usage;
+    }) => Promise<void>;
+  }): Promise<
+    import("../../orchestrator/src/transcription-model.ts").TranscriptionResult
+  >;
 }
 export class MockAIProvider implements AIProvider, Transcriber {
   readonly name = "mock";
