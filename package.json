@@ -1,6 +1,6 @@
 {
   "name": "YouTube-AI-Studio",
-  "version": "0.1.7",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.2",
