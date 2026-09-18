@@ -110,9 +110,17 @@ struct StudioView: View {
                 VStack(alignment: .leading, spacing: 7) {
                   Text(p.title).font(.system(size: 13, weight: .medium)).lineLimit(3)
                     .multilineTextAlignment(.leading)
-                  Text(p.statusLabel).font(.system(size: 10)).foregroundStyle(
-                    m.selectedID == p.id ? Color.studioAccent : Color.secondary
-                  ).lineLimit(2)
+                  HStack(spacing: 5) {
+                    Text(p.statusLabel).font(.system(size: 10)).foregroundStyle(
+                      m.selectedID == p.id ? Color.studioAccent : Color.secondary
+                    ).lineLimit(2)
+                    if let total = p.costs?.totalUSD, total > 0 {
+                      Text("· \(money(total))").font(
+                        .system(size: 10, weight: .medium, design: .monospaced)
+                      )
+                      .foregroundStyle(.secondary)
+                    }
+                  }
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(12).background(
                   m.selectedID == p.id ? Color.primary.opacity(0.07) : .clear,
                   in: RoundedRectangle(cornerRadius: 10))
@@ -133,6 +141,21 @@ struct StudioView: View {
             m.provider == "mock" ? "Mock director · $0 API" : "OpenAI director",
             systemImage: m.provider == "mock" ? "leaf" : "sparkles"
           ).font(.caption).foregroundStyle(.secondary)
+          Button {
+            m.openCosts()
+          } label: {
+            HStack(spacing: 6) {
+              Image(systemName: "dollarsign.circle")
+              Text("Costs")
+              Spacer()
+              Text(money(m.project?.costs?.totalUSD ?? 0))
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+            }.padding(12).background(
+              m.showingCosts ? Color.studioAccent.opacity(0.10) : .clear,
+              in: RoundedRectangle(cornerRadius: 10))
+          }.buttonStyle(.plain).disabled(m.project == nil)
+            .help("Estimated API spend for this production")
           Button {
             settings = true
           } label: {
@@ -240,6 +263,9 @@ struct StudioView: View {
       .sheet(isPresented: $settings) {
         SettingsView().environmentObject(m).frame(width: 760, height: 780)
       }
+      .sheet(isPresented: $m.showingCosts) {
+        CostsSheet().environmentObject(m).frame(width: 700, height: 660)
+      }
       .overlay(alignment: .bottomTrailing) {
         ConnectionLoader(runtime: m.runtime, onReady: { Task { await m.load() } })
       }
@@ -269,6 +295,116 @@ struct RuntimeStatus: View {
         ?? (runtime.connected ? "Local runtime connected" : "Starting local runtime…")
     ).font(.caption).foregroundStyle(runtime.startupError == nil ? Color.secondary : .orange)
       .textSelection(.enabled).padding()
+  }
+}
+/// Cost display stays honest: sub-cent totals read "<$0.01" instead of $0.00.
+func money(_ value: Double) -> String {
+  value > 0 && value < 0.005 ? "<$0.01" : String(format: "$%.2f", value)
+}
+func costQuantityText(_ line: CostLine) -> String {
+  var parts: [String] = []
+  let tokens = line.inputTokens + line.outputTokens
+  if tokens > 0 { parts.append("\(tokens) tokens") }
+  if line.audioSeconds > 0 {
+    parts.append(String(format: "%.0f s audio", line.audioSeconds))
+  }
+  if line.images > 0 { parts.append("\(line.images) image\(line.images == 1 ? "" : "s")") }
+  return parts.isEmpty ? "no billed quantity recorded" : parts.joined(separator: " · ")
+}
+/// Estimated API spend: per-call usage priced by the runtime against list
+/// rates. Local engines are free; unpriced models are called out, never
+/// hidden inside the total.
+struct CostsSheet: View {
+  @EnvironmentObject var m: StudioModel
+  @Environment(\.dismiss) var dismiss
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Cost estimate.").studioHeading(25)
+          Text(
+            "Every billed call — direction, revisions, transcription, stills, music, QA — is priced as it happens. Local engines (mock, whisper.cpp, Blender, FFmpeg) cost nothing."
+          ).font(.caption).foregroundStyle(.secondary).padding(.trailing, 12)
+        }
+        Spacer()
+        Button {
+          dismiss()
+        } label: {
+          Image(systemName: "xmark")
+        }.buttonStyle(.plain)
+      }
+      if let report = m.costsReport {
+        HStack(spacing: 12) {
+          costCard("This production", report.project)
+          costCard("Whole library", report.library)
+        }
+        if report.project.unpricedCalls > 0 {
+          Label(
+            "\(report.project.unpricedCalls) call\(report.project.unpricedCalls == 1 ? "" : "s") used a model without published pricing — the total may under-count.",
+            systemImage: "exclamationmark.triangle"
+          ).font(.caption).foregroundStyle(.orange)
+        }
+        ScrollView {
+          VStack(alignment: .leading, spacing: 8) {
+            if !report.project.lines.isEmpty {
+              Text("THIS PRODUCTION").font(.system(size: 10, weight: .semibold)).tracking(2)
+                .foregroundStyle(.secondary).padding(.top, 4)
+              ForEach(report.project.lines) { line in
+                costRow(line)
+              }
+            }
+            if report.productions.count > 1 {
+              Text("ACROSS PRODUCTIONS").font(.system(size: 10, weight: .semibold)).tracking(2)
+                .foregroundStyle(.secondary).padding(.top, 10)
+              ForEach(report.productions.filter { $0.costs.totalUSD > 0 }) { production in
+                HStack {
+                  Text(production.title).font(.system(size: 12)).lineLimit(1)
+                  Spacer()
+                  Text(money(production.costs.totalUSD)).font(
+                    .system(size: 12, design: .monospaced)
+                  ).foregroundStyle(.secondary)
+                }.padding(.vertical, 3)
+              }
+            }
+          }.padding(.bottom, 6)
+        }
+        Text(
+          "Estimates use published list rates (September 2026) and drift from invoices; Gemini Lyria is an unpublished estimate. \(report.project.freeCalls) local call\(report.project.freeCalls == 1 ? "" : "s") recorded at $0."
+        ).font(.caption2).foregroundStyle(.secondary)
+      } else {
+        VStack(spacing: 10) {
+          ProgressView().controlSize(.small)
+          Text("Reading recorded usage…").font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    }.padding(32).onAppear { Task { await m.loadCosts() } }
+  }
+  private func costCard(_ title: String, _ summary: CostSummary) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(title).font(.system(size: 10, weight: .semibold)).tracking(2).foregroundStyle(.secondary)
+      Text(money(summary.totalUSD))
+        .font(.system(size: 26, weight: .medium, design: .serif)).monospacedDigit()
+      Text("\(summary.calls) billed call\(summary.calls == 1 ? "" : "s")").font(.caption)
+        .foregroundStyle(.secondary)
+    }.frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 12).padding(14)
+  }
+  private func costRow(_ line: CostLine) -> some View {
+    HStack(alignment: .top) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(line.agent.replacingOccurrences(of: "_", with: " ").capitalized)
+          .font(.system(size: 12, weight: .medium))
+        Text(
+          "\(line.provider) · \(line.model) · \(line.calls) call\(line.calls == 1 ? "" : "s") · \(costQuantityText(line))"
+        )
+        .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+        if line.unpricedCalls > 0 {
+          Text("unpriced model — not in the total").font(.caption2).foregroundStyle(.orange)
+        }
+      }
+      Spacer()
+      Text(money(line.costUSD)).font(.system(size: 12, weight: .medium, design: .monospaced))
+        .monospacedDigit().padding(.top, 2)
+    }.padding(10).studioCard(cornerRadius: 10)
   }
 }
 struct ConnectionLoader: View {

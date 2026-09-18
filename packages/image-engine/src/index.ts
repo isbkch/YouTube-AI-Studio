@@ -11,6 +11,7 @@ import {
   StudioError,
   type Usage,
 } from "../../shared/src/index.ts";
+import { estimateUsageCost } from "../../shared/src/costs.ts";
 import { ffmpeg } from "../../media/src/index.ts";
 import {
   BROLL_INSET_HEIGHT_RATIO,
@@ -86,21 +87,27 @@ export class OpenAIImageProvider implements ImageProvider {
         "Retry the render; verified outputs are reused.",
         true,
       );
-    return {
-      data: Buffer.from(base64, "base64"),
-      usage: {
-        agent: this.name,
-        provider: "openai",
-        model: this.model,
-        inputTokens: 0,
-        outputTokens: 0,
-        audioSeconds: 0,
-        imageCount: 1,
-        costUSD: null,
-        elapsedMs: performance.now() - started,
-        createdAt: now(),
-      },
+    // gpt-image-1 reports the billed token split; older models omit it and
+    // the pricing table falls back to a per-image estimate.
+    const billed = (
+      response as {
+        usage?: { input_tokens?: number; output_tokens?: number };
+      }
+    ).usage;
+    const usage: Usage = {
+      agent: this.name,
+      provider: "openai",
+      model: this.model,
+      inputTokens: billed?.input_tokens ?? 0,
+      outputTokens: billed?.output_tokens ?? 0,
+      audioSeconds: 0,
+      imageCount: 1,
+      costUSD: null,
+      elapsedMs: performance.now() - started,
+      createdAt: now(),
     };
+    usage.costUSD = estimateUsageCost(usage);
+    return { data: Buffer.from(base64, "base64"), usage };
   }
 }
 
@@ -151,21 +158,20 @@ export class GeminiImageProvider implements ImageProvider {
       },
     });
     const image = geminiBlock(blocks, "image");
-    return {
-      data: Buffer.from(image.data, "base64"),
-      usage: {
-        agent: this.name,
-        provider: "gemini",
-        model: this.model,
-        inputTokens: 0,
-        outputTokens: 0,
-        audioSeconds: 0,
-        imageCount: 1,
-        costUSD: null,
-        elapsedMs: performance.now() - started,
-        createdAt: now(),
-      },
+    const usage: Usage = {
+      agent: this.name,
+      provider: "gemini",
+      model: this.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      audioSeconds: 0,
+      imageCount: 1,
+      costUSD: null,
+      elapsedMs: performance.now() - started,
+      createdAt: now(),
     };
+    usage.costUSD = estimateUsageCost(usage);
+    return { data: Buffer.from(image.data, "base64"), usage };
   }
 }
 

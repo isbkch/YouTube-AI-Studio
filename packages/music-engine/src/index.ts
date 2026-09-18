@@ -10,6 +10,7 @@ import {
   StudioError,
   type Usage,
 } from "../../shared/src/index.ts";
+import { estimateUsageCost } from "../../shared/src/costs.ts";
 import { ffmpeg } from "../../media/src/index.ts";
 
 /**
@@ -132,21 +133,20 @@ export class GeminiMusicProvider implements MusicProvider {
       body: { input: [{ type: "text", text: request.prompt.slice(0, 2000) }] },
     });
     const audio = geminiBlock(blocks, "audio");
-    return {
-      data: Buffer.from(audio.data, "base64"),
-      usage: {
-        agent: this.name,
-        provider: "gemini",
-        model: this.model,
-        inputTokens: 0,
-        outputTokens: 0,
-        audioSeconds: this.clipSeconds,
-        imageCount: 0,
-        costUSD: null,
-        elapsedMs: performance.now() - started,
-        createdAt: now(),
-      },
+    const usage: Usage = {
+      agent: this.name,
+      provider: "gemini",
+      model: this.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      audioSeconds: this.clipSeconds,
+      imageCount: 0,
+      costUSD: null,
+      elapsedMs: performance.now() - started,
+      createdAt: now(),
     };
+    usage.costUSD = estimateUsageCost(usage);
+    return { data: Buffer.from(audio.data, "base64"), usage };
   }
 }
 

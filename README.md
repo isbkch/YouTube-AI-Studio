@@ -150,6 +150,7 @@ bun run wts thumbnails select <project-id> A --revision 1 # or select <project-i
 bun run wts thumbnails export <project-id> /absolute/export/folder
 bun run wts packaging approve <project-id> --version 1
 bun run wts publish <project-id>          # YouTube CLI upload, after approval
+bun run wts costs <project-id>            # estimated API spend (project + library)
 bun run wts project delete <project-id> --yes  # remove the project workspace
 ```
 
@@ -160,6 +161,12 @@ Always quote paths containing spaces. `render` is an alias for local rough-cut b
 Save the OpenAI key in the app's Settings. Swift uses Keychain Services with a device-local, unlocked-keychain item (`com.isbkch.YouTube-AI-Studio` / `openai`). The app sends the key to its private child process only when OpenAI is selected; it never writes it to project files. The CLI retrieves the same item through the system Keychain utility. Mock is the default.
 
 Credentials resolve from `OPENAI_API_KEY` in the repository `.env` first, then Keychain. The configurable Director model defaults to `gpt-5.4`; planning and revisions use the Responses API with strict structured outputs and `store: false`. Transcription has three providers: **mock** (imported fixtures), **whisper** (local whisper.cpp via `whisper-cli`, free and offline — the ggml model, default `~/.whisper-models/ggml-small.bin`, is downloaded automatically from the whisper.cpp repository on first use; `WTS_WHISPER_MODEL` points elsewhere), and **openai** (`whisper-1`, word+segment timestamps, 16 kHz mono MP3, 24 MB upload limit with an actionable error beyond it). Final Cut `.fcptranscript` import needs no provider at all.
+
+## Costs
+
+Every billed call — direction, revisions, transcription, stills, music, visual QA, packaging — is recorded as a `Usage` row (agent, provider, model, tokens, audio seconds, images) and priced by the runtime against the checked-in rate table in `packages/shared/src/costs.ts`: text models per 1M input/output tokens, transcription per audio minute, `gpt-image-1` per billed token (per-image fallback for rows without token usage), Gemini stills per image, and Lyria clips as an unpublished per-second estimate. Local engines — mock, whisper.cpp, Blender, FFmpeg — record $0. A model without a pricing rule is counted as **unpriced** and surfaced, never folded silently into the total. Totals are estimates and drift from invoices.
+
+The app keeps the running total visible in the sidebar (`Costs · $x.xx`) and updates it live as jobs complete; the Costs sheet breaks spend down per agent/model with call counts and quantities, plus library-wide totals and a per-production list. The CLI reports the same numbers via `bun run wts costs <project-id>`, and `project list` includes each project's summary.
 
 ## Repository map
 

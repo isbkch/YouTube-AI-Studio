@@ -1,6 +1,5 @@
 import { z } from "zod";
 import OpenAI from "openai";
-import { zodTextFormat } from "openai/helpers/zod";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
@@ -40,6 +39,7 @@ import {
   type Usage,
   type VisualDensity,
 } from "../../shared/src/index.ts";
+import { estimateUsageCost } from "../../shared/src/costs.ts";
 import type { Recording, Transcript } from "../../orchestrator/src/model.ts";
 import type { Alignment } from "../../orchestrator/src/alignment.ts";
 import {
@@ -226,11 +226,20 @@ function mockUsage(agent: string): Usage {
   };
 }
 /**
- * OpenAI strict structured outputs only accept a small allowlist of string
- * `format` keywords and reject the whole request otherwise — `uri` (emitted
- * by z.url()) fails with a 400 before generation starts. Strip unsupported
- * formats from the wire schema; the Zod schema still validates every parsed
- * response, so URL checks move from request rejection to output validation.
+ * Price a freshly recorded usage row against the current table so persisted
+ * rows are self-describing; summaries re-price from quantities anyway.
+ */
+export function priced(u: Usage): Usage {
+  return { ...u, costUSD: estimateUsageCost(u) };
+}
+/**
+ * OpenAI strict Structured Outputs accept a small allowlist of string
+ * `format` keywords and reject tuple-form `items`; the SDK's own strict
+ * converter refuses tuples client-side before a request is even sent. Build
+ * the wire schema with Zod's native draft-7 conversion and relax exactly
+ * those constructs (unsupported formats deleted, tuples collapsed to a
+ * length-bounded array, unions normalized to anyOf); the caller's Zod
+ * schema stays the validator of record for everything parsed back.
  */
 const OPENAI_STRICT_FORMATS = new Set([
   "date-time",
@@ -243,8 +252,12 @@ const OPENAI_STRICT_FORMATS = new Set([
   "ipv4",
   "ipv6",
 ]);
-function strictTextFormat<T>(schema: z.ZodType<T>, name: string) {
-  const format = zodTextFormat(schema, name);
+export function openAiWireSchema<T>(
+  schema: z.ZodType<T>,
+): Record<string, unknown> {
+  const wire = z.toJSONSchema(schema, {
+    target: "draft-7",
+  }) as Record<string, unknown>;
   const visit = (node: unknown): void => {
     if (Array.isArray(node)) {
       node.forEach(visit);
@@ -252,6 +265,16 @@ function strictTextFormat<T>(schema: z.ZodType<T>, name: string) {
     }
     if (!node || typeof node !== "object") return;
     const record = node as Record<string, unknown>;
+    if (Array.isArray(record.items)) {
+      const unique: unknown[] = [];
+      for (const item of record.items)
+        if (!unique.some((u) => JSON.stringify(u) === JSON.stringify(item)))
+          unique.push(item);
+      record.items = unique.length === 1 ? unique[0] : { anyOf: unique };
+      delete record.additionalItems;
+    }
+    if (record.type === "object" && !("additionalProperties" in record))
+      record.additionalProperties = false;
     for (const [key, value] of Object.entries(record)) {
       if (
         key === "format" &&
@@ -259,11 +282,26 @@ function strictTextFormat<T>(schema: z.ZodType<T>, name: string) {
         !OPENAI_STRICT_FORMATS.has(value)
       )
         delete record[key];
-      else visit(value);
+      else if (key === "oneOf") {
+        record.anyOf = value;
+        delete record[key];
+        visit(record.anyOf);
+      } else visit(value);
     }
   };
-  visit(format.schema);
-  return format;
+  visit(wire);
+  return wire;
+}
+function wireTextFormat<T>(
+  schema: z.ZodType<T>,
+  name: string,
+): OpenAI.Responses.ResponseFormatTextJSONSchemaConfig {
+  return {
+    type: "json_schema",
+    name,
+    strict: true,
+    schema: openAiWireSchema(schema),
+  };
 }
 export class OpenAIProvider implements AIProvider, Transcriber {
   readonly name = "openai";
@@ -305,17 +343,26 @@ export class OpenAIProvider implements AIProvider, Transcriber {
         });
       input = [{ role: "user", content }];
     } else input = JSON.stringify(r.input);
-    const response = await this.client.responses.parse(
+    const response = await this.client.responses.create(
       {
         model: this.model,
         store: false,
         instructions: r.instructions,
         input,
-        text: { format: strictTextFormat(r.schema, r.name) },
+        text: { format: wireTextFormat(r.schema, r.name) },
       },
       { signal: r.signal },
     );
-    if (response.status !== "completed" || !response.output_parsed)
+    const text = response.output_text;
+    let parsed: unknown;
+    if (response.status === "completed" && text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = undefined;
+      }
+    }
+    if (parsed === undefined)
       throw new StudioError(
         "API",
         `The ${r.name} response was incomplete or refused.`,
@@ -323,8 +370,8 @@ export class OpenAIProvider implements AIProvider, Transcriber {
         true,
       );
     return {
-      output: r.schema.parse(response.output_parsed),
-      usage: {
+      output: r.schema.parse(parsed),
+      usage: priced({
         agent: r.name,
         provider: this.name,
         model: response.model,
@@ -335,7 +382,7 @@ export class OpenAIProvider implements AIProvider, Transcriber {
         costUSD: null,
         elapsedMs: performance.now() - started,
         createdAt: now(),
-      },
+      }),
     };
   }
   async transcribe(r: {
@@ -410,7 +457,7 @@ export class OpenAIProvider implements AIProvider, Transcriber {
     );
     return {
       output: transcript,
-      usage: {
+      usage: priced({
         agent: "transcription",
         provider: this.name,
         model: "whisper-1",
@@ -421,7 +468,7 @@ export class OpenAIProvider implements AIProvider, Transcriber {
         costUSD: null,
         elapsedMs: performance.now() - started,
         createdAt: now(),
-      },
+      }),
     };
   }
 }

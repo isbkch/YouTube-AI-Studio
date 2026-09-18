@@ -37,7 +37,7 @@ struct DirectorOption: Identifiable {
   let detail: String
   let symbol: String
 }
-/** Frames → m:ss for caption list rows. */
+/// Frames → m:ss for caption list rows.
 private func timecode(_ frame: Int, _ fps: Int) -> String {
   let total = Int((Double(frame) / Double(max(1, fps))).rounded())
   return String(format: "%d:%02d", total / 60, total % 60)
@@ -89,12 +89,14 @@ struct StoryboardView: View {
           .frame(width: 300)
           .background(
             m.selectedDirector == option.id
-              ? Color.studioAccent.opacity(0.1) : Color.primary.opacity(0.04))
+              ? Color.studioAccent.opacity(0.1) : Color.primary.opacity(0.04)
+          )
           .clipShape(RoundedRectangle(cornerRadius: 9))
           .overlay(
             RoundedRectangle(cornerRadius: 9)
               .stroke(
-                m.selectedDirector == option.id ? Color.studioAccent : .clear, lineWidth: 1))
+                m.selectedDirector == option.id ? Color.studioAccent : .clear, lineWidth: 1)
+          )
           .contentShape(RoundedRectangle(cornerRadius: 9))
         }
         .buttonStyle(.plain)

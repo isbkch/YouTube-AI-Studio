@@ -23,6 +23,8 @@ import UniformTypeIdentifiers
   private var thumbnailLoadID = UUID()
   @Published var captions: CaptionList = CaptionList(
     style: "none", events: [], skippedRecordings: [])
+  @Published var costsReport: CostsReport?
+  @Published var showingCosts = false
   @Published var finalMacros: [String] = []
   @Published var finalPresets: [String] = [
     "H.264 Master", "H.264 Narrative", "ProRes 422 HQ", "ProRes 422",
@@ -484,6 +486,15 @@ import UniformTypeIdentifiers
   func loadQA() async {
     guard let id = selectedID else { return }
     qa = try? await runtime.call("qa.get", ["projectId": id])
+  }
+  /** Cost totals are read fresh whenever the sheet opens or refreshes. */
+  func loadCosts() async {
+    guard let id = selectedID else { return }
+    costsReport = try? await runtime.call("costs.get", ["projectId": id])
+  }
+  func openCosts() {
+    showingCosts = true
+    Task { await loadCosts() }
   }
   func loadFinalOptions() async {
     if let options: FinalOptions = try? await runtime.call("final.macros") {

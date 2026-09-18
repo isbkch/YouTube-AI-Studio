@@ -50,7 +50,9 @@ async function dispatch(
 ): Promise<unknown> {
   switch (method) {
     case "projects.list":
-      return store.list();
+      return studio.listProjects();
+    case "costs.get":
+      return studio.costs(project.parse(params).projectId);
     case "project.create": {
       const p = z
         .object({
