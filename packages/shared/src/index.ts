@@ -290,11 +290,6 @@ export interface DirectorStyle {
   audioPolish: AudioPolish;
 }
 /**
- * Single source of truth for what each director means. The plan records the
- * resolved captionStyle/audioPolish (and the density/tightening knobs); the
- * visual pass and build read the persona for everything else.
- */
-/**
  * The resolved direction a plan is generated under: the persona plus the
  * knob values it drove (explicit per-generation overrides included). Studio
  * computes it once and hands it to the Director agent, which records it on
@@ -307,6 +302,11 @@ export interface DirectedStyle {
   captionStyle: CaptionStyle;
   audioPolish: AudioPolish;
 }
+/**
+ * Single source of truth for what each director means. The plan records the
+ * resolved captionStyle/audioPolish (and the density/tightening knobs); the
+ * visual pass and build read the persona for everything else.
+ */
 export const DIRECTOR_PROFILES: Record<DirectorId, DirectorStyle> = {
   purist: {
     name: "The Purist",

@@ -936,7 +936,9 @@ export class Studio {
       // tightening, caption style and audio polish this plan is directed at.
       // Explicit options still override individual knobs for advanced calls;
       // the plan records whichever values were used.
-      const director = asDirectorPersona(options.director ?? p.creator.director);
+      const director = asDirectorPersona(
+        options.director ?? p.creator.director,
+      );
       const style = DIRECTOR_PROFILES[director];
       const density = asVisualDensity(options.density ?? style.visualDensity);
       const tightening = asSilenceTightening(
@@ -1119,7 +1121,9 @@ export class Studio {
     const p = this.store.get(projectId);
     const alignment = await this.computeAlignment(projectId);
     const style =
-      DIRECTOR_PROFILES[asDirectorPersona(options.director ?? p.creator.director)];
+      DIRECTOR_PROFILES[
+        asDirectorPersona(options.director ?? p.creator.director)
+      ];
     return buildEditDecision(
       alignment,
       p.recordings.map((r) =>
@@ -1138,7 +1142,8 @@ export class Studio {
     const p = this.store.get(projectId);
     return computeCaptionEvents(validatePlan(p.plans.at(-1)), p.transcripts);
   }
-  async approvePlan(projectId: string, version: number) {    return this.locked(projectId, async (p) => {
+  async approvePlan(projectId: string, version: number) {
+    return this.locked(projectId, async (p) => {
       const plan = validatePlan(p.plans.at(-1));
       if (
         plan.version !== version ||
@@ -1884,11 +1889,14 @@ export class Studio {
             return fallback;
           };
           let produced: string | null = null;
-          // Punch-line captions and narration processing are burned into the
-          // rough cut; Resolve would re-edit from FCPXML and silently lose
-          // them, so such plans finish from the verified rough-cut bytes.
+          // Burned-in punch-line captions and narration processing only exist
+          // when there is actually something to burn: a caption-styled plan
+          // with no qualifying punch lines cuts like any other. Resolve would
+          // re-edit from FCPXML and silently lose real burn-ins, so those
+          // plans finish from the verified rough-cut bytes.
           const burnIn =
-            plan.captionStyle !== "none" || plan.audioPolish !== "natural";
+            computeCaptionEvents(plan, p.transcripts).events.length > 0 ||
+            plan.audioPolish !== "natural";
           try {
             if (burnIn) {
               engine = "ffmpeg";
@@ -1906,7 +1914,8 @@ export class Studio {
               if (!result.available)
                 throw new StudioError(
                   "EXTERNAL_TOOL",
-                  result.reason ?? "Resolve is unavailable for final rendering.",
+                  result.reason ??
+                    "Resolve is unavailable for final rendering.",
                   "Check Resolve and its render queue, then retry.",
                   true,
                 );
@@ -2207,7 +2216,9 @@ export class Studio {
         format: z.string().max(300),
         targetMinutes: z.tuple([z.number().positive(), z.number().positive()]),
         subjects: z.array(z.string().max(100)),
-        director: z.enum(["purist", "craftsman", "showman"]).default("craftsman"),
+        director: z
+          .enum(["purist", "craftsman", "showman"])
+          .default("craftsman"),
         visualDensity: z
           .enum(["minimal", "balanced", "rich"])
           .default("balanced"),

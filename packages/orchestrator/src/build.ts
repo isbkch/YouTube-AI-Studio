@@ -163,9 +163,13 @@ export async function buildProject(
     // Built-in synthesized SFX resolve like library tracks (ADR 007 rule):
     // the bank guarantees the floor so persona-driven plans build without a
     // hand-curated SFX library.
-    validateAudioDesign(plan, [...trackRefs(library.tracks), ...builtinSfxTracks()], {
-      musicGeneration: !!context.music,
-    });
+    validateAudioDesign(
+      plan,
+      [...trackRefs(library.tracks), ...builtinSfxTracks()],
+      {
+        musicGeneration: !!context.music,
+      },
+    );
     const design = plan.audioDesign;
     // Punch-line captions are derived from the approved plan + transcripts,
     // never stored on the plan, so patches can never leave stale frames.
@@ -199,7 +203,7 @@ export async function buildProject(
     }[];
     for (const event of design.sfx) {
       if (builtinSfxTrack(event.trackId)) {
-        const synth = await builtinSfxFile(dir, event.trackId);
+        const synth = await builtinSfxFile(dir, event.trackId, signal);
         sfxTracks.push({
           event,
           file: synth.file,
@@ -733,7 +737,11 @@ export async function buildProject(
     const hasAudioDesign = !!(design.music || design.sfx.length);
     // The narration itself gets engineered (compression/loudness) even when
     // the plan designs no music or SFX — the mix then runs narration-only.
-    const needsMix = hasAudioDesign || plan.audioPolish !== "natural";
+    // Caption pops need the mix too, or they would silently drop.
+    const needsMix =
+      hasAudioDesign ||
+      plan.audioPolish !== "natural" ||
+      showmanPops.length > 0;
     /** Set by the assembly task; later tasks read them after their dependency. */
     const concatOutput = { key: "", relative: previewPath };
     const burnOutput = { key: "", relative: "" };
@@ -941,7 +949,7 @@ export async function buildProject(
                 clips.push({
                   file: await safePath(dir, captionClips.get(e.id)!.path),
                   startSec: e.startFrame / plan.frameRate,
-                  endSec: (e.endFrame - 1) / plan.frameRate,
+                  endSec: e.endFrame / plan.frameRate,
                 });
               await overlayCaptions({
                 video: await safePath(dir, concatOutput.relative),
@@ -1104,13 +1112,18 @@ export async function buildProject(
         },
       });
     }
+    // QA verifies the preview deliverable, so it waits on whichever task
+    // produced it: the mix, the caption burn, or assembly itself.
+    const previewProducer = needsMix
+      ? "mix"
+      : hasCaptions
+        ? "captions"
+        : "assembly";
     tasks.push({
       id: "qa",
       type: "qa",
       label: "QA • decode, duration and asset completeness",
-      dependencies: [
-        needsMix ? "mix" : hasCaptions ? "captions" : "assembly",
-      ],
+      dependencies: [previewProducer],
       run: async (ctx) => {
         const meta = await verifyOutput(
           await safePath(dir, previewPath),
