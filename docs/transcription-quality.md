@@ -26,6 +26,8 @@ Keeping a passage is a creator decision, not a claim that its timings passed aco
 
 `bun run transcription:setup` installs pinned WhisperX/Silero dependencies into a managed Python 3.12 environment using `uv`. The first GPT review runs setup when needed and downloads alignment weights. Install `uv` and FFmpeg first. No Python packages are installed globally.
 
+The acoustic worker disables ONNX Runtime telemetry before importing ML libraries. This avoids an observed macOS telemetry-thread crash during native shutdown; processing failures still stop the job and report their termination signal.
+
 Overrides: `WTS_ALIGNMENT_ENV`, `WTS_ALIGNMENT_PYTHON_PATH`, `WTS_TRANSCRIPT_REVIEW_MODEL`. Local whisper.cpp remains available using `WTS_WHISPER_MODEL`. New cloud transcription uses `gpt-transcribe`; the Director model selection does not change the transcription or review models.
 
 ## Benchmark against real recordings

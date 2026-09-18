@@ -122,7 +122,7 @@ export async function runBinary(
         ),
       );
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       cleanup();
       if (options.signal?.aborted)
         reject(
@@ -137,7 +137,7 @@ export async function runBinary(
         reject(
           new StudioError(
             "EXTERNAL_TOOL",
-            `${path.basename(binary)} ${timedOut ? "timed out" : `exited with ${code}`}: ${redact(stderr.slice(-4000))}`,
+            `${path.basename(binary)} ${timedOut ? "timed out" : signal ? `terminated by ${signal}` : `exited with ${code}`}: ${redact(stderr.slice(-4000))}`,
             "Check the source media and job log, then retry.",
             true,
           ),
