@@ -16,7 +16,10 @@ import {
   type ProductionPlan,
 } from "../packages/production-plan/src/index.ts";
 import { computeCaptionEvents } from "../packages/orchestrator/src/captions.ts";
-import { BUILTIN_SFX, builtinSfxTracks } from "../packages/orchestrator/src/sfx.ts";
+import {
+  BUILTIN_SFX,
+  builtinSfxTracks,
+} from "../packages/orchestrator/src/sfx.ts";
 import { mockVisualPass } from "../packages/agents/src/index.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
@@ -194,8 +197,12 @@ test("draftAroll maps the director to a tightening level", async () => {
     );
     // An explicit tightening still wins over the persona default.
     assert.equal(
-      (await studio.draftAroll(p.id, { director: "purist", tightening: "tight" }))
-        .stats.tightening.level,
+      (
+        await studio.draftAroll(p.id, {
+          director: "purist",
+          tightening: "tight",
+        })
+      ).stats.tightening.level,
       "tight",
     );
   } finally {
@@ -223,24 +230,25 @@ const captionPlan = (
   ];
   const sentences = options.secondScene ? [...scene1, ...scene2] : scene1;
   const withWords = transcriptWithWords(rec.id, sentences);
-  const transcript: Transcript = options.words === false
-    ? {
-        ...withWords,
-        segments: withWords.segments.map((s) => ({
-          id: s.id,
-          start: s.start,
-          end: s.end,
-          text: s.text,
-        })),
-      }
-    : withWords;
+  const transcript: Transcript =
+    options.words === false
+      ? {
+          ...withWords,
+          segments: withWords.segments.map((s) => ({
+            id: s.id,
+            start: s.start,
+            end: s.end,
+            text: s.text,
+          })),
+        }
+      : withWords;
   const base = fixture();
   const scene = (
     i: number,
     startFrame: number,
     sourceInFrame: number,
     narration: string,
-  ): typeof base.scenes[number] => ({
+  ): (typeof base.scenes)[number] => ({
     ...base.scenes[0],
     id: `scene-${i + 1}`,
     startFrame,
@@ -256,10 +264,7 @@ const captionPlan = (
     ...base,
     captionStyle,
     scenes: options.secondScene
-      ? [
-          scene(0, 0, 300, narration1),
-          scene(1, 300, 600, narration2),
-        ]
+      ? [scene(0, 0, 300, narration1), scene(1, 300, 600, narration2)]
       : [scene(0, 0, 300, narration1)],
     durationFrames: options.secondScene ? 600 : 300,
   });
@@ -306,8 +311,8 @@ test("pop captions stay sparse while karaoke allows more beats", () => {
     "pop caps at one caption per scene",
   );
   assert.ok(
-    karaoke.events.filter((e) => e.sceneId === "scene-1").length
-      >= pop.events.filter((e) => e.sceneId === "scene-1").length,
+    karaoke.events.filter((e) => e.sceneId === "scene-1").length >=
+      pop.events.filter((e) => e.sceneId === "scene-1").length,
     "karaoke at least matches pop in the same scene",
   );
 });
@@ -329,8 +334,8 @@ test("caption pacing gaps hold across scene boundaries", () => {
   );
   for (let i = 1; i < captions.events.length; i++)
     assert.ok(
-      captions.events[i].startFrame
-        >= captions.events[i - 1].endFrame + 6 * 30 - 2,
+      captions.events[i].startFrame >=
+        captions.events[i - 1].endFrame + 6 * 30 - 2,
       "pop captions keep at least ~6 s between beats",
     );
 });
@@ -348,10 +353,22 @@ test("caption clip keys follow content, style and brand", () => {
     words: event.words.map((w) => ({ ...w, atFrame: w.atFrame + 30 })),
   };
   assert.equal(captionKey(moved, "pop", plan, "brand-a", "templatehash"), key);
-  assert.notEqual(captionKey(event, "karaoke", plan, "brand-a", "templatehash"), key);
-  assert.notEqual(captionKey(event, "pop", plan, "brand-b", "templatehash"), key);
   assert.notEqual(
-    captionKey({ ...event, text: event.text + " more" }, "pop", plan, "brand-a", "templatehash"),
+    captionKey(event, "karaoke", plan, "brand-a", "templatehash"),
+    key,
+  );
+  assert.notEqual(
+    captionKey(event, "pop", plan, "brand-b", "templatehash"),
+    key,
+  );
+  assert.notEqual(
+    captionKey(
+      { ...event, text: event.text + " more" },
+      "pop",
+      plan,
+      "brand-a",
+      "templatehash",
+    ),
     key,
   );
 });
@@ -383,7 +400,10 @@ test("mock visual pass follows the persona's SFX temperament", () => {
               engine: "remotion",
               template: "Callout",
               templateVersion: "1.0.0",
-              parameters: { title: "Two copies.", subtitle: "One failure domain." },
+              parameters: {
+                title: "Two copies.",
+                subtitle: "One failure domain.",
+              },
             },
           },
           camera: { ...base.scenes[0].camera, recordingId: "rec-1" },
@@ -425,7 +445,10 @@ test("mock visual pass follows the persona's SFX temperament", () => {
     "only advertised tracks are cited",
   );
   const showman = mockVisualPass(input("showman"));
-  assert.ok(showman.sfx.length > craftsman.sfx.length, "the showman accents more");
+  assert.ok(
+    showman.sfx.length > craftsman.sfx.length,
+    "the showman accents more",
+  );
   assert.ok(
     showman.sfx.some((s) => s.trackId === "builtin.whoosh"),
     "graphic reveals get a whoosh from the showman",

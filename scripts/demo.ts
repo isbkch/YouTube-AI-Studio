@@ -198,7 +198,9 @@ export async function demo(
     // and punch-line captions animate off real timings.
     const withWords = paragraphs.map((text, i) => {
       const start = i * 12;
-      const words = text.split(/\s+/);
+      // Guard against stray formatting: empty tokens would fail transcript
+      // validation and break the demo.
+      const words = text.trim().split(/\s+/).filter(Boolean);
       const span = 12 / words.length;
       return {
         id: `segment-${i + 1}`,
@@ -366,7 +368,13 @@ export async function demo(
     const clipAssets = store
       .assets(p.id)
       .filter((a) => a.type === "broll-clip");
-    const mixAssets = store.assets(p.id).filter((a) => a.type === "audio-mix");
+    const mixAssets = store
+      .assets(p.id)
+      .filter(
+        (a) =>
+          a.type === "audio-mix" &&
+          a.productionPlanVersion === store.get(p.id).plans.at(-1)!.version,
+      );
     const bedAssets = store.assets(p.id).filter((a) => a.type === "music-bed");
     assert.equal(stillAssets.length, generatedStills);
     assert.equal(clipAssets.length, treated.length);

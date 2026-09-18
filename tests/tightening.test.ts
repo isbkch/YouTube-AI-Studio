@@ -308,7 +308,10 @@ test("generatePlan honors the tightening override and records it on the plan", a
     // (craftsman) would already tighten.
     const natural = await studio.generatePlan(p.id, { director: "purist" });
     assert.equal(natural.plans.at(-1)!.silenceTightening, "natural");
-    const tight = await studio.generatePlan(p.id, { director: "purist", tightening: "tight" });
+    const tight = await studio.generatePlan(p.id, {
+      director: "purist",
+      tightening: "tight",
+    });
     const plan = tight.plans.at(-1)!;
     assert.equal(plan.silenceTightening, "tight");
     assert.ok(
