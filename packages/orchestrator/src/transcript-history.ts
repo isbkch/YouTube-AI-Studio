@@ -45,16 +45,31 @@ export function transcriptsForPlan(
     "Restore its transcript history or generate a new storyboard.",
   );
 }
-export function requireReviewedTranscripts(p: Project) {
-  const pending = (p.transcriptionReviews ?? []).filter(
-    (r) =>
-      r.status === "needs-review" &&
-      latestTranscripts(p).some((t) => hash(t) === r.candidateHash),
-  );
-  if (pending.length)
-    throw new StudioError(
-      "CONFLICT",
-      "Resolve the transcript review queue before generating a new storyboard.",
-      "Listen to each flagged passage and accept the correction or keep the original.",
+/** Suggestions are advisory. Scope optional listening to footage actually used. */
+export function transcriptReviewContext(p: Project) {
+  const plan = p.plans.at(-1);
+  const transcripts = latestTranscripts(p);
+  // New transcript wording must not be presented as evidence for an older plan.
+  if (!plan || plan.transcriptHash !== hash(transcripts))
+    return {
+      planVersion: plan?.version ?? null,
+      issueIdsInStoryboard: null,
+    };
+  const currentHashes = new Set(transcripts.map((t) => hash(t)));
+  const issueIdsInStoryboard = (p.transcriptionReviews ?? [])
+    .filter((review) => currentHashes.has(review.candidateHash))
+    .flatMap((review) =>
+      review.issues
+        .filter((issue) =>
+          plan.scenes.some(
+            (scene) =>
+              scene.camera.recordingId === review.recordingId &&
+              issue.start <
+                (scene.sourceInFrame + scene.durationFrames) / plan.frameRate &&
+              issue.end > scene.sourceInFrame / plan.frameRate,
+          ),
+        )
+        .map((issue) => issue.id),
     );
+  return { planVersion: plan.version, issueIdsInStoryboard };
 }

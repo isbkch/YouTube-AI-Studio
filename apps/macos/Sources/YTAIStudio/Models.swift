@@ -578,6 +578,7 @@ struct Project: Decodable, Identifiable {
   let recordings: [Recording]
   let transcripts: [Transcript]
   let transcriptionReviews: [TranscriptionReview]?
+  let transcriptReviewContext: TranscriptReviewContext?
   let plans: [Plan]
   let planApproval: Approval?
   let roughCutApproval: Approval?
@@ -609,6 +610,7 @@ struct Project: Decodable, Identifiable {
   var pendingRecordings: [Recording] {
     recordings.filter { transcript(for: $0) == nil }
   }
+  var hasCompleteTranscript: Bool { !recordings.isEmpty && pendingRecordings.isEmpty }
   func url(_ relative: String) -> URL? {
     directory.map { URL(fileURLWithPath: $0).appendingPathComponent(relative) }
   }
@@ -869,6 +871,11 @@ struct TranscriptRevision: Decodable {
   let reviewId: String
   let createdAt: String
 }
+struct TranscriptReviewContext: Decodable {
+  let planVersion: Int?
+  /// Nil until a storyboard uses the current transcript revision.
+  let issueIdsInStoryboard: [String]?
+}
 struct TranscriptionReview: Decodable, Identifiable {
   let id: String
   let recordingId: String
@@ -908,5 +915,12 @@ extension Project {
   }
   var pendingTranscriptIssues: Int {
     activeTranscriptReviews.reduce(0) { $0 + $1.issues.filter { $0.status == "pending" }.count }
+  }
+  var storyboardTranscriptIssueCount: Int? {
+    guard let ids = transcriptReviewContext?.issueIdsInStoryboard else { return nil }
+    let included = Set(ids)
+    return activeTranscriptReviews.reduce(0) {
+      $0 + $1.issues.filter { $0.status == "pending" && included.contains($0.id) }.count
+    }
   }
 }

@@ -567,7 +567,9 @@ struct TranscriptView: View {
           Text(
             p.recordings.isEmpty
               ? "Import A-roll first."
-              : "\(p.recordings.count) clip(s) • \(p.pendingRecordings.count) still need a transcript • timestamps are relative to each clip"
+              : p.hasCompleteTranscript
+                ? "\(p.recordings.count) clips transcribed • timestamps are relative to each clip"
+                : "\(p.recordings.count) clip(s) • \(p.pendingRecordings.count) still need a transcript • timestamps are relative to each clip"
           ).font(.caption).foregroundStyle(.secondary)
         }
         Spacer()
@@ -577,23 +579,28 @@ struct TranscriptView: View {
         Button("Load Transcript…") { Task { await m.loadTranscript() } }.buttonStyle(
           QuietButtonStyle()
         ).disabled(p.status != "MEDIA_IMPORTED" || m.busy)
-        Button(
-          m.transcriptionProvider == "mock"
-            ? "Mock Transcribe"
-            : m.transcriptionProvider == "whisper"
-              ? "Transcribe Locally (whisper)" : "GPT Transcribe + review"
-        ) {
-          Task {
-            // Apply the current Settings selection first so the label and the
-            // engine that runs can never diverge (e.g. picking Local whisper
-            // but transcribing with OpenAI because Apply was never pressed).
-            let requestedProvider = m.transcriptionProvider
-            await m.configureProvider()
-            guard m.transcriptionProvider == requestedProvider, m.error == nil else { return }
-            await m.perform("transcript.generate", label: "Transcription")
-          }
-        }.buttonStyle(QuietButtonStyle()).disabled(
-          p.status != "MEDIA_IMPORTED" || m.busy || p.pendingRecordings.isEmpty)
+        if p.hasCompleteTranscript {
+          Label("Transcription complete", systemImage: "checkmark.circle")
+            .font(.callout).foregroundStyle(.secondary)
+        } else {
+          Button(
+            m.transcriptionProvider == "mock"
+              ? "Mock Transcribe"
+              : m.transcriptionProvider == "whisper"
+                ? "Transcribe Locally (whisper)" : "GPT Transcribe + review"
+          ) {
+            Task {
+              // Apply the current Settings selection first so the label and the
+              // engine that runs can never diverge (e.g. picking Local whisper
+              // but transcribing with OpenAI because Apply was never pressed).
+              let requestedProvider = m.transcriptionProvider
+              await m.configureProvider()
+              guard m.transcriptionProvider == requestedProvider, m.error == nil else { return }
+              await m.perform("transcript.generate", label: "Transcription")
+            }
+          }.buttonStyle(QuietButtonStyle()).disabled(
+            p.status != "MEDIA_IMPORTED" || m.busy || p.recordings.isEmpty)
+        }
       }
       TranscriptReviewPanel(p: p)
       if discardedCount > 0 {
@@ -677,7 +684,7 @@ struct TranscriptView: View {
       HStack {
         Button("Draft A-Roll Cut") { Task { await m.draftAroll() } }.buttonStyle(
           QuietButtonStyle()
-        ).disabled(!p.pendingRecordings.isEmpty || m.busy || p.pendingTranscriptIssues > 0)
+        ).disabled(!p.hasCompleteTranscript || m.busy || !p.transcriptReviewIdle)
         Spacer()
         Menu {
           ForEach(directorOptions) { option in
@@ -688,12 +695,11 @@ struct TranscriptView: View {
             "Director: \(directorOptions.first { $0.id == m.selectedDirector }?.name ?? m.selectedDirector)",
             systemImage: "film"
           )
-        }.disabled(!p.pendingRecordings.isEmpty || m.busy)
+        }.disabled(!p.hasCompleteTranscript || m.busy)
           .fixedSize()
         Button("Import Plan…") { Task { await m.importPlan() } }.buttonStyle(QuietButtonStyle())
           .disabled(
-            !p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED"
-              || p.pendingTranscriptIssues > 0)
+            !p.hasCompleteTranscript || m.busy || p.status != "MEDIA_IMPORTED")
         Button(p.plans.isEmpty ? "Generate Storyboard" : "New Storyboard from Transcript") {
           Task {
             if await m.perform(
@@ -704,8 +710,7 @@ struct TranscriptView: View {
             }
           }
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(
-          !p.pendingRecordings.isEmpty || m.busy || !p.transcriptReviewIdle
-            || p.pendingTranscriptIssues > 0)
+          !p.hasCompleteTranscript || m.busy || !p.transcriptReviewIdle)
       }
     }.padding(28)
   }

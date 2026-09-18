@@ -1,6 +1,8 @@
 # Transcription quality
 
-Choose **GPT Transcribe + review** in Settings for new recordings, or **Transcribe & Review** on the Transcript tab to upgrade an existing recording. The latter uses OpenAI and is billed to the configured API account. It works while production is idle. Each recording is saved as it completes; failures retain earlier completed recordings and paid provider evidence.
+Choose **GPT Transcribe + review** in Settings for new recordings, or **Re-transcribe…** on the Transcript tab to upgrade an existing recording. The latter uses OpenAI and is billed to the configured API account. It works while production is idle. Each recording is saved as it completes; failures retain earlier completed recordings and paid provider evidence.
+
+When all recordings are transcribed, choose **Generate Storyboard** or **Draft A-Roll Cut** immediately. AI suggestions are optional and never block drafting or planning. Continuing uses the current wording and does not accept corrections, dismiss suggestions, or record a listening decision. The normal script, storyboard and publication approvals still apply.
 
 The pipeline:
 
@@ -10,7 +12,7 @@ The pipeline:
 4. Independent `whisper-1` recognition of every chunk detects disagreements, including fluent mistakes a text reviewer may miss. It receives audio alone.
 5. A structured LLM pass (default `gpt-5.4`, configurable with `WTS_TRANSCRIPT_REVIEW_MODEL`) audits wording, omissions, repetition, incomplete speech and timing. Script text is context, never ground truth. Findings must reference existing segment IDs.
 6. Flagged passages receive a focused independent audio recheck and alignment. Reliable results become proposed replacements. Agreement can dismiss an LLM wording suspicion; acoustic failures and recognizer disagreements remain for listening review. No lexical correction is automatically accepted.
-7. Listen in **Review passages**. Keep the current wording, accept the audio recheck, or edit the wording and align it again. Playback stops after the passage. Decisions reject stale transcript hashes and are recorded with before/after hashes.
+7. Optionally open **Review suggestions…** when you want to check a passage. With a storyboard, the review defaults to footage actually used, excluding discarded takes; turn off **Only footage used in storyboard** to see every recording. Keep the current wording, accept the audio recheck, or edit the wording and align it again. Playback stops after the passage. Decisions reject stale transcript hashes and are recorded with before/after hashes. If the transcript changes, the footage filter becomes available again when you generate a storyboard from that revision.
 
 Repeated consecutive sentences are collapsed separately for editing, preferring the final complete take. The verbatim source, including stumbles, stays in History. The existing conservative exclusions for intentional script repetition, short beats, changed numbers and negation remain.
 
@@ -18,7 +20,7 @@ Repeated consecutive sentences are collapsed separately for editing, preferring 
 
 Original imports, model hypotheses, accepted corrections and review decisions are retained. JSON artifacts live under `transcripts/`, `transcripts/evidence/` and `transcripts/reviews/`; SQLite is authoritative. Reports bind to exact transcript hashes. History shows original imports and subsequent versions.
 
-Reviewing a recording does not change an existing plan, approval, cut or captions. Plans and all derived consumers resolve their original transcript set by `transcriptHash`. Generate **New Storyboard from Transcript** to use the latest reviewed words and timings. Pending issues block new planning and A-roll drafting. A successful new storyboard invalidates downstream approvals; a failed generation keeps the previous plan and approvals.
+Reviewing a recording does not change an existing plan, approval, cut or captions. Plans and all derived consumers resolve their original transcript set by `transcriptHash`. Generate **New Storyboard from Transcript** to use the latest words and timings, with or without unresolved suggestions. A successful new storyboard invalidates downstream approvals; a failed generation keeps the previous plan and approvals.
 
 Keeping a passage is a creator decision, not a claim that its timings passed acoustic checks. Segments without reliable word timing remain in the transcript; existing cut/caption logic skips unsupported word-level operations.
 
