@@ -9,6 +9,7 @@ import {
 } from "../packages/orchestrator/src/store.ts";
 import {
   applyProviderSelection,
+  configuredImageProvider,
   type ProviderCredentials,
 } from "../packages/orchestrator/src/providers.ts";
 import { MockMusicProvider } from "../packages/music-engine/src/index.ts";
@@ -21,6 +22,19 @@ const noCredentials: ProviderCredentials = {
   geminiSource: "none",
 };
 const stub = () => ({}) as unknown as Studio;
+
+test("image-only setup reports missing credentials without requiring Director credentials", () => {
+  for (const images of ["openai", "gemini"] as const)
+    assert.throws(
+      () => configuredImageProvider({ images, imageModel: "" }, noCredentials),
+      /credentials/i,
+    );
+  assert.equal(
+    configuredImageProvider({ images: "mock", imageModel: "" }, noCredentials)
+      .model,
+    "deterministic-v1",
+  );
+});
 
 test("provider selections persist in the settings store and tolerate partial rows", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wts-providers-"));

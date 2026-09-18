@@ -6,7 +6,11 @@ import { Studio, readJSONFile, parseTimeRange } from "./studio.ts";
 import { doctor } from "./doctor.ts";
 import { inspect } from "../../media/src/index.ts";
 import { validatePlan } from "../../production-plan/src/index.ts";
-import { applyProviderSelection, resolveCredentials } from "./providers.ts";
+import {
+  applyProviderSelection,
+  configuredImageProvider,
+  resolveCredentials,
+} from "./providers.ts";
 import { errorInfo, loadDotEnv, StudioError } from "../../shared/src/index.ts";
 import {
   FINAL_RENDER_PRESETS,
@@ -50,6 +54,10 @@ const { positionals: a, values: v } = parseArgs({
     duration: { type: "string", default: "900" },
     autonomy: { type: "string" },
     version: { type: "string" },
+    revision: { type: "string" },
+    headline: { type: "string" },
+    direction: { type: "string" },
+    concept: { type: "string" },
     recording: { type: "string" },
     preset: { type: "string", default: "H.264 Master" },
     macro: { type: "string" },
@@ -87,6 +95,12 @@ bun run wts teleprompter <project>
 bun run wts packaging <project> [--provider openai]
 bun run wts packaging approve <project> --version 1
 bun run wts publish <project>
+bun run wts thumbnails <project> [--images mock|openai|gemini]   (render missing A/B)
+bun run wts thumbnails get <project>
+bun run wts thumbnails edit <project> A --headline "Headline" [--direction "Visual direction"] [--concept thumb-1]
+bun run wts thumbnails regenerate <project> B
+bun run wts thumbnails select <project> A --revision 1 | thumbnails select <project> none
+bun run wts thumbnails export <project> <absolute-destination-folder>
 bun run wts media inspect <file> | media import <project> <file>
 bun run wts transcript load <project> <transcript.json>
 bun run wts transcript fcp <project> <fcpbundle-or-folder>
@@ -158,6 +172,7 @@ try {
     const transcription = (v.transcriber ??
       stored.transcription) as ProviderSelection["transcription"];
     const images = (v.images ??
+      (a[0] === "thumbnails" ? stored.images : undefined) ??
       (v.provider && v.provider !== "openai" ? "mock" : undefined) ??
       (stored.images === "mock" && director === "openai"
         ? "openai"
@@ -168,6 +183,7 @@ try {
       if (job)
         process.stderr.write(JSON.stringify({ event: "job", ...job }) + "\n");
     });
+    const credentials = await resolveCredentials();
     applyProviderSelection(
       studio,
       {
@@ -179,7 +195,7 @@ try {
         imageModel: stored.imageModel,
         musicModel: stored.musicModel,
       },
-      await resolveCredentials(),
+      credentials,
       // Commands that actually run engines fail loudly when a billed engine
       // lacks its key — exactly like --provider openai always has. Everything
       // else falls back to the free engines.
@@ -248,7 +264,89 @@ try {
     else if (a[0] === "previsualize")
       result = await studio.previsualize(a[1], abort.signal);
     else if (a[0] === "teleprompter") result = await studio.teleprompter(a[1]);
-    else if (a[0] === "packaging" && a[1] === "approve")
+    else if (a[0] === "thumbnails") {
+      const subcommands = ["get", "edit", "regenerate", "select", "export"];
+      const action = subcommands.includes(a[1]) ? a[1] : "render";
+      const projectId = action === "render" ? a[1] : a[2];
+      const doc = studio.thumbnailDocument(projectId);
+      if (!doc)
+        throw new StudioError(
+          "CONFLICT",
+          "Generate packaging before thumbnails.",
+        );
+      const packagingVersion = doc.state.current.packagingVersion;
+      const slots = doc.state.current.slots;
+      const slot = slots.find((s) => s.id === a[3]);
+      if (
+        !studio.images &&
+        (action === "regenerate" ||
+          (action === "render" && slots.some((s) => !s.background)))
+      )
+        studio.images = configuredImageProvider(
+          { images, imageModel: stored.imageModel },
+          credentials,
+        );
+      if (action === "get") result = doc;
+      else if (action === "export")
+        result = await studio.exportThumbnails(
+          projectId,
+          packagingVersion,
+          a[3],
+        );
+      else if (action === "render")
+        result = await studio.renderThumbnails(
+          projectId,
+          {
+            packagingVersion,
+            slots: slots.map((s) => ({
+              slot: s.id,
+              expectedRevision: s.version,
+            })),
+          },
+          abort.signal,
+        );
+      else if (action === "select" && a[3] === "none")
+        result = await studio.selectThumbnail(projectId, {
+          packagingVersion,
+          slot: null,
+          revision: null,
+          expectedRevision: null,
+        });
+      else {
+        if (!slot)
+          throw new StudioError("INVALID_INPUT", "Choose thumbnail A or B.");
+        const context = {
+          packagingVersion,
+          slot: slot.id,
+          expectedRevision: slot.version,
+        };
+        if (action === "select")
+          result = await studio.selectThumbnail(projectId, {
+            ...context,
+            revision: Number(v.revision ?? slot.currentRevision),
+          });
+        else if (action === "regenerate")
+          result = await studio.regenerateThumbnail(
+            projectId,
+            context,
+            abort.signal,
+          );
+        else {
+          const concept = doc.state.current.slots.find(
+            (s) => s.id === slot.id,
+          )!;
+          const proposal = studio
+            .packagingDocument(projectId)!
+            .packaging.thumbnailConcepts.find((c) => c.id === v.concept);
+          result = await studio.updateThumbnail(projectId, {
+            ...context,
+            conceptId: v.concept ?? concept.conceptId,
+            headline: v.headline ?? proposal?.headline ?? slot.headline,
+            direction: v.direction ?? proposal?.direction ?? slot.direction,
+          });
+        }
+      }
+    } else if (a[0] === "packaging" && a[1] === "approve")
       result = await studio.approvePackaging(a[2], Number(v.version));
     else if (a[0] === "packaging")
       result = await studio.packageVideo(a[1], abort.signal);

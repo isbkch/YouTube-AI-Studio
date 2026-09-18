@@ -68,7 +68,21 @@ import {
   extractAudio,
   verifyOutput,
 } from "../../media/src/index.ts";
-import type { ImageProvider } from "../../image-engine/src/index.ts";
+import {
+  MockImageProvider,
+  GeminiImageProvider,
+  type ImageProvider,
+} from "../../image-engine/src/index.ts";
+import {
+  renderThumbnail,
+  type ThumbnailRenderer,
+} from "../../remotion-engine/src/thumbnail.ts";
+import {
+  Thumbnails,
+  thumbnailState,
+  verifiedThumbnailSelection,
+  interruptedThumbnails,
+} from "./thumbnails.ts";
 import type { MusicProvider } from "../../music-engine/src/index.ts";
 import {
   RealBlenderProvider,
@@ -117,6 +131,7 @@ export class Studio {
   public transcription: Transcriber;
   /** Still-image generation engine; null fails B-roll plans closed (ADR 007). */
   public images: ImageProvider | null = null;
+  public thumbnailRenderer: ThumbnailRenderer = renderThumbnail;
   /** Music-bed generation engine; null restricts beds to library tracks. */
   public music: MusicProvider | null = null;
   /** 3D B-roll engine; probed lazily, injectable for tests (ADR 008). */
@@ -170,6 +185,10 @@ export class Studio {
   async recover(projectId: string) {
     return this.locked(projectId, (p) => {
       const status = p.status;
+      if (p.thumbnails)
+        this.store.update(p.id, (x) =>
+          interruptedThumbnails(x.thumbnails!.current),
+        );
       if (
         [
           "TRANSCRIBING",
@@ -232,7 +251,7 @@ export class Studio {
     p: Project,
     type: string,
     label: string,
-    fn: (signal: AbortSignal) => Promise<void>,
+    fn: (signal: AbortSignal, jobId: string) => Promise<void>,
     signal?: AbortSignal,
   ) {
     const graph = new JobGraph(
@@ -243,7 +262,7 @@ export class Studio {
           label,
           dependencies: [],
           maxRetries: 0,
-          run: (ctx) => fn(ctx.signal),
+          run: (ctx) => fn(ctx.signal, ctx.jobId),
         },
       ],
       p.id,
@@ -2299,6 +2318,7 @@ export class Studio {
           this.store.update(p.id, (x) => {
             x.packaging ??= { version: null };
             x.packaging.version = version;
+            x.thumbnails = thumbnailState(x, output!);
             x.publishApproval = null;
             x.usage.push(result.usage);
             if (x.status === "READY_TO_RENDER")
@@ -2321,7 +2341,81 @@ export class Studio {
       };
     });
   }
-  /** The publication gate: approval binds to the exact packaging document. */
+  thumbnailDocument(projectId: string) {
+    const p = this.store.get(projectId);
+    const document = this.packagingDocument(projectId);
+    if (!document) return null;
+    const state = thumbnailState(p, document.packaging);
+    let provider: "mock" | "gemini" | "openai" | null = null;
+    if (this.images instanceof MockImageProvider) provider = "mock";
+    else if (this.images instanceof GeminiImageProvider) provider = "gemini";
+    else if (this.images) provider = "openai";
+    return {
+      projectId: p.id,
+      state,
+      provider,
+      model: this.images?.model ?? null,
+    };
+  }
+  private async withThumbnails<T>(
+    projectId: string,
+    fn: (service: Thumbnails) => Promise<T> | T,
+  ) {
+    return this.locked(projectId, async (p) => {
+      if (!p.packaging?.version || !p.finalRender)
+        throw new StudioError(
+          "CONFLICT",
+          "Thumbnails need packaging for a completed final render.",
+        );
+      const doc = await this.loadPackagingDocument(p, p.packaging.version);
+      const service = new Thumbnails(
+        this.store,
+        p,
+        doc,
+        this.images,
+        this.thumbnailRenderer,
+        (type, label, work, signal) =>
+          this.operation(p, type, label, work, signal),
+        () => this.notify?.({ event: "thumbnails.updated", projectId: p.id }),
+      );
+      return fn(service);
+    });
+  }
+  async renderThumbnails(
+    projectId: string,
+    request: unknown,
+    signal?: AbortSignal,
+  ) {
+    await this.withThumbnails(projectId, (s) => s.render(request, signal));
+    return this.thumbnailDocument(projectId);
+  }
+  async updateThumbnail(projectId: string, request: unknown) {
+    await this.withThumbnails(projectId, (s) => s.update(request));
+    return this.thumbnailDocument(projectId);
+  }
+  async regenerateThumbnail(
+    projectId: string,
+    request: unknown,
+    signal?: AbortSignal,
+  ) {
+    await this.withThumbnails(projectId, (s) => s.regenerate(request, signal));
+    return this.thumbnailDocument(projectId);
+  }
+  async selectThumbnail(projectId: string, request: unknown) {
+    await this.withThumbnails(projectId, (s) => s.select(request));
+    return this.thumbnailDocument(projectId);
+  }
+  async exportThumbnails(
+    projectId: string,
+    version: number,
+    destination: string,
+  ) {
+    return this.withThumbnails(projectId, (s) =>
+      s.export(version, destination),
+    );
+  }
+
+  /** The publication gate: approval binds to the exact packaging document and selected image. */
   async approvePackaging(projectId: string, version: number) {
     return this.locked(projectId, async (p) => {
       if (
@@ -2333,12 +2427,15 @@ export class Studio {
           "Review the current packaging version.",
         );
       const doc = await this.loadPackagingDocument(p, version);
+      const thumbnail = p.thumbnails?.selected ?? null;
+      await verifiedThumbnailSelection(this.store, p, doc, thumbnail);
       return this.store.update(p.id, (x) => {
         x.publishApproval = {
           version,
           hash: hash(doc),
           approvedAt: now(),
           approvedBy: "creator",
+          thumbnail,
         };
         this.store.event(x.id, { event: "packaging.approved", version });
       });
@@ -2365,6 +2462,11 @@ export class Studio {
           "Review titles, description, chapters and metadata, then approve.",
         );
       const version = p.publishApproval.version;
+      if (version !== p.packaging.version)
+        throw new StudioError(
+          "CONFLICT",
+          "Review and approve the current packaging version.",
+        );
       const doc = await this.loadPackagingDocument(p, version);
       if (hash(doc) !== p.publishApproval.hash)
         throw new StudioError(
@@ -2372,6 +2474,19 @@ export class Studio {
           "The packaging document changed after approval.",
           "Re-review and approve the current packaging version.",
         );
+      const selected = p.thumbnails?.selected ?? null;
+      if (hash(selected) !== hash(p.publishApproval.thumbnail ?? null))
+        throw new StudioError(
+          "CONFLICT",
+          "The selected thumbnail changed after approval.",
+          "Review and approve packaging again.",
+        );
+      const thumbnail = await verifiedThumbnailSelection(
+        this.store,
+        p,
+        doc,
+        selected,
+      );
       const video = await safePath(this.store.dir(p), p.finalRender);
       if (!(await stat(video)).isFile())
         throw new StudioError(
@@ -2395,7 +2510,7 @@ export class Studio {
         `packaging/upload-meta-v${version}.json`,
         meta,
       );
-      let result;
+      let result: Awaited<ReturnType<typeof publishToYouTube>> | undefined;
       await this.operation(
         p,
         "publish",
@@ -2404,6 +2519,23 @@ export class Studio {
           result = await publishToYouTube({
             video,
             metaFile,
+            thumbnail: thumbnail ?? undefined,
+            onVideoCreated: (videoId) => {
+              // The CLI reports the video ID before applying its thumbnail. Persist
+              // it immediately so a failure/cancellation can never duplicate upload.
+              this.store.update(p.id, (x) => {
+                x.status = transition(x.status, "PUBLISHED");
+                x.publication = {
+                  videoId,
+                  url: `https://www.youtube.com/watch?v=${videoId}`,
+                  publishedAt: now(),
+                  thumbnail: selected,
+                  thumbnailStatus: thumbnail ? "unconfirmed" : null,
+                  warning:
+                    "Video created; upload finishing is not yet confirmed. Check YouTube Studio before continuing.",
+                };
+              });
+            },
             extraArgs: (process.env.WTS_YOUTUBE_ARGS ?? "")
               .split(/\s+/)
               .filter(Boolean),
@@ -2413,11 +2545,18 @@ export class Studio {
         signal,
       );
       return this.store.update(p.id, (x) => {
-        x.status = transition(x.status, "PUBLISHED");
+        if (x.status !== "PUBLISHED")
+          x.status = transition(x.status, "PUBLISHED");
+        let thumbnailStatus: "applied" | "unconfirmed" | null = null;
+        if (thumbnail)
+          thumbnailStatus = result!.warning ? "unconfirmed" : "applied";
         x.publication = {
           videoId: result!.videoId,
           url: result!.url,
           publishedAt: now(),
+          thumbnail: selected,
+          thumbnailStatus,
+          warning: result!.warning,
         };
         this.store.event(x.id, {
           event: "video.published",

@@ -228,32 +228,67 @@ export interface YouTubeUpload {
   /** Extra CLI flags (e.g. OAuth secrets/cache) — appended verbatim. */
   extraArgs?: string[];
   signal?: AbortSignal;
+  /** Called as soon as the CLI reports a created video, before thumbnail upload. */
+  onVideoCreated?: (videoId: string) => void;
 }
 
 export async function publishToYouTube(options: YouTubeUpload) {
+  if (options.extraArgs?.some((arg) => /^--?thumbnail(?:=|$)/i.test(arg)))
+    throw new StudioError(
+      "INVALID_INPUT",
+      "Extra YouTube arguments cannot override the approved thumbnail.",
+      "Remove the thumbnail flag from WTS_YOUTUBE_ARGS; select the image in Packaging.",
+    );
   const cli = await ensureYouTubeCLI({ signal: options.signal });
   const args = ["-filename", options.video, "-metaJSON", options.metaFile];
   if (options.thumbnail) args.push("-thumbnail", options.thumbnail);
   if (options.extraArgs?.length) args.push(...options.extraArgs);
-  const { stdout, stderr } = await runBinary(cli, args, {
-    signal: options.signal,
-  });
-  const output = `${stdout}\n${stderr}`;
-  const id =
+  const videoId = (output: string) =>
     /(?:youtu\.be\/|[?&]v=|\/shorts\/|"videoId"\s*:\s*"|Video ID:?\s*)([A-Za-z0-9_-]{11})/i.exec(
       redact(output),
-    );
-  if (!id)
+    )?.[1];
+  let output = "";
+  let created: string | undefined;
+  let warning: string | null = null;
+  let recordingError: string | null = null;
+  try {
+    await runBinary(cli, args, {
+      signal: options.signal,
+      onOutput: (chunk) => {
+        output = (output + chunk).slice(-32000);
+        const found = videoId(output);
+        if (found && !created) {
+          created = found;
+          // Stream callbacks must never throw outside runBinary's promise.
+          // Preserve the ID so the caller can still persist the final result.
+          try {
+            options.onVideoCreated?.(found);
+          } catch (error) {
+            recordingError = redact(
+              error instanceof Error ? error.message : String(error),
+            ).slice(-500);
+          }
+        }
+      },
+    });
+  } catch (error) {
+    if (!created) throw error;
+    warning = `Video was created, but upload finishing was not confirmed. Check the thumbnail in YouTube Studio. ${redact(error instanceof Error ? error.message : String(error)).slice(-500)}`;
+  }
+  if (!created)
     throw new StudioError(
       "EXTERNAL_TOOL",
       `${cli} finished without reporting a video ID: ${redact(output).slice(-500)}`,
       "The upload may still exist — check the channel in YouTube Studio before retrying.",
       true,
     );
+  if (recordingError)
+    warning = `Video ${created} was created, but recording its ID during upload failed: ${recordingError}. Check YouTube Studio before any further upload.${warning ? ` ${warning}` : ""}`;
   return {
     cli,
-    videoId: id[1],
-    url: `https://www.youtube.com/watch?v=${id[1]}`,
+    videoId: created,
+    url: `https://www.youtube.com/watch?v=${created}`,
+    warning,
     output: redact(output).slice(-2000),
   };
 }

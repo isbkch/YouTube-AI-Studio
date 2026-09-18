@@ -3,6 +3,7 @@ import type {
   PlanPatch,
 } from "../../production-plan/src/index.ts";
 import type { CreatorProfile, Usage } from "../../shared/src/index.ts";
+import type { ThumbnailSelection, ThumbnailState } from "./thumbnail-model.ts";
 import { StudioError } from "../../shared/src/index.ts";
 
 export const statuses = [
@@ -202,6 +203,7 @@ export interface Project {
   };
   /** Milestone 5 — latest Packaging agent document version. */
   packaging: { version: number | null };
+  thumbnails?: ThumbnailState | null;
   scripts: { version: number; text: string; createdAt: string }[];
   scriptApproval: Approval | null;
   recordings: Recording[];
@@ -227,8 +229,16 @@ export interface Project {
   finalRender: string | null;
   /** Which engine produced `finalRender`; null when no final render exists. */
   finalRenderEngine: "resolve" | "ffmpeg" | null;
-  publication: { videoId: string; url: string; publishedAt: string } | null;
-  publishApproval: Approval | null;
+  publication: {
+    videoId: string;
+    url: string;
+    publishedAt: string;
+    thumbnail?: ThumbnailSelection | null;
+    warning?: string | null;
+    thumbnailStatus?: "applied" | "unconfirmed" | null;
+  } | null;
+  publishApproval:
+    (Approval & { thumbnail?: ThumbnailSelection | null }) | null;
   usage: Usage[];
 }
 export type JobStatus =

@@ -97,7 +97,7 @@ import SwiftUI
         onJob?()
         continue
       }
-      if obj["event"] as? String == "previews.scene" {
+      if ["previews.scene", "thumbnails.updated"].contains(obj["event"] as? String ?? "") {
         // Progressive storyboard previews: each rendered scene refreshes the grid.
         onJob?()
         continue
