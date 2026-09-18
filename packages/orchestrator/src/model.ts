@@ -60,7 +60,40 @@ export interface Approval {
   version: number;
   hash: string;
   approvedAt: string;
-  approvedBy: "creator";
+  /**
+   * Who satisfied the gate: the creator by hand, or the deterministic
+   * Producer review on autonomous projects. Persisted rows from before the
+   * Producer existed carry no field and read as the creator.
+   */
+  approvedBy: "creator" | "producer";
+}
+/**
+ * The deterministic Producer's review of a machine-made gate. Persisted on
+ * the project as the audit trail for every auto-approval and escalation;
+ * findings carry the evidence inline so "why did this ship itself?" is always
+ * answerable without re-deriving anything.
+ */
+export interface ProducerReview {
+  id: string;
+  gate: "storyboard" | "rough-cut";
+  planVersion: number;
+  verdict: "approved" | "escalated";
+  checkedAt: string;
+  reviewer: "deterministic-v1";
+  findings: {
+    severity: "info" | "warn" | "blocker";
+    code: string;
+    message: string;
+  }[];
+  evidence: {
+    sentences: number;
+    omitted: number;
+    scenes: number;
+    durationSeconds: number;
+    qaStatus?: string;
+    warnings?: number;
+    attention?: number;
+  };
 }
 export interface MediaInfo {
   duration: number;
@@ -145,6 +178,15 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   targetDuration: number;
+  /**
+   * Who satisfies the machine gates. Supervised (the default, and what rows
+   * from before the Producer read as) requires the creator at every gate;
+   * autonomous lets the deterministic Producer advance storyboard, build,
+   * rough-cut and packaging while the script and publication gates stay human.
+   */
+  autonomy: "supervised" | "autonomous";
+  /** Audit trail of deterministic Producer reviews, oldest first. */
+  producerReviews: ProducerReview[];
   creator: CreatorProfile;
   research: {
     notes: string;
@@ -171,6 +213,8 @@ export interface Project {
     patch: PlanPatch;
     status: "PROPOSED" | "APPLIED" | "REJECTED";
     decidedAt: string | null;
+    /** Who decided the patch; rows from before the Producer read as creator. */
+    decidedBy?: "creator" | "producer";
   }[];
   builds: {
     planVersion: number;
