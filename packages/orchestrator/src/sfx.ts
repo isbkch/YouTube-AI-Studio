@@ -90,7 +90,17 @@ export async function builtinSfxFile(
     );
   const c = await cachedFile(
     dir,
-    hash({ builtinSfx: track.trackId }),
+    // Identity covers the synthesis itself, not just the track name: tweaks
+    // to the expression, filters, length or encoding resynthesize instead of
+    // reusing stale bytes from existing projects.
+    hash({
+      builtinSfx: track.trackId,
+      source: track.source,
+      filters: track.filters,
+      seconds: track.seconds,
+      codec: "libmp3lame-128k",
+      renderer: "builtin-sfx-v1",
+    }),
     `assets/builtin-sfx/${track.trackId}.mp3`,
     async (temp) => {
       // ffmpeg does not create intermediate directories; the render callback

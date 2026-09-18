@@ -61,14 +61,22 @@ import UniformTypeIdentifiers
   }
   /// Punch-line captions are derived from the approved plan + transcripts on
   /// demand, so the storyboard badge always matches what the build will burn.
+  /// The list has no version of its own, so a request is discarded unless the
+  /// plan it was computed against is still current when it returns.
   private func loadCaptions() async {
     guard let id = selectedID, let plan = project?.plan, plan.captions != "none"
     else {
       captions = CaptionList(style: "none", events: [], skippedRecordings: [])
       return
     }
+    let version = plan.version
+    let style = plan.captions
+    captions = CaptionList(style: style, events: [], skippedRecordings: [])
     if let list: CaptionList = try? await runtime.call(
-      "captions.list", ["projectId": id]), selectedID == id
+      "captions.list", ["projectId": id]),
+      selectedID == id,
+      project?.plan?.version == version,
+      project?.plan?.captions == style
     { captions = list }
   }
   /** Storyboard previews render themselves once per new plan version so the

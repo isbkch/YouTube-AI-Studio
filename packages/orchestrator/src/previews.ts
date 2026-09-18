@@ -251,16 +251,21 @@ export async function renderStoryboardPreviews(options: {
         skipped: null,
       });
     }
-    for (const recordingId of captions.skippedRecordings)
+    // Skips are scene-keyed like every other outcome so consumers can attach
+    // the warning to the affected scene(s), not a raw recording id.
+    for (const scene of plan.scenes) {
+      if (!captions.skippedRecordings.includes(scene.camera.recordingId))
+        continue;
       emit({
-        sceneId: recordingId,
+        sceneId: scene.id,
         kind: "caption",
-        label: `Caption • ${recordingId}`,
+        label: `Caption • ${scene.id}`,
         asset: null,
         reused: false,
         skipped:
           "No word timings in this recording's transcript; its captions are skipped (silence tightening has the same requirement).",
       });
+    }
   }
   return { planVersion: plan.version, outcomes };
 }

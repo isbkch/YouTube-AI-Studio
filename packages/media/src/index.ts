@@ -532,7 +532,11 @@ export interface CaptionOverlay {
 /**
  * Burn transparent caption clips over the assembled cut in one pass. Each
  * overlay is full-frame (the caption composition positions its own text), so
- * this is the only video re-encode between assembly and the mix.
+ * this is the only video re-encode between assembly and the mix. Caption
+ * clips are clip-local (PTS from 0); setpts shifts each onto the main
+ * timeline so overlay consumes its frames exactly inside the enable window —
+ * without the shift, ffmpeg hits the clip's EOF and repeats its faded-out
+ * last frame, and the caption never appears.
  */
 export async function overlayCaptions(options: {
   video: string;
@@ -552,11 +556,11 @@ export async function overlayCaptions(options: {
   let label = "0:v";
   o.captions.forEach((c, i) => {
     inputs.push("-i", path.resolve(c.file));
-    const next = `cap${i}`;
     chains.push(
-      `[${label}][${i + 1}:v]overlay=0:0:format=auto:enable='between(t,${c.startSec.toFixed(3)},${c.endSec.toFixed(3)})'[${next}]`,
+      `[${i + 1}:v]setpts=PTS+${c.startSec.toFixed(3)}/TB[capin${i}]`,
+      `[${label}][capin${i}]overlay=0:0:format=auto:enable='between(t,${c.startSec.toFixed(3)},${c.endSec.toFixed(3)})'[cap${i}]`,
     );
-    label = next;
+    label = `cap${i}`;
   });
   await ffmpeg(
     [
@@ -667,7 +671,9 @@ export async function mixAudio(options: {
     );
     mixLabels.push("[narration]", "[music]");
   } else {
-    chains.push(`[0:a]${o.narration ? NARRATION_CHAINS[o.narration] : "anull"}[narration]`);
+    chains.push(
+      `[0:a]${o.narration ? NARRATION_CHAINS[o.narration] : "anull"}[narration]`,
+    );
     mixLabels.push("[narration]");
   }
   o.sfx.forEach((s, i) => {

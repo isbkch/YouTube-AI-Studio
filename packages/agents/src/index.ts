@@ -36,6 +36,7 @@ import {
   type CreatorProfile,
   type DirectorId,
   type DirectedStyle,
+  type SfxDensity,
   type Usage,
   type VisualDensity,
 } from "../../shared/src/index.ts";
@@ -432,6 +433,18 @@ const personaDirectives: Record<DirectorId, string> = {
 };
 const personaDirective = (persona: DirectorId) =>
   `\nDIRECTOR: this production is directed by ${DIRECTOR_PROFILES[persona].name} — ${personaDirectives[persona]}`;
+/**
+ * Persona-specific SFX temperament; the capabilities list carries the exact
+ * trackIds (library plus built-ins) that may be cited.
+ */
+const sfxTemperaments: Record<SfxDensity, string> = {
+  sparse:
+    "\nSFX TEMPERAMENT: sparse — at most a couple of decisive accents, or none.",
+  punctuated:
+    "\nSFX TEMPERAMENT: punctuated — accents at chapter starts and decisive moments, never constant.",
+  playful:
+    "\nSFX TEMPERAMENT: playful — frequent short accents at chapter starts, reveals and punch moments; keep each quiet enough to never fight speech.",
+};
 const storyboardDirectionSchema = z.strictObject({
   summary: planSchema.shape.director.shape.summary,
   scenes: z
@@ -466,7 +479,9 @@ export class DirectorAgent {
   ): Promise<ProviderResult<ProductionPlan>> {
     const cut = bindTranscriptSegments(mockPlan(input), input.transcripts);
     validateSources(cut, input.recordings, input.transcripts);
-    const density = asVisualDensity(input.creator.visualDensity);
+    // The resolved direction (persona + any per-generation knob overrides)
+    // drives this path too; reading the creator directly would ignore
+    // overrides passed through `directed` and stamp inconsistent metadata.
     const directed = resolveDirected(input);
     const result = await this.provider.generateStructured({
       name: "storyboard_direction",
@@ -474,12 +489,12 @@ export class DirectorAgent {
       signal,
       instructions:
         storyboardDirectionInstructions +
-        densityDirective(density) +
+        densityDirective(directed.visualDensity) +
         personaDirective(directed.director),
       input: {
         script: input.script,
         creator: input.creator,
-        visualDensity: density,
+        visualDensity: directed.visualDensity,
         catalog: TEMPLATE_CATALOG,
         scenes: cut.scenes.map((s) => ({
           id: s.id,
@@ -507,8 +522,8 @@ export class DirectorAgent {
     }
     const plan = validatePlan({
       ...cut,
-      visualDensity: density,
-      silenceTightening: asSilenceTightening(input.creator.silenceTightening),
+      visualDensity: directed.visualDensity,
+      silenceTightening: directed.silenceTightening,
       directorPersona: directed.director,
       captionStyle: directed.captionStyle,
       audioPolish: directed.audioPolish,
@@ -720,7 +735,9 @@ export class VisualPassAgent {
     input: VisualPassInput,
     signal?: AbortSignal,
   ): Promise<ProviderResult<VisualPass>> {
-    const density = asVisualDensity(input.creator.visualDensity);
+    // The pass follows the approved plan's recorded direction — per-generation
+    // overrides live on the plan, not necessarily on the stored creator.
+    const density = asVisualDensity(input.plan.visualDensity);
     const persona = asDirectorPersona(input.plan.directorPersona);
     const sfxDensity = DIRECTOR_PROFILES[persona].sfxDensity;
     return this.provider.generateStructured({
@@ -731,13 +748,7 @@ export class VisualPassAgent {
         visualPassInstructions +
         densityDirective(density) +
         personaDirective(persona) +
-        // Persona-specific SFX temperament; the capabilities list carries the
-        // exact trackIds (library plus built-ins) that may be cited.
-        (sfxDensity === "sparse"
-          ? "\nSFX TEMPERAMENT: sparse — at most a couple of decisive accents, or none."
-          : sfxDensity === "punctuated"
-            ? "\nSFX TEMPERAMENT: punctuated — accents at chapter starts and decisive moments, never constant."
-            : "\nSFX TEMPERAMENT: playful — frequent short accents at chapter starts, reveals and punch moments; keep each quiet enough to never fight speech."),
+        sfxTemperaments[sfxDensity],
       input: {
         capabilities: input.capabilities,
         budget: input.budget,
@@ -944,12 +955,11 @@ function mockPassSfx(
   const riser = pick("builtin.riser", /riser|swell|build/i);
   const events: VisualPass["sfx"] = [];
   let serial = 0;
-  const push = (
-    trackId: string,
-    atFrame: number,
-    gainDb: number,
-  ) => {
+  const push = (trackId: string, atFrame: number, gainDb: number) => {
     if (events.length >= 6) return;
+    // validatePlan rejects SFX inside the final 12 frames; a chapter or
+    // reveal that late is dropped, not clamped into an invalid patch.
+    if (atFrame > input.plan.durationFrames - 12) return;
     events.push({
       id: `sfx-${++serial}`,
       atFrame,

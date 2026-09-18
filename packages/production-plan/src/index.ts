@@ -1323,7 +1323,6 @@ export function captionKey(
   templateSourceHash: string,
 ) {
   return hash({
-    id: event.id,
     text: event.text,
     durationFrames: event.endFrame - event.startFrame,
     words: event.words.map((w) => ({

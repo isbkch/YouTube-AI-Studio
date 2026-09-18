@@ -136,6 +136,9 @@ export function computeCaptionEvents(
     seen.set(t.recordingId, list);
   }
   for (const scene of plan.scenes) {
+    // Disabled scenes keep their A-roll but no derived visual layers — the
+    // same rule graphics and B-roll follow.
+    if (!scene.enabled) continue;
     const recordingId = scene.camera.recordingId;
     const transcript = (seen.get(recordingId) ?? []).at(-1);
     if (!transcript) continue;
@@ -145,7 +148,9 @@ export function computeCaptionEvents(
     // fully inside the range are exactly the spoken content of this scene).
     const inRange = transcript.segments
       .flatMap((s) => s.words ?? [])
-      .filter((w) => w.start >= sourceInSec - 0.05 && w.end <= sourceEndSec + 0.05)
+      .filter(
+        (w) => w.start >= sourceInSec - 0.05 && w.end <= sourceEndSec + 0.05,
+      )
       .sort((a, b) => a.start - b.start);
     if (!inRange.length) {
       if (
@@ -188,10 +193,7 @@ export function computeCaptionEvents(
         startFrame,
         endFrame: Math.max(
           startFrame + Math.round(MIN_DISPLAY_SEC * fps),
-          Math.min(
-            endFrame,
-            startFrame + Math.round(MAX_DISPLAY_SEC * fps),
-          ),
+          Math.min(endFrame, startFrame + Math.round(MAX_DISPLAY_SEC * fps)),
         ),
         text: sentence.text,
         words: sentence.words.map((w) => ({
@@ -204,7 +206,9 @@ export function computeCaptionEvents(
   // Enforce pacing and non-overlap across the whole timeline.
   const minGap = Math.round(rules.minGapSec * fps);
   const kept: CaptionEvent[] = [];
-  for (const event of result.events.sort((a, b) => a.startFrame - b.startFrame)) {
+  for (const event of result.events.sort(
+    (a, b) => a.startFrame - b.startFrame,
+  )) {
     const last = kept.at(-1);
     if (last && event.startFrame < last.endFrame + minGap) continue;
     kept.push(event);

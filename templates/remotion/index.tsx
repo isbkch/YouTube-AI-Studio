@@ -1552,19 +1552,28 @@ export const Caption: React.FC<CaptionProps> = (props) => {
   // Stable two-line layout: wrap the timed words the same way for both
   // styles so pop and karaoke events never reflow differently.
   const timed =
-    props.words.length >= 2 ? props.words : props.text.split(/\s+/).map((text) => ({ atFrame: 0, text }));
+    props.words.length >= 2
+      ? props.words
+      : props.text.split(/\s+/).map((text) => ({ atFrame: 0, text }));
   const lines: { atFrame: number; text: string }[][] = [[]];
   for (const w of timed) {
     const current = lines.at(-1)!;
     const width = current.reduce((n, x) => n + x.text.length + 1, 0);
-    if (width + w.text.length > CAPTION_LINE_CHARS && current.length) lines.push([]);
+    if (width + w.text.length > CAPTION_LINE_CHARS && current.length)
+      lines.push([]);
     lines.at(-1)!.push(w);
   }
-  const wordStyle = (active: boolean): React.CSSProperties => ({
+  const wordStyle = (
+    active: boolean,
+    visible: boolean,
+  ): React.CSSProperties => ({
     color: active ? b.accent : b.foreground,
-    opacity: active || props.style === "pop" ? 1 : 0,
+    // Pop shows the whole line; karaoke reveals words as they are spoken and
+    // keeps every revealed word on screen — only the active one is accented.
+    opacity: props.style === "pop" || visible ? 1 : 0,
     fontWeight: 800,
-    transform: props.style === "karaoke" && active ? "translateY(-2px)" : undefined,
+    transform:
+      props.style === "karaoke" && active ? "translateY(-2px)" : undefined,
     transition: "none",
     whiteSpace: "pre",
   });
@@ -1572,9 +1581,13 @@ export const Caption: React.FC<CaptionProps> = (props) => {
     <AbsoluteFill style={{ pointerEvents: "none" }}>
       <div
         style={{
-          position: "absolute",
-          inset: 0,
+          // Explicit 1280×720 design canvas scaled from the top-left, the
+          // same coordinate system every other primitive lays out in.
+          width: 1280,
+          height: 720,
           transform: `scale(${props.width / 1280},${props.height / 720})`,
+          transformOrigin: "top left",
+          position: "absolute",
         }}
       >
         <div
@@ -1621,15 +1634,15 @@ export const Caption: React.FC<CaptionProps> = (props) => {
                   const globalIndex =
                     lines.slice(0, li).reduce((n, l) => n + l.length, 0) + wi;
                   const next =
-                    timed.slice(globalIndex + 1).find((x) => x.atFrame > w.atFrame)
-                      ?.atFrame ?? Number.POSITIVE_INFINITY;
+                    timed
+                      .slice(globalIndex + 1)
+                      .find((x) => x.atFrame > w.atFrame)?.atFrame ??
+                    Number.POSITIVE_INFINITY;
                   const visible = f >= w.atFrame - 1;
                   const active =
-                    props.style === "karaoke" &&
-                    visible &&
-                    f < next;
+                    props.style === "karaoke" && visible && f < next;
                   return (
-                    <span key={wi} style={wordStyle(active)}>
+                    <span key={wi} style={wordStyle(active, visible)}>
                       {w.text}
                     </span>
                   );

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, stat, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import {
@@ -17,7 +17,10 @@ import {
   buildBlenderSpec,
 } from "../packages/blender-engine/src/index.ts";
 import type { BRollEntry } from "../packages/production-plan/src/index.ts";
-import { renderGraphic, renderCaption } from "../packages/remotion-engine/src/index.ts";
+import {
+  renderGraphic,
+  renderCaption,
+} from "../packages/remotion-engine/src/index.ts";
 import { builtinSfxFile } from "../packages/orchestrator/src/sfx.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
@@ -334,6 +337,42 @@ test("the built-in SFX bank synthesizes deterministic audio", async () => {
   }
 });
 
+/**
+ * Grayscale pixels of the caption strip (bottom-center region) at one frame,
+ * to prove burned captions actually change the picture at their time — the
+ * class of bug where the overlay stream desyncs and nothing appears.
+ */
+async function captionStripPixels(file: string, atSec: number, dir: string) {
+  const out = path.join(
+    dir,
+    `strip-${path.basename(file)}-${Math.round(atSec * 1000)}.gray`,
+  );
+  await ffmpeg([
+    "-ss",
+    String(atSec),
+    "-i",
+    file,
+    "-frames:v",
+    "1",
+    "-vf",
+    "crop=1280:260:320:720,format=gray",
+    "-f",
+    "rawvideo",
+    "-y",
+    out,
+  ]);
+  const buf = await readFile(out);
+  await rm(out, { force: true });
+  return buf;
+}
+
+function meanAbsDiff(a: Buffer, b: Buffer) {
+  const n = Math.min(a.length, b.length);
+  let sum = 0;
+  for (let i = 0; i < n; i++) sum += Math.abs(a[i] - b[i]);
+  return sum / n;
+}
+
 test("the craftsman build burns captions and engineers the narration", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wts-craftsman-"));
   const store = new Store(root);
@@ -403,6 +442,29 @@ test("the craftsman build burns captions and engineers the narration", async () 
     );
     const audio = await inspect(preview);
     assert.ok(audio.hasAudio !== false);
+    // Pixel proof: inside the caption window the strip must differ strongly
+    // from the pre-burn concat; outside it, only re-encode noise remains.
+    // This is the regression guard for overlay desync (PTS-shift) bugs.
+    const cacheDir = path.join(store.dir(p), "cache");
+    const concatName = (await readdir(cacheDir)).find((f) =>
+      f.startsWith("concat-"),
+    );
+    assert.ok(concatName, "the assembly cached its concat intermediate");
+    const concat = path.join(cacheDir, concatName!);
+    const event = captions.events[0];
+    const midSec = (event.startFrame + event.endFrame) / 2 / plan.frameRate;
+    const during = meanAbsDiff(
+      await captionStripPixels(concat, midSec, clips),
+      await captionStripPixels(preview, midSec, clips),
+    );
+    const outside = meanAbsDiff(
+      await captionStripPixels(concat, 0.25, clips),
+      await captionStripPixels(preview, 0.25, clips),
+    );
+    assert.ok(
+      during > 12 && during > outside * 3,
+      `the caption must visibly burn in its window (mean Δ ${during.toFixed(1)} inside vs ${outside.toFixed(1)} outside)`,
+    );
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
