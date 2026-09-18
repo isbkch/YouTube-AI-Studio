@@ -51,3 +51,5 @@ Primary implementation references, inspected September 16, 2026:
 - [Apple FCPXML](https://developer.apple.com/documentation/professional-video-applications/fcpxml-reference)
 - [OpenTimelineIO file format](https://opentimelineio.readthedocs.io/en/latest/tutorials/otio-file-format-specification.html)
 - Resolve 21.1 installed vendor `Developer/Scripting/README.md` (updated August 31, 2026) and `DaVinciResolveScript.pyi`.
+
+A fresh worktree also needs the locally ignored `docs/video-script-example.md` fixture from the existing checkout for `tests/m4.test.ts`; do not synthesize a replacement or edit the original file.
