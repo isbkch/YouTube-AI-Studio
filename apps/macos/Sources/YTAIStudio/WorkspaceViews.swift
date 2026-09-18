@@ -555,6 +555,10 @@ struct MediaView: View {
 struct TranscriptView: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
+  @State private var showAllAttempts = false
+  private var discardedCount: Int {
+    p.recordings.reduce(0) { $0 + (p.transcript(for: $1)?.retakeReview?.discardedCount ?? 0) }
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
       HStack {
@@ -589,13 +593,33 @@ struct TranscriptView: View {
         }.buttonStyle(QuietButtonStyle()).disabled(
           p.status != "MEDIA_IMPORTED" || m.busy || p.pendingRecordings.isEmpty)
       }
+      if discardedCount > 0 {
+        HStack(spacing: 16) {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Last delivery kept").font(.headline)
+            Text(
+              "\(discardedCount) earlier attempt(s) collapsed. New A-roll drafts use the last complete delivery of consecutive repeated lines."
+            )
+            .font(.caption).foregroundStyle(.secondary)
+            if !p.plans.isEmpty {
+              Text("The current storyboard keeps its existing selections.")
+                .font(.caption).foregroundStyle(.secondary)
+            }
+          }
+          Spacer()
+          Toggle("Show all attempts", isOn: $showAllAttempts).toggleStyle(.switch).fixedSize()
+        }.padding(16).studioCard(cornerRadius: 12)
+      }
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
           ForEach(p.recordings) { r in
             if let t = p.transcript(for: r) {
               TranscriptSectionHeader(
                 recording: r, detail: "\(t.provider) / \(t.model)")
-              ForEach(t.segments) { s in segmentRow(s) }
+              ForEach(showAllAttempts ? t.segments : (t.retakeReview?.segments ?? t.segments)) {
+                s in
+                segmentRow(s)
+              }
             } else {
               TranscriptSectionHeader(recording: r, detail: "Awaiting transcript")
               Text(
