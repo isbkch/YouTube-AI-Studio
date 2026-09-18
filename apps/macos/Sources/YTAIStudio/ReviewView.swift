@@ -63,7 +63,12 @@ struct ReviewView: View {
               systemImage: "checkmark.seal"
             ).foregroundStyle(Color.studioSuccess).font(.caption)
           }
-          QASummaryStrip(p: p)
+          HStack(alignment: .top, spacing: 12) {
+            QASummaryStrip(p: p)
+            if let review = p.reviews.last(where: { $0.gate == "rough-cut" }) {
+              ProducerReviewStrip(review: review)
+            }
+          }
           if p.roughCutApproval != nil { FinalRenderView(p: p, preset: $preset, macro: $macro) }
           PublishingView(p: p)
           Text(
@@ -230,6 +235,35 @@ struct QASummaryStrip: View {
       parts.append("\(warnings.count) warning(s)")
     }
     return parts.isEmpty ? "See the full report for details." : parts.joined(separator: " · ")
+  }
+}
+
+/// Compact strip beside the QA summary: the deterministic review that judged
+/// this rough cut (or would have), with its findings a popover away.
+struct ProducerReviewStrip: View {
+  let review: ProducerReview
+  var body: some View {
+    HStack(alignment: .center, spacing: 10) {
+      Image(systemName: "wand.and.stars").foregroundStyle(Color.studioAccent)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(
+          review.verdict == "approved"
+            ? "Producer approved v\(review.planVersion)"
+            : "Producer escalated v\(review.planVersion)"
+        ).font(.headline)
+        Text(
+          "QA \(review.evidence.qaStatus ?? "—")"
+            + " · \(review.evidence.warnings ?? 0) warning(s)"
+            + " · \(review.evidence.attention ?? 0) flagged"
+        ).font(.caption).foregroundStyle(.secondary)
+      }
+      Spacer()
+      if !review.findings.isEmpty {
+        PopoverButton(label: "\(review.findings.count) finding(s)") {
+          ProducerFindingsPopover(review: review)
+        }
+      }
+    }.padding(16).frame(width: 300, alignment: .leading).studioCard(cornerRadius: 11)
   }
 }
 

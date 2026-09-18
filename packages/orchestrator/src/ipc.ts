@@ -57,10 +57,19 @@ async function dispatch(
           title: z.string(),
           description: z.string(),
           targetDuration: z.number(),
+          autonomy: z.enum(["supervised", "autonomous"]).default("supervised"),
         })
         .parse(params);
-      return store.create(p.title, p.description, p.targetDuration);
+      return store.create(p.title, p.description, p.targetDuration, p.autonomy);
     }
+    case "project.autonomy": {
+      const p = project
+        .extend({ mode: z.enum(["supervised", "autonomous"]) })
+        .parse(params);
+      return studio.setAutonomy(p.projectId, p.mode);
+    }
+    case "producer.advance":
+      return studio.advance(project.parse(params).projectId, signal);
     case "project.recover":
       return studio.recover(project.parse(params).projectId);
     case "project.delete":

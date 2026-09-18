@@ -300,6 +300,7 @@ struct NewProjectView: View {
   @State private var title = ""
   @State private var description = ""
   @State private var minutes = 15.0
+  @State private var autonomy = "supervised"
   var body: some View {
     VStack(alignment: .leading, spacing: 22) {
       Text("Start with an idea.").studioHeading(25)
@@ -314,12 +315,24 @@ struct NewProjectView: View {
         TextField("Minutes", value: $minutes, format: .number).frame(width: 60)
         Text("minutes").foregroundStyle(.secondary)
       }
+      VStack(alignment: .leading, spacing: 8) {
+        Picker("Autonomy", selection: $autonomy) {
+          Text("Supervised — every gate is yours").tag("supervised")
+          Text("Autonomous — the Producer advances machine gates").tag("autonomous")
+        }.pickerStyle(.radioGroup)
+        Text(
+          autonomy == "autonomous"
+            ? "The Producer auto-approves the storyboard and rough cut and drives the build, visual pass, final render and packaging. Script and publication approval stay yours."
+            : "You approve the storyboard, rough cut and packaging yourself."
+        ).font(.caption).foregroundStyle(.secondary)
+      }
       HStack {
         Button("Cancel") { dismiss() }.buttonStyle(QuietButtonStyle())
         Spacer()
         Button("Create Project") {
           Task {
-            await m.create(title: title, description: description, minutes: minutes)
+            await m.create(
+              title: title, description: description, minutes: minutes, autonomy: autonomy)
             dismiss()
           }
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(

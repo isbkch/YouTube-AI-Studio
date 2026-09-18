@@ -51,13 +51,33 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
       description: "Test",
       targetDuration: 60,
     });
-    const p = created.result as { id: string };
+    const p = created.result as { id: string; autonomy: string };
     assert.ok(p.id);
+    assert.equal(p.autonomy, "supervised", "projects default to supervised");
     const blocked = await call("media.import", {
       projectId: p.id,
       path: "/never-read.mp4",
     });
     assert.equal((blocked.error as { kind: string }).kind, "CONFLICT");
+    // The Producer only advances autonomous projects; mode switching round-trips.
+    const refused = await call("producer.advance", { projectId: p.id });
+    assert.equal((refused.error as { kind: string }).kind, "CONFLICT");
+    const switched = await call("project.autonomy", {
+      projectId: p.id,
+      mode: "autonomous",
+    });
+    assert.equal(
+      (switched.result as { autonomy: string }).autonomy,
+      "autonomous",
+    );
+    const restored = await call("project.autonomy", {
+      projectId: p.id,
+      mode: "supervised",
+    });
+    assert.equal(
+      (restored.result as { autonomy: string }).autonomy,
+      "supervised",
+    );
     await call("script.save", { projectId: p.id, text: "Approved words." });
     await call("script.approve", { projectId: p.id, version: 1 });
     const snap = await call("project.get", { projectId: p.id });

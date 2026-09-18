@@ -3,6 +3,38 @@ import Foundation
 struct Approval: Decodable {
   let version: Int
   let approvedAt: String
+  /// Approvals from before the Producer existed decode as the creator's.
+  let approvedBy: String?
+  var by: String { approvedBy == "producer" ? "producer" : "creator" }
+}
+/// Deterministic Producer review of a machine gate; the persisted audit trail
+/// behind every auto-approval and escalation.
+struct ProducerReviewFinding: Decodable, Identifiable {
+  var id: String { code + message }
+  let severity: String
+  let code: String
+  let message: String
+}
+struct ProducerReviewEvidence: Decodable {
+  let sentences: Int
+  let omitted: Int
+  let scenes: Int
+  let durationSeconds: Double
+  let qaStatus: String?
+  let warnings: Int?
+  let attention: Int?
+}
+struct ProducerReview: Decodable, Identifiable {
+  let id: String
+  let gate: String
+  let planVersion: Int
+  let verdict: String
+  let checkedAt: String
+  let reviewer: String
+  let findings: [ProducerReviewFinding]
+  let evidence: ProducerReviewEvidence
+  var blockers: [ProducerReviewFinding] { findings.filter { $0.severity == "blocker" } }
+  var warningsOnly: [ProducerReviewFinding] { findings.filter { $0.severity == "warn" } }
 }
 struct ScriptVersion: Decodable {
   let version: Int
@@ -418,6 +450,8 @@ struct Revision: Decodable, Identifiable {
   var id: String { patch.id }
   let patch: Patch
   let status: String
+  /// Who decided the patch; pre-Producer rows decode as the creator's.
+  let decidedBy: String?
 }
 struct Project: Decodable, Identifiable {
   let id: String
@@ -426,6 +460,9 @@ struct Project: Decodable, Identifiable {
   let description: String
   let targetDuration: Double
   let status: String
+  /// Who satisfies the machine gates; pre-Producer rows decode as supervised.
+  let autonomy: String?
+  let producerReviews: [ProducerReview]?
   let research: ResearchSummary?
   let outline: [String]?
   let preproduction: PreproductionState?
@@ -450,6 +487,9 @@ struct Project: Decodable, Identifiable {
   var plan: Plan? { plans.last }
   var currentBuild: Build? { builds.last { $0.planVersion == plan?.version } }
   var latestBuild: Build? { builds.last }
+  var isAutonomous: Bool { autonomy == "autonomous" }
+  var reviews: [ProducerReview] { producerReviews ?? [] }
+  var lastProducerReview: ProducerReview? { reviews.last }
   func transcript(for recording: Recording) -> Transcript? {
     transcripts.last { $0.recordingId == recording.id }
   }

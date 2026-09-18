@@ -48,6 +48,7 @@ const { positionals: a, values: v } = parseArgs({
     model: { type: "string", default: process.env.WTS_MODEL || "gpt-5.4" },
     description: { type: "string", default: "" },
     duration: { type: "string", default: "900" },
+    autonomy: { type: "string" },
     version: { type: "string" },
     recording: { type: "string" },
     preset: { type: "string", default: "H.264 Master" },
@@ -57,12 +58,25 @@ const { positionals: a, values: v } = parseArgs({
     help: { type: "boolean" },
   },
 });
+/** Shared `--autonomy`/positional autonomy parse; supervised is the default. */
+const autonomyArg = (
+  value: string | undefined,
+): "supervised" | "autonomous" => {
+  if (value && !["supervised", "autonomous"].includes(value))
+    throw new StudioError(
+      "INVALID_INPUT",
+      "Autonomy must be supervised or autonomous.",
+    );
+  return (value as "supervised" | "autonomous") ?? "supervised";
+};
 const help = `YouTube-AI-Studio — local production CLI
 
 bun run wts doctor
-bun run wts project create "Title" --duration 900 --description "Idea"
+bun run wts project create "Title" --duration 900 --description "Idea" [--autonomy supervised|autonomous]
 bun run wts project list | project inspect <project> | project recover <project>
 bun run wts project delete <project> --yes   (files you imported from stay untouched)
+bun run wts autonomy <project> supervised|autonomous   (who satisfies the machine gates)
+bun run wts producer <project>   (autonomous projects: advance machine gates to the next stop; script and publication stay human)
 bun run wts research <project> [--provider openai]
 bun run wts narrative <project> [--provider openai]
 bun run wts script draft <project> [--provider openai]
@@ -181,9 +195,35 @@ try {
     );
     let result: unknown;
     if (a[0] === "project" && a[1] === "create")
-      result = store.create(a[2], v.description, Number(v.duration));
+      result = store.create(
+        a[2],
+        v.description,
+        Number(v.duration),
+        autonomyArg(v.autonomy),
+      );
     else if (a[0] === "project" && a[1] === "list") result = store.list();
-    else if (a[0] === "project" && a[1] === "recover")
+    else if (a[0] === "autonomy") {
+      const mode = autonomyArg(a[2]);
+      await studio.setAutonomy(a[1], mode);
+      result = {
+        project: a[1],
+        autonomy: mode,
+        note:
+          mode === "autonomous"
+            ? "The Producer advances machine gates; script and publication approval stay yours."
+            : "Every gate waits for you again.",
+      };
+    } else if (a[0] === "producer") {
+      const advance = await studio.advance(a[1], abort.signal);
+      result = {
+        autonomy: store.get(a[1]).autonomy,
+        acted: advance.acted,
+        stopped: advance.stopped,
+        failed: advance.failed,
+        status: advance.snapshot.status,
+        reviews: advance.snapshot.producerReviews,
+      };
+    } else if (a[0] === "project" && a[1] === "recover")
       result = await studio.recover(a[2]);
     else if (a[0] === "project" && a[1] === "delete") {
       if (!v.yes)

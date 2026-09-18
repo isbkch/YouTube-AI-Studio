@@ -81,6 +81,7 @@ import {
 import { Store } from "./store.ts";
 import {
   transition,
+  type ProducerReview,
   type Project,
   type Job,
   type Transcript,
@@ -101,6 +102,11 @@ import {
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import { computeCaptionEvents } from "./captions.ts";
 import {
+  reviewRoughCut,
+  reviewStoryboard,
+  type TighteningStats,
+} from "./producer.ts";
+import {
   discoverFCPTranscripts,
   fcpToTranscriptInput,
   mapFCPTranscriptsToRecordings,
@@ -116,6 +122,8 @@ export class Studio {
   /** 3D B-roll engine; probed lazily, injectable for tests (ADR 008). */
   public blender: BlenderProvider | null = null;
   private blenderProbed = false;
+  /** Projects with a Producer advance currently in flight. */
+  private advancing = new Set<string>();
   async blenderEngine(): Promise<BlenderProvider | null> {
     if (this.blender) return this.blender;
     if (!this.blenderProbed) {
@@ -931,7 +939,7 @@ export class Studio {
     } = {},
     signal?: AbortSignal,
   ) {
-    return this.locked(projectId, async (p) => {
+    const result = await this.locked(projectId, async (p) => {
       // The hired director owns the defaults: its persona resolves the density,
       // tightening, caption style and audio polish this plan is directed at.
       // Explicit options still override individual knobs for advanced calls;
@@ -1051,13 +1059,17 @@ export class Studio {
       }
       return this.snapshot(p.id);
     });
+    // An autonomous project hands the fresh storyboard to the Producer once
+    // the lock releases.
+    this.autoAdvance(projectId);
+    return result;
   }
   /**
    * Import an externally authored plan (human or offline AI direction).
    * It passes the exact validation an in-app Director plan must pass.
    */
   async importPlan(projectId: string, input: unknown, signal?: AbortSignal) {
-    return this.locked(projectId, async (p) => {
+    const result = await this.locked(projectId, async (p) => {
       const transcripts = p.recordings
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
         .filter((t): t is Transcript => !!t);
@@ -1112,6 +1124,10 @@ export class Studio {
       );
       return this.snapshot(p.id);
     });
+    // An imported plan is a storyboard awaiting approval just like a
+    // generated one; autonomous projects hand it to the Producer.
+    this.autoAdvance(projectId);
+    return result;
   }
   /** Draft the deterministic A-roll edit for review; the Director refines it. */
   async draftAroll(
@@ -1142,7 +1158,11 @@ export class Studio {
     const p = this.store.get(projectId);
     return computeCaptionEvents(validatePlan(p.plans.at(-1)), p.transcripts);
   }
-  async approvePlan(projectId: string, version: number) {
+  async approvePlan(
+    projectId: string,
+    version: number,
+    by: "creator" | "producer" = "creator",
+  ) {
     return this.locked(projectId, async (p) => {
       const plan = validatePlan(p.plans.at(-1));
       if (
@@ -1158,14 +1178,14 @@ export class Studio {
           version,
           hash: hash(plan),
           approvedAt: now(),
-          approvedBy: "creator",
+          approvedBy: by,
         };
-        this.store.event(x.id, { event: "storyboard.approved", version });
+        this.store.event(x.id, { event: "storyboard.approved", version, by });
       });
     });
   }
   async build(projectId: string, signal?: AbortSignal) {
-    return buildProject(
+    const result = await buildProject(
       this.store,
       projectId,
       signal,
@@ -1177,6 +1197,10 @@ export class Studio {
         provider: this.provider,
       },
     );
+    // A completed build parks the rough cut at its gate; the Producer
+    // reviews it for autonomous projects.
+    this.autoAdvance(projectId);
+    return result;
   }
   /**
    * Render the current plan's graphics and 3D clips at storyboard time so the
@@ -1709,7 +1733,12 @@ export class Studio {
     validateSources(next, p.recordings, p.transcripts);
     return patch;
   }
-  async decidePatch(projectId: string, patchId: string, apply: boolean) {
+  async decidePatch(
+    projectId: string,
+    patchId: string,
+    apply: boolean,
+    by: "creator" | "producer" = "creator",
+  ) {
     return this.locked(projectId, async (p) => {
       this.revisionAllowed(p);
       const proposal = p.revisions.find((r) => r.patch.id === patchId);
@@ -1734,6 +1763,7 @@ export class Studio {
         const r = x.revisions.find((r) => r.patch.id === patchId)!;
         r.status = apply ? "APPLIED" : "REJECTED";
         r.decidedAt = now();
+        r.decidedBy = by;
         if (next) {
           x.status = transition(x.status, "REVISING");
           x.plans.push(next);
@@ -1787,7 +1817,12 @@ export class Studio {
       });
     });
   }
-  async approveRoughCut(projectId: string, version: number) {
+  async approveRoughCut(
+    projectId: string,
+    version: number,
+    options: { by?: "creator" | "producer"; deferRender?: boolean } = {},
+  ) {
+    const by = options.by ?? "creator";
     const updated = await this.locked(projectId, async (p) => {
       const plan = p.plans.at(-1)!;
       if (
@@ -1808,11 +1843,15 @@ export class Studio {
           version,
           hash: previewHash,
           approvedAt: now(),
-          approvedBy: "creator",
+          approvedBy: by,
         };
-        this.store.event(x.id, { event: "roughCut.approved", version });
+        this.store.event(x.id, { event: "roughCut.approved", version, by });
       });
     });
+    // The Producer awaits its own final render (advance continues into
+    // packaging only after the render exists); the human path stays
+    // fire-and-forget so approval never blocks on Resolve.
+    if (options.deferRender) return updated;
     // Rough-cut approval is the last human gate before publication: start the
     // final render autonomously, falling back to FFmpeg when Resolve cannot
     // finish. Failures never roll the approval back. Runs after the project
@@ -1953,6 +1992,257 @@ export class Studio {
           macro: options.macroId ?? null,
           engine,
         });
+      });
+    });
+  }
+  // ---------------------------------------------------------------------
+  // The Producer — deterministic autonomy for the machine gates. An
+  // autonomous project lets a fixed review (packages/orchestrator/src/
+  // producer.ts) approve the storyboard and rough cut, drive the build,
+  // visual pass, final render and packaging, and stop at the first failed
+  // check with triaged findings. The script and publication gates stay
+  // permanently human.
+  // ---------------------------------------------------------------------
+
+  /** Switch a project between supervised and autonomous gate handling. */
+  async setAutonomy(projectId: string, mode: Project["autonomy"]) {
+    return this.locked(projectId, (p) =>
+      this.store.update(p.id, (x) => {
+        x.autonomy = mode;
+        this.store.event(x.id, { event: "project.autonomy", mode });
+      }),
+    );
+  }
+  /**
+   * One idempotent pass over the current state: review and approve the
+   * storyboard, auto-apply the once-per-script visual pass, build, review QA
+   * to approve the rough cut, await the final render, then package — and stop
+   * at the publication gate, which is permanently the creator's. Every stop
+   * emits a `producer.stopped` event; step errors emit `producer.failed` and
+   * leave the persisted state consistent (approvals are atomic; nothing rolls
+   * back). Escalated reviews block re-approval of the same plan version until
+   * a new version exists.
+   */
+  async advance(projectId: string, signal?: AbortSignal) {
+    if (this.store.get(projectId).autonomy !== "autonomous")
+      throw new StudioError(
+        "CONFLICT",
+        "The Producer only advances autonomous projects.",
+        "Switch the project to autonomous mode, or approve the gates yourself.",
+      );
+    if (this.advancing.has(projectId))
+      throw new StudioError(
+        "CONFLICT",
+        "The Producer is already running on this project.",
+      );
+    this.advancing.add(projectId);
+    const acted: string[] = [];
+    try {
+      for (let guard = 0; guard < 16; guard++) {
+        const p = this.store.get(projectId);
+        const plan = p.plans.at(-1);
+        const stop = (reason: string) => {
+          this.store.event(projectId, { event: "producer.stopped", reason });
+          return {
+            snapshot: this.snapshot(projectId),
+            acted,
+            stopped: reason,
+            failed: null as { reason: string } | null,
+          };
+        };
+        const step = async (label: string, fn: () => Promise<unknown>) => {
+          await fn();
+          acted.push(label);
+        };
+        try {
+          // 1. Storyboard: review the pending plan version.
+          if (
+            p.status === "AWAITING_STORYBOARD_APPROVAL" &&
+            plan &&
+            p.planApproval?.version !== plan.version
+          ) {
+            if (escalatedFor(p, "storyboard", plan.version))
+              return stop("storyboard-escalated");
+            const evidence = this.storyboardEvidence(p, plan);
+            const review = reviewStoryboard(
+              plan,
+              p.targetDuration,
+              evidence.tightening,
+              evidence.captions,
+            );
+            this.store.update(projectId, (x) => {
+              x.producerReviews.push(review);
+            });
+            this.store.event(projectId, {
+              event: "producer.reviewed",
+              gate: "storyboard",
+              verdict: review.verdict,
+              planVersion: plan.version,
+            });
+            if (review.verdict === "escalated")
+              return stop("storyboard-escalated");
+            await step(`storyboard v${plan.version} approved`, () =>
+              this.approvePlan(projectId, plan.version, "producer"),
+            );
+            continue;
+          }
+          // 2. Visual pass, once per script lineage: propose through the same
+          //    fail-closed validation, apply as the Producer, re-approve above.
+          if (
+            p.status === "AWAITING_STORYBOARD_APPROVAL" &&
+            plan &&
+            p.planApproval?.version === plan.version &&
+            !visualPassApplied(p)
+          ) {
+            const patch = await this.proposeVisualPass(projectId, signal);
+            await step(`visual pass ${patch.resultingVersion} applied`, () =>
+              this.decidePatch(projectId, patch.id, true, "producer"),
+            );
+            continue;
+          }
+          // 3. Build the approved plan version once.
+          if (
+            p.status === "AWAITING_STORYBOARD_APPROVAL" &&
+            plan &&
+            p.planApproval?.version === plan.version &&
+            !p.builds.some((b) => b.planVersion === plan.version)
+          ) {
+            await step(`build v${plan.version}`, () =>
+              this.build(projectId, signal),
+            );
+            continue;
+          }
+          // 4. Rough cut: strict QA review, then approval + awaited render.
+          if (p.status === "AWAITING_ROUGH_CUT_APPROVAL" && plan) {
+            const build = p.builds.findLast(
+              (b) => b.planVersion === plan.version,
+            );
+            if (build) {
+              if (escalatedFor(p, "rough-cut", plan.version))
+                return stop("rough-cut-escalated");
+              const qa = JSON.parse(
+                await readFile(
+                  await safePath(this.store.dir(p), build.qaPath),
+                  "utf8",
+                ),
+              );
+              const review = reviewRoughCut(plan, qa);
+              this.store.update(projectId, (x) => {
+                x.producerReviews.push(review);
+              });
+              this.store.event(projectId, {
+                event: "producer.reviewed",
+                gate: "rough-cut",
+                verdict: review.verdict,
+                planVersion: plan.version,
+              });
+              if (review.verdict === "escalated")
+                return stop("rough-cut-escalated");
+              await step(`rough cut v${plan.version} approved`, () =>
+                this.approveRoughCut(projectId, plan.version, {
+                  by: "producer",
+                  deferRender: true,
+                }),
+              );
+              await step(`final render v${plan.version}`, () =>
+                this.renderFinal(projectId, { autonomous: true, signal }),
+              );
+              continue;
+            }
+          }
+          // 5. Packaging: the last machine step before the human gate.
+          if (
+            p.finalRender &&
+            !p.packaging?.version &&
+            ["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].includes(p.status)
+          ) {
+            await step("packaging generated", () =>
+              this.packageVideo(projectId, signal),
+            );
+            return stop("publication");
+          }
+          return stop("idle");
+        } catch (e) {
+          const reason = e instanceof Error ? e.message : String(e);
+          this.store.event(projectId, { event: "producer.failed", reason });
+          return {
+            snapshot: this.snapshot(projectId),
+            acted,
+            stopped: "failed",
+            failed: { reason },
+          };
+        }
+      }
+      return {
+        snapshot: this.snapshot(projectId),
+        acted,
+        stopped: "loop-guard",
+        failed: null as { reason: string } | null,
+      };
+    } finally {
+      this.advancing.delete(projectId);
+    }
+  }
+  /**
+   * Tightening and caption evidence for a storyboard review, derived on
+   * demand from the same deterministic inputs previews and builds use —
+   * never persisted on the plan.
+   */
+  private storyboardEvidence(
+    p: Project,
+    plan: ProductionPlan,
+  ): {
+    tightening: TighteningStats | null;
+    captions: number | null;
+  } {
+    let tightening: TighteningStats | null = null;
+    if (plan.silenceTightening !== "natural") {
+      const alignment = this.alignment(p.id);
+      if (alignment) {
+        try {
+          const decision = buildEditDecision(
+            alignment,
+            p.recordings.map((r) =>
+              p.transcripts.findLast((t) => t.recordingId === r.id)!,
+            ),
+            plan.visualDensity,
+            plan.silenceTightening,
+          );
+          tightening = {
+            level: decision.stats.tightening.level,
+            skippedRecordings: decision.stats.tightening.skippedRecordings,
+          };
+        } catch {
+          tightening = null; // A plan the editor cannot score gets no warning.
+        }
+      }
+    }
+    let captions: number | null = null;
+    try {
+      captions = computeCaptionEvents(plan, p.transcripts).events.length;
+    } catch {
+      captions = null;
+    }
+    return { tightening, captions };
+  }
+  /**
+   * Fire-and-forget Producer catch-up for autonomous projects. Called after
+   * operations that leave a machine gate pending (plan generation/import,
+   * build); the lock has already released. Failures land in
+   * `producer.autoFailed` events and never surface to the triggering call.
+   */
+  private autoAdvance(projectId: string) {
+    let autonomous = false;
+    try {
+      autonomous = this.store.get(projectId).autonomy === "autonomous";
+    } catch {
+      return; // The project vanished mid-flight; nothing to advance.
+    }
+    if (!autonomous || this.advancing.has(projectId)) return;
+    void this.advance(projectId).catch((err) => {
+      this.store.event(projectId, {
+        event: "producer.autoFailed",
+        reason: err instanceof Error ? err.message : String(err),
       });
     });
   }
@@ -2302,5 +2592,28 @@ function parseIntent(request: string) {
     chapter: chapterMatch ? chapterMatch[1].trim().slice(0, 120) : null,
   };
 }
+/**
+ * An escalated Producer review blocks re-approval of the same plan version:
+ * the gate waits for the creator until a new plan version exists.
+ */
+function escalatedFor(
+  p: Project,
+  gate: ProducerReview["gate"],
+  version: number,
+): boolean {
+  return p.producerReviews.some(
+    (r) =>
+      r.gate === gate && r.planVersion === version && r.verdict === "escalated",
+  );
+}
+/** Whether the visual-direction pass already ran in this project's lineage. */
+function visualPassApplied(p: Project): boolean {
+  return p.revisions.some(
+    (r) =>
+      r.status === "APPLIED" &&
+      r.patch.originatingRequest.startsWith("Visual direction pass"),
+  );
+}
+export type ProducerAdvanceResult = Awaited<ReturnType<Studio["advance"]>>;
 export type ProjectSnapshot = ReturnType<Studio["snapshot"]>;
 export type JobUpdate = { event: "job"; job: Job };

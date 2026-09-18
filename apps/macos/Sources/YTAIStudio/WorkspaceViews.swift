@@ -26,6 +26,7 @@ struct OverviewView: View {
             detail: p.roughCutApproval == nil
               ? "Review the edit and ask for changes."
               : "Version \(p.roughCutApproval!.version) approved",
+            note: p.roughCutApproval?.by == "producer" ? "Auto-approved by Producer" : nil,
             complete: p.roughCutApproval != nil)
           GateCard(
             number: "03", title: "Publication approval",
@@ -34,6 +35,7 @@ struct OverviewView: View {
                 ?? "Package the final render, then approve."),
             complete: p.publication != nil)
         }
+        ProducerStatusCard(p: p)
         HStack(spacing: 20) {
           Metric(value: "\(p.recordings.count)", label: "A-roll recordings")
           Metric(value: "\(p.plan?.scenes.count ?? 0)", label: "Planned scenes")
@@ -69,6 +71,7 @@ struct GateCard: View {
   let number: String
   let title: String
   let detail: String
+  var note: String? = nil
   let complete: Bool
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -80,7 +83,126 @@ struct GateCard: View {
       }
       Text(title).font(.headline)
       Text(detail).font(.caption).foregroundStyle(.secondary).frame(height: 32, alignment: .top)
+      if let note {
+        Label(note, systemImage: "wand.and.stars").font(.caption2).foregroundStyle(
+          Color.studioAccent)
+      }
     }.padding(20).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
+  }
+}
+/// The Producer row: autonomy mode, the latest deterministic review and its
+/// findings, plus manual catch-up. Script and publication stay human either way.
+struct ProducerStatusCard: View {
+  @EnvironmentObject var m: StudioModel
+  let p: Project
+  var body: some View {
+    HStack(alignment: .center, spacing: 14) {
+      Image(systemName: "wand.and.stars").foregroundStyle(Color.studioAccent)
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 8) {
+          Text("Producer").font(.headline)
+          Text(p.isAutonomous ? "Autonomous" : "Supervised")
+            .font(.caption2).padding(.horizontal, 7).padding(.vertical, 2)
+            .background(
+              (p.isAutonomous ? Color.studioAccent : Color.secondary).opacity(0.14),
+              in: Capsule())
+        }
+        if let review = p.lastProducerReview {
+          HStack(spacing: 6) {
+            Label(
+              "\(review.gate == "rough-cut" ? "Rough cut" : "Storyboard") v\(review.planVersion) "
+                + (review.verdict == "approved" ? "approved" : "escalated to you"),
+              systemImage: review.verdict == "approved"
+                ? "checkmark.seal" : "exclamationmark.triangle"
+            ).font(.caption).foregroundStyle(
+              review.verdict == "approved" ? Color.studioSuccess : .orange)
+            if !review.findings.isEmpty {
+              PopoverButton(label: "\(review.findings.count) finding(s)") {
+                ProducerFindingsPopover(review: review)
+              }
+            }
+          }
+        } else {
+          Text(
+            p.isAutonomous
+              ? "No machine review yet. The Producer advances gates as work completes."
+              : "Every gate waits for you. Switch to autonomous to let the deterministic Producer carry the machine gates."
+          ).font(.caption).foregroundStyle(.secondary)
+        }
+      }
+      Spacer()
+      Picker(
+        "Autonomy",
+        selection: Binding(
+          get: { p.isAutonomous ? "autonomous" : "supervised" },
+          set: { mode in Task { await m.setAutonomy(mode) } }
+        )
+      ) {
+        Text("Supervised").tag("supervised")
+        Text("Autonomous").tag("autonomous")
+      }.pickerStyle(.segmented).frame(width: 190).disabled(m.busy)
+      if p.isAutonomous {
+        Button("Run Producer") { Task { await m.runProducer() } }.buttonStyle(
+          QuietButtonStyle()
+        ).disabled(m.busy)
+      }
+    }.padding(18).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
+  }
+}
+/// Findings list in the QA finding-row pattern: severity icon, code, message.
+struct ProducerFindingsPopover: View {
+  let review: ProducerReview
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text(
+        "\(review.reviewer) • \(review.gate) v\(review.planVersion) • \(review.checkedAt)"
+      ).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+      Text(
+        "Coverage \(review.evidence.sentences - review.evidence.omitted)/\(review.evidence.sentences) sentences · \(review.evidence.scenes) scenes · \(Int(review.evidence.durationSeconds))s"
+          + (review.evidence.qaStatus.map { " · QA \($0)" } ?? "")
+      ).font(.caption2).foregroundStyle(.secondary)
+      ForEach(review.findings) { finding in
+        ProducerFindingRow(finding: finding)
+      }
+    }.padding(4).frame(width: 380, alignment: .leading)
+  }
+}
+struct ProducerFindingRow: View {
+  let finding: ProducerReviewFinding
+  private var icon: String {
+    switch finding.severity {
+    case "blocker": return "xmark.circle.fill"
+    case "warn": return "exclamationmark.triangle.fill"
+    default: return "info.circle"
+    }
+  }
+  private var tint: Color {
+    switch finding.severity {
+    case "blocker": return .red
+    case "warn": return .orange
+    default: return .secondary
+    }
+  }
+  var body: some View {
+    HStack(alignment: .top, spacing: 7) {
+      Image(systemName: icon).font(.caption2).foregroundStyle(tint).padding(.top, 2)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(finding.code).font(.system(size: 11, weight: .semibold))
+        Text(finding.message).font(.caption).foregroundStyle(.secondary).lineSpacing(2)
+          .textSelection(.enabled)
+      }
+    }
+  }
+}
+/// Caption-sized button that opens its content in a popover.
+struct PopoverButton<Content: View>: View {
+  let label: String
+  @ViewBuilder let content: () -> Content
+  @State private var show = false
+  var body: some View {
+    Button(label) { show.toggle() }
+      .buttonStyle(.link).font(.caption)
+      .popover(isPresented: $show, arrowEdge: .bottom) { content().padding(12) }
   }
 }
 struct Metric: View {
