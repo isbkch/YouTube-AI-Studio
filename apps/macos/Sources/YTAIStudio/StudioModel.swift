@@ -35,10 +35,17 @@ import UniformTypeIdentifiers
   @Published var musicProvider = UserDefaults.standard.string(forKey: "musicProvider") ?? "library"
   @Published var imageModelName = UserDefaults.standard.string(forKey: "imageModelName") ?? ""
   @Published var musicModelName = UserDefaults.standard.string(forKey: "musicModelName") ?? ""
+  /// The director hired for the selected project. Shared so the Storyboard
+  /// cards and every Generate Storyboard button agree. Follows the plan's
+  /// recorded persona when a new plan version lands, but never clobbers an
+  /// in-progress choice while refreshes stream in between.
+  @Published var selectedDirector = "craftsman"
   private var activeRequest: String?
   private var lastRefresh = Date.distantPast
   /** Plan version storyboard previews were last auto-rendered for. */
   private var autoPreviewedVersion: Int?
+  /** Plan version the director selection was last synced from. */
+  private var directorSyncedVersion: Int?
   init() {
     runtime.onJob = { [weak self] in
       guard let self, Date().timeIntervalSince(self.lastRefresh) > 0.3 else { return }
@@ -56,7 +63,13 @@ import UniformTypeIdentifiers
       projects = try await runtime.call("projects.list")
       if let id = selectedID {
         let snapshot: Project = try await runtime.call("project.get", ["projectId": id])
-        if selectedID == id { project = snapshot }
+        if selectedID == id {
+          project = snapshot
+          if let plan = snapshot.plan, directorSyncedVersion != plan.version {
+            directorSyncedVersion = plan.version
+            selectedDirector = plan.persona
+          }
+        }
       }
     } catch { self.error = error.localizedDescription }
     await loadThumbnails()
@@ -116,6 +129,8 @@ import UniformTypeIdentifiers
     packaging = nil
     thumbnails = nil
     autoPreviewedVersion = nil
+    directorSyncedVersion = nil
+    selectedDirector = "craftsman"
     tab = "Overview"
     await refresh()
   }

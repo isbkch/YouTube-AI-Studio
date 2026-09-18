@@ -61,7 +61,47 @@ struct StoryboardView: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
   @State private var editing: ProductionScene?
-  @State private var director = "craftsman"
+  /// The three hireable director cards; shown before planning (the choice
+  /// drives generation) and beside the plan (re-hire to regenerate).
+  @ViewBuilder private var directorCards: some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text("Hired Director").font(.caption).foregroundStyle(.secondary)
+      ForEach(directorOptions) { option in
+        Button {
+          m.selectedDirector = option.id
+        } label: {
+          HStack(spacing: 9) {
+            Image(systemName: option.symbol)
+              .frame(width: 20)
+              .foregroundStyle(m.selectedDirector == option.id ? Color.studioAccent : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+              Text(option.name).font(.callout.weight(.semibold))
+              Text(option.tagline).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if m.selectedDirector == option.id {
+              Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.studioAccent)
+            }
+          }
+          .padding(.horizontal, 10)
+          .padding(.vertical, 7)
+          .frame(width: 300)
+          .background(
+            m.selectedDirector == option.id
+              ? Color.studioAccent.opacity(0.1) : Color.primary.opacity(0.04))
+          .clipShape(RoundedRectangle(cornerRadius: 9))
+          .overlay(
+            RoundedRectangle(cornerRadius: 9)
+              .stroke(
+                m.selectedDirector == option.id ? Color.studioAccent : .clear, lineWidth: 1))
+          .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .disabled(m.busy)
+      }
+    }
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 18) {
       HStack(alignment: .top) {
@@ -141,52 +181,16 @@ struct StoryboardView: View {
           VStack(alignment: .trailing, spacing: 8) {
             Text("\(plan.scenes.count) scenes • v\(plan.version)").font(.caption).foregroundStyle(
               .secondary)
-            VStack(alignment: .leading, spacing: 5) {
-              Text("Hired Director").font(.caption).foregroundStyle(.secondary)
-              ForEach(directorOptions) { option in
-                Button {
-                  director = option.id
-                } label: {
-                  HStack(spacing: 9) {
-                    Image(systemName: option.symbol)
-                      .frame(width: 20)
-                      .foregroundStyle(director == option.id ? Color.studioAccent : .secondary)
-                    VStack(alignment: .leading, spacing: 1) {
-                      Text(option.name).font(.callout.weight(.semibold))
-                      Text(option.tagline).font(.caption2).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if director == option.id {
-                      Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.studioAccent)
-                    }
-                  }
-                  .padding(.horizontal, 10)
-                  .padding(.vertical, 7)
-                  .frame(width: 272)
-                  .background(
-                    director == option.id
-                      ? Color.studioAccent.opacity(0.1) : Color.primary.opacity(0.04))
-                  .clipShape(RoundedRectangle(cornerRadius: 9))
-                  .overlay(
-                    RoundedRectangle(cornerRadius: 9)
-                      .stroke(
-                        director == option.id ? Color.studioAccent : .clear, lineWidth: 1))
-                  .contentShape(RoundedRectangle(cornerRadius: 9))
-                }
-                .buttonStyle(.plain)
-                .disabled(m.busy)
-              }
-            }
+            directorCards
             Button(
-              director == plan.persona
+              m.selectedDirector == plan.persona
                 ? "Regenerate Storyboard"
-                : "Regenerate as \(directorOptions.first { $0.id == director }?.name ?? director)"
+                : "Regenerate as \(directorOptions.first { $0.id == m.selectedDirector }?.name ?? m.selectedDirector)"
             ) {
               Task {
                 await m.perform(
                   "plan.generate", label: "Director • storyboard",
-                  params: ["director": director])
+                  params: ["director": m.selectedDirector])
               }
             }.buttonStyle(QuietButtonStyle()).disabled(
               m.busy
@@ -261,15 +265,36 @@ struct StoryboardView: View {
       }
       if p.plan == nil {
         Spacer()
-        Text("The storyboard appears here after Director planning.").foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+          Text("Hire your director").font(.headline)
+          Text(
+            "The director drives pacing, visuals, punch-line captions and the sound of the mix. Script and publication approvals always stay yours. You can re-hire before approving the storyboard."
+          ).font(.caption).foregroundStyle(.secondary)
+          directorCards
+          HStack {
+            Button(
+              "Generate Storyboard as \(directorOptions.first { $0.id == m.selectedDirector }?.name ?? m.selectedDirector)"
+            ) {
+              Task {
+                await m.perform(
+                  "plan.generate", label: "Director • storyboard",
+                  params: ["director": m.selectedDirector])
+              }
+            }.buttonStyle(PrimaryActionButtonStyle()).disabled(
+              m.busy
+                || !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].contains(p.status))
+            if m.busy {
+              ProgressView().controlSize(.small)
+            }
+          }
+        }.padding(26)
+          .frame(maxWidth: 460, alignment: .leading)
+          .background(Color.primary.opacity(0.04))
+          .clipShape(RoundedRectangle(cornerRadius: 14))
           .frame(maxWidth: .infinity)
         Spacer()
       }
     }.padding(28)
-      .onAppear { director = p.plan?.persona ?? "craftsman" }
-      .onChange(of: p.plan?.version) { _, _ in
-        director = p.plan?.persona ?? "craftsman"
-      }
       .sheet(item: $editing) { scene in
         SceneEditor(p: p, scene: scene).environmentObject(m)
       }

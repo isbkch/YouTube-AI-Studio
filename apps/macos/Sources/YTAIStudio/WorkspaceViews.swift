@@ -652,11 +652,25 @@ struct TranscriptView: View {
           QuietButtonStyle()
         ).disabled(!p.pendingRecordings.isEmpty || m.busy)
         Spacer()
+        Menu {
+          ForEach(directorOptions) { option in
+            Button(option.name) { m.selectedDirector = option.id }
+          }
+        } label: {
+          Label(
+            "Director: \(directorOptions.first { $0.id == m.selectedDirector }?.name ?? m.selectedDirector)",
+            systemImage: "film"
+          )
+        }.disabled(!p.pendingRecordings.isEmpty || m.busy)
+          .fixedSize()
         Button("Import Plan…") { Task { await m.importPlan() } }.buttonStyle(QuietButtonStyle())
           .disabled(!p.pendingRecordings.isEmpty || m.busy || p.status != "MEDIA_IMPORTED")
         Button("Generate Storyboard") {
           Task {
-            if await m.perform("plan.generate", label: "Director planning") {
+            if await m.perform(
+              "plan.generate", label: "Director planning",
+              params: ["director": m.selectedDirector])
+            {
               m.tab = "Storyboard"
             }
           }
