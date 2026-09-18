@@ -20,6 +20,9 @@ jobs:
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
+      # The unit suite renders real decodable clips through the mock engines;
+      # current hosted images no longer ship ffmpeg, so install it explicitly.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: bun install --frozen-lockfile
       - run: bun run check
 
