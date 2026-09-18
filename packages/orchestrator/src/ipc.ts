@@ -104,6 +104,37 @@ async function dispatch(
     }
     case "publish.run":
       return studio.publish(project.parse(params).projectId, signal);
+    case "thumbnails.get":
+      return studio.thumbnailDocument(project.parse(params).projectId);
+    case "thumbnails.render":
+      return studio.renderThumbnails(
+        project.parse(params).projectId,
+        params,
+        signal,
+      );
+    case "thumbnails.update":
+      return studio.updateThumbnail(project.parse(params).projectId, params);
+    case "thumbnails.regenerate":
+      return studio.regenerateThumbnail(
+        project.parse(params).projectId,
+        params,
+        signal,
+      );
+    case "thumbnails.select":
+      return studio.selectThumbnail(project.parse(params).projectId, params);
+    case "thumbnails.export": {
+      const p = project
+        .extend({
+          packagingVersion: z.number().int().positive(),
+          destination: z.string().min(1),
+        })
+        .parse(params);
+      return studio.exportThumbnails(
+        p.projectId,
+        p.packagingVersion,
+        p.destination,
+      );
+    }
     case "media.import": {
       const p = project.extend({ path: z.string() }).parse(params);
       return studio.importMedia(p.projectId, p.path, signal);

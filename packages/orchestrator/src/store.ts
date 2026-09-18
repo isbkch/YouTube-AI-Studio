@@ -24,6 +24,7 @@ import {
 } from "../../shared/src/index.ts";
 import type { CreatorProfile } from "../../shared/src/index.ts";
 import type { Approval, Asset, Job, Project } from "./model.ts";
+import { interruptedThumbnails } from "./thumbnails.ts";
 /**
  * Tolerant read for persisted project rows: documents written before the
  * Producer existed carry no `autonomy`/`producerReviews`/attribution fields,
@@ -166,6 +167,7 @@ export class Store {
         previsualization: null,
       },
       packaging: { version: null },
+      thumbnails: null,
       scripts: [],
       scriptApproval: null,
       recordings: [],
@@ -390,6 +392,7 @@ export class Store {
     }
     if (recovered)
       this.update(projectId, (p) => {
+        if (p.thumbnails) interruptedThumbnails(p.thumbnails.current);
         if (p.status === "TRANSCRIBING" || p.status === "PLANNING")
           p.status = "MEDIA_IMPORTED";
         if (p.status === "GENERATING_ASSETS" || p.status === "ASSEMBLING")

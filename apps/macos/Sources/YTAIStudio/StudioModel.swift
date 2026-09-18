@@ -19,6 +19,8 @@ import UniformTypeIdentifiers
   @Published var previsualization: Previsualization?
   @Published var teleprompter: TeleprompterDocument?
   @Published var packaging: PackagingDocument?
+  @Published var thumbnails: ThumbnailDocument?
+  private var thumbnailLoadID = UUID()
   @Published var captions: CaptionList = CaptionList(
     style: "none", events: [], skippedRecordings: [])
   @Published var finalMacros: [String] = []
@@ -57,6 +59,7 @@ import UniformTypeIdentifiers
         if selectedID == id { project = snapshot }
       }
     } catch { self.error = error.localizedDescription }
+    await loadThumbnails()
     await loadCaptions()
     await maybeRenderPreviews()
   }
@@ -110,6 +113,8 @@ import UniformTypeIdentifiers
     notice = nil
     aroll = nil
     qa = nil
+    packaging = nil
+    thumbnails = nil
     autoPreviewedVersion = nil
     tab = "Overview"
     await refresh()
@@ -233,6 +238,7 @@ import UniformTypeIdentifiers
           "imageProvider": "mock", "musicProvider": "library",
         ])
     }
+    await loadThumbnails()
   }
   func chooseFile(types: [UTType]) -> URL? {
     let panel = NSOpenPanel()
@@ -336,7 +342,88 @@ import UniformTypeIdentifiers
   }
   func loadPackaging() async {
     guard let id = selectedID else { return }
-    packaging = try? await runtime.call("packaging.get", ["projectId": id])
+    let document: PackagingDocument? = try? await runtime.call("packaging.get", ["projectId": id])
+    if selectedID == id { packaging = document }
+  }
+  func loadThumbnails() async {
+    guard let id = selectedID, let version = project?.packaging?.version else {
+      thumbnails = nil
+      return
+    }
+    let token = UUID()
+    thumbnailLoadID = token
+    let document: ThumbnailDocument? = try? await runtime.call("thumbnails.get", ["projectId": id])
+    if selectedID == id && project?.packaging?.version == version && thumbnailLoadID == token {
+      thumbnails = document
+    }
+  }
+  @discardableResult
+  func renderThumbnails(_ slots: [ThumbnailSlot]) async -> Bool {
+    guard let d = thumbnails, d.projectId == selectedID else { return false }
+    return await perform(
+      "thumbnails.render", label: "Thumbnail rendering",
+      params: [
+        "projectId": d.projectId, "packagingVersion": d.state.current.packagingVersion,
+        "slots": slots.map { ["slot": $0.id, "expectedRevision": $0.version] as [String: Any] },
+      ])
+  }
+  func regenerateThumbnail(_ slot: ThumbnailSlot) async {
+    guard let d = thumbnails, d.projectId == selectedID else { return }
+    await perform(
+      "thumbnails.regenerate", label: "Regenerate thumbnail \(slot.id)",
+      params: [
+        "projectId": d.projectId, "packagingVersion": d.state.current.packagingVersion,
+        "slot": slot.id, "expectedRevision": slot.version,
+      ])
+  }
+  @discardableResult
+  func updateThumbnail(_ slot: ThumbnailSlot, headline: String, direction: String, concept: String)
+    async -> Bool
+  {
+    guard let d = thumbnails, d.projectId == selectedID else { return false }
+    return await perform(
+      "thumbnails.update", label: "Thumbnail edit",
+      params: [
+        "projectId": d.projectId, "packagingVersion": d.state.current.packagingVersion,
+        "slot": slot.id, "expectedRevision": slot.version, "conceptId": concept,
+        "headline": headline, "direction": direction,
+      ])
+  }
+  func selectThumbnail(_ slot: ThumbnailSlot?, revision: Int? = nil) async {
+    guard let d = thumbnails, d.projectId == selectedID else { return }
+    await perform(
+      "thumbnails.select", label: "Thumbnail selection",
+      params: [
+        "projectId": d.projectId, "packagingVersion": d.state.current.packagingVersion,
+        "slot": slot?.id as Any? ?? NSNull(),
+        "expectedRevision": slot?.version as Any? ?? NSNull(),
+        "revision": (revision ?? slot?.currentRevision) as Any? ?? NSNull(),
+      ])
+  }
+  func exportThumbnails() async {
+    guard !busy, let d = thumbnails, d.projectId == selectedID else { return }
+    let panel = NSOpenPanel()
+    panel.title = "Export A/B thumbnails"
+    panel.prompt = "Export here"
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.canCreateDirectories = true
+    panel.message = "A new folder will contain A.jpg, B.jpg and their revision manifest."
+    guard panel.runModal() == .OK, let folder = panel.url else { return }
+    busy = true
+    busyLabel = "Export thumbnails"
+    error = nil
+    defer { busy = false }
+    do {
+      let result: ThumbnailExport = try await runtime.call(
+        "thumbnails.export",
+        [
+          "projectId": d.projectId, "packagingVersion": d.state.current.packagingVersion,
+          "destination": folder.path,
+        ])
+      notice = "A/B thumbnails exported."
+      reveal(URL(fileURLWithPath: result.directory))
+    } catch { self.error = error.localizedDescription }
   }
   func approvePackaging(_ version: Int) async {
     await perform(

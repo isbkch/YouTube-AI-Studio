@@ -3,6 +3,7 @@ import Foundation
 struct Approval: Decodable {
   let version: Int
   let approvedAt: String
+  let thumbnail: ThumbnailSelection?
   /// Approvals from before the Producer existed decode as the creator's.
   let approvedBy: String?
   var by: String { approvedBy == "producer" ? "producer" : "creator" }
@@ -149,6 +150,67 @@ struct Publication: Decodable {
   let videoId: String
   let url: String
   let publishedAt: String
+  let thumbnail: ThumbnailSelection?
+  let warning: String?
+  let thumbnailStatus: String?
+}
+struct ThumbnailSelection: Decodable {
+  let packagingVersion: Int
+  let slot: String
+  let revision: Int
+  let path: String
+  let outputHash: String
+}
+struct ThumbnailBackground: Decodable {
+  let path: String
+  let provider: String
+  let model: String
+}
+struct ThumbnailRevision: Decodable, Identifiable {
+  var id: Int { revision }
+  let revision: Int
+  let conceptId: String
+  let headline: String
+  let direction: String
+  let path: String
+  let outputHash: String
+  let createdAt: String
+  let background: ThumbnailBackground
+}
+struct ThumbnailSlot: Decodable, Identifiable {
+  let id: String
+  let version: Int
+  let conceptId: String
+  let headline: String
+  let direction: String
+  let emotionalHook: String
+  let status: String
+  let stage: String?
+  let error: String?
+  let background: ThumbnailBackground?
+  let currentRevision: Int?
+  let revisions: [ThumbnailRevision]
+  var current: ThumbnailRevision? { revisions.first { $0.revision == currentRevision } }
+}
+struct ThumbnailPackage: Decodable {
+  let packagingVersion: Int
+  let packagingHash: String
+  let slots: [ThumbnailSlot]
+}
+struct ThumbnailState: Decodable {
+  let current: ThumbnailPackage
+  let history: [ThumbnailPackage]
+  let selected: ThumbnailSelection?
+}
+struct ThumbnailDocument: Decodable {
+  let projectId: String
+  let state: ThumbnailState
+  let provider: String?
+  let model: String?
+}
+struct ThumbnailExport: Decodable {
+  let directory: String
+  let files: [String]
 }
 struct Recording: Decodable, Identifiable {
   let id: String

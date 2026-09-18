@@ -1,0 +1,567 @@
+<div id="yt-thumbnail-proposal" aria-label="Thumbnail comparison sheet">
+  <style>
+    #yt-thumbnail-proposal {
+      color-scheme: light;
+      --yt-bg: #f5f4f2;
+      --yt-paper: #fff;
+      --yt-ink: #252521;
+      --yt-muted: #66645f;
+      --yt-border: #d8d5ce;
+      --yt-accent: #cc4f30;
+      --yt-success: #2e795d;
+      font:
+        13px/1.5 -apple-system,
+        BlinkMacSystemFont,
+        "Helvetica Neue",
+        sans-serif;
+      color: var(--yt-ink);
+    }
+    #yt-thumbnail-proposal * {
+      box-sizing: border-box;
+    }
+    #yt-thumbnail-proposal .yt-sheet {
+      background: var(--yt-bg);
+      border: 1px solid var(--yt-border);
+      border-radius: 14px;
+      padding: 24px;
+    }
+    #yt-thumbnail-proposal .yt-header,
+    #yt-thumbnail-proposal .yt-toolbar,
+    #yt-thumbnail-proposal .yt-footer,
+    #yt-thumbnail-proposal .yt-card-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    #yt-thumbnail-proposal .yt-heading {
+      font:
+        26px/1.2 Georgia,
+        serif;
+      margin: 0 0 5px;
+    }
+    #yt-thumbnail-proposal .yt-muted {
+      color: var(--yt-muted);
+    }
+    #yt-thumbnail-proposal .yt-kicker {
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    #yt-thumbnail-proposal .yt-toolbar {
+      margin: 24px 0 16px;
+    }
+    #yt-thumbnail-proposal .yt-title {
+      font-size: 14px;
+      font-weight: 500;
+    }
+    #yt-thumbnail-proposal button {
+      font: inherit;
+      cursor: pointer;
+      background: var(--yt-paper);
+      color: var(--yt-ink);
+      border: 1px solid var(--yt-border);
+      border-radius: 20px;
+      padding: 7px 13px;
+    }
+    #yt-thumbnail-proposal button:hover {
+      border-color: var(--yt-muted);
+    }
+    #yt-thumbnail-proposal button:focus-visible,
+    #yt-thumbnail-proposal textarea:focus-visible,
+    #yt-thumbnail-proposal summary:focus-visible {
+      outline: 2px solid var(--yt-accent);
+      outline-offset: 3px;
+    }
+    #yt-thumbnail-proposal .yt-sizes {
+      display: inline-flex;
+      background: #e9e7e2;
+      border-radius: 8px;
+      padding: 3px;
+      gap: 2px;
+    }
+    #yt-thumbnail-proposal .yt-sizes button {
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      padding: 5px 10px;
+    }
+    #yt-thumbnail-proposal .yt-sizes button[aria-pressed="true"] {
+      background: var(--yt-paper);
+      box-shadow: 0 1px 3px #00000018;
+    }
+    #yt-thumbnail-proposal .yt-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    #yt-thumbnail-proposal .yt-variant {
+      min-width: 0;
+      background: var(--yt-paper);
+      border: 1px solid var(--yt-border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+    #yt-thumbnail-proposal .yt-variant[data-selected="true"] {
+      border-color: var(--yt-accent);
+      box-shadow: inset 0 0 0 1px var(--yt-accent);
+    }
+    #yt-thumbnail-proposal .yt-slot {
+      font-size: 16px;
+      font-weight: 500;
+    }
+    #yt-thumbnail-proposal .yt-selection {
+      color: var(--yt-success);
+      font-size: 11px;
+      min-height: 17px;
+    }
+    #yt-thumbnail-proposal .yt-art-wrap {
+      min-height: 194px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 13px 0 12px;
+    }
+    #yt-thumbnail-proposal .yt-art {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9;
+      overflow: hidden;
+      border-radius: 5px;
+      background: #132634;
+      color: #f2f4ed;
+      container-type: inline-size;
+    }
+    #yt-thumbnail-proposal[data-size="feed"] .yt-art {
+      width: min(100%, 240px);
+    }
+    #yt-thumbnail-proposal .yt-art-a {
+      background: radial-gradient(ellipse at 95% 60%, #563c34 0%, #172b38 65%);
+    }
+    #yt-thumbnail-proposal .yt-art-b {
+      background: radial-gradient(ellipse at 90% 60%, #284b43 0%, #132b37 65%);
+    }
+    #yt-thumbnail-proposal .yt-art:after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        90deg,
+        #101b29f5 5%,
+        #101b2966 54%,
+        transparent 75%
+      );
+      pointer-events: none;
+    }
+    #yt-thumbnail-proposal .yt-headline {
+      position: absolute;
+      z-index: 2;
+      left: 7%;
+      top: 18%;
+      width: 64%;
+      white-space: pre-line;
+      font-size: clamp(24px, 5vw, 54px);
+      font-size: 9cqw;
+      line-height: 1.04;
+      letter-spacing: -0.045em;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
+    #yt-thumbnail-proposal .yt-art-b .yt-headline {
+      color: #d4efa9;
+    }
+    #yt-thumbnail-proposal .yt-duration {
+      position: absolute;
+      bottom: 5%;
+      right: 3%;
+      z-index: 3;
+      border-radius: 3px;
+      background: #000000d9;
+      color: #fff;
+      padding: 1px 4px;
+      font-size: 11px;
+    }
+    #yt-thumbnail-proposal .yt-rack {
+      position: absolute;
+      width: 23%;
+      height: 65%;
+      right: 7%;
+      top: 17%;
+      transform: rotate(-8deg);
+      border: 1px solid #a7b8bb;
+      background: #334f5e;
+      box-shadow: 10px 8px 0 #0e1820;
+    }
+    #yt-thumbnail-proposal .yt-rack.second {
+      right: 27%;
+      top: 25%;
+      opacity: 0.66;
+    }
+    #yt-thumbnail-proposal .yt-server {
+      height: 16%;
+      margin: 11% 10%;
+      border: 1px solid #96b5bc;
+      background: repeating-linear-gradient(
+        0deg,
+        #334e5d,
+        #334e5d 2px,
+        #1a2b38 3px,
+        #1a2b38 5px
+      );
+    }
+    #yt-thumbnail-proposal .yt-server:after {
+      content: "";
+      display: block;
+      width: 9%;
+      aspect-ratio: 1;
+      background: #ef987e;
+      border-radius: 50%;
+      margin: 4% 8%;
+    }
+    #yt-thumbnail-proposal .yt-node {
+      position: absolute;
+      width: 16%;
+      aspect-ratio: 1;
+      right: 8%;
+      top: 16%;
+      border: 2px solid #bde08b;
+      background: #41665b;
+      box-shadow: 7px 7px 0 #0d2028;
+      border-radius: 6px;
+    }
+    #yt-thumbnail-proposal .yt-node.two {
+      top: 61%;
+      right: 8%;
+    }
+    #yt-thumbnail-proposal .yt-node.three {
+      top: 40%;
+      right: 32%;
+      width: 13%;
+      border-color: #ef987e;
+      background: #704f45;
+    }
+    #yt-thumbnail-proposal .yt-link {
+      position: absolute;
+      right: 18%;
+      top: 42%;
+      width: 20%;
+      height: 2px;
+      background: #bde08b;
+      transform: rotate(-28deg);
+    }
+    #yt-thumbnail-proposal .yt-link.lower {
+      top: 61%;
+      transform: rotate(28deg);
+    }
+    #yt-thumbnail-proposal .yt-video-title {
+      font-weight: 500;
+      margin-bottom: 5px;
+    }
+    #yt-thumbnail-proposal .yt-angle {
+      color: var(--yt-muted);
+      margin-bottom: 14px;
+      min-height: 40px;
+    }
+    #yt-thumbnail-proposal .yt-choose {
+      width: 100%;
+    }
+    #yt-thumbnail-proposal .yt-choose[aria-pressed="true"] {
+      color: var(--yt-accent);
+      background: #fbefeb;
+      border-color: #e7baad;
+    }
+    #yt-thumbnail-proposal details {
+      border-top: 1px solid var(--yt-border);
+      padding-top: 10px;
+      margin-top: 12px;
+    }
+    #yt-thumbnail-proposal summary {
+      cursor: pointer;
+      color: var(--yt-muted);
+    }
+    #yt-thumbnail-proposal label {
+      display: block;
+      margin: 10px 0 6px;
+    }
+    #yt-thumbnail-proposal textarea {
+      width: 100%;
+      resize: vertical;
+      min-height: 72px;
+      padding: 8px;
+      border: 1px solid var(--yt-border);
+      border-radius: 6px;
+      font: inherit;
+      background: var(--yt-paper);
+      color: var(--yt-ink);
+    }
+    #yt-thumbnail-proposal .yt-edit-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    #yt-thumbnail-proposal .yt-footer {
+      border-top: 1px solid var(--yt-border);
+      padding-top: 18px;
+      margin-top: 20px;
+    }
+    #yt-thumbnail-proposal .yt-primary {
+      background: var(--yt-accent);
+      color: #fff;
+      border-color: var(--yt-accent);
+    }
+    #yt-thumbnail-proposal .yt-live {
+      max-width: 390px;
+      color: var(--yt-muted);
+      font-size: 12px;
+    }
+    #yt-thumbnail-proposal[data-art="light"] .yt-art {
+      background: #deddd0;
+    }
+    #yt-thumbnail-proposal[data-art="light"] .yt-art:after {
+      background: linear-gradient(
+        90deg,
+        #efeee2 5%,
+        #efeee277 54%,
+        transparent 75%
+      );
+    }
+    #yt-thumbnail-proposal[data-art="light"] .yt-headline {
+      color: #132b37;
+    }
+    @media (max-width: 590px) {
+      #yt-thumbnail-proposal .yt-grid {
+        grid-template-columns: 1fr;
+      }
+      #yt-thumbnail-proposal .yt-sheet {
+        padding: 16px;
+      }
+      #yt-thumbnail-proposal .yt-art-wrap {
+        min-height: 145px;
+      }
+    }
+    @media (pointer: coarse) {
+      #yt-thumbnail-proposal button,
+      #yt-thumbnail-proposal summary {
+        min-height: 44px;
+      }
+      #yt-thumbnail-proposal textarea {
+        font-size: 16px;
+      }
+    }
+  </style>
+  <section class="yt-sheet">
+    <div class="yt-header">
+      <div>
+        <div class="yt-kicker yt-muted">Packaging · Thumbnails</div>
+        <h2 class="yt-heading">Compare A &amp; B</h2>
+        <div class="yt-muted">
+          One video. Two ways to make its idea visible.
+        </div>
+      </div>
+    </div>
+    <div class="yt-toolbar">
+      <span class="yt-title">Redundancy is not high availability</span>
+      <div class="yt-sizes" role="group" aria-label="Thumbnail preview size">
+        <button type="button" data-size="large" aria-pressed="true">
+          Large
+        </button>
+        <button type="button" data-size="feed" aria-pressed="false">
+          Feed size
+        </button>
+      </div>
+    </div>
+    <div class="yt-grid">
+      <article
+        class="yt-variant"
+        data-slot="A"
+        data-selected="true"
+        aria-label="Variant A"
+      >
+        <div class="yt-card-heading">
+          <span class="yt-slot">A · The hidden risk</span
+          ><span class="yt-selection">Selected for upload</span>
+        </div>
+        <div class="yt-art-wrap">
+          <div
+            class="yt-art yt-art-a"
+            role="img"
+            aria-label="Two server racks with the headline Two servers. One failure."
+          >
+            <div class="yt-rack second" aria-hidden="true">
+              <div class="yt-server"></div>
+              <div class="yt-server"></div>
+              <div class="yt-server"></div>
+            </div>
+            <div class="yt-rack" aria-hidden="true">
+              <div class="yt-server"></div>
+              <div class="yt-server"></div>
+              <div class="yt-server"></div>
+            </div>
+            <span class="yt-headline">TWO SERVERS. ONE FAILURE.</span
+            ><span class="yt-duration" aria-hidden="true">12:48</span>
+          </div>
+        </div>
+        <div class="yt-video-title">Redundancy is not high availability</div>
+        <div class="yt-angle">
+          The extra server feels safe. The shared dependency still fails.
+        </div>
+        <button
+          class="yt-choose"
+          type="button"
+          data-choose="A"
+          aria-pressed="true"
+        >
+          ✓ Selected
+        </button>
+        <details>
+          <summary>Edit headline</summary>
+          <label for="yt-headline-a">Headline</label
+          ><textarea id="yt-headline-a" maxlength="50">
+TWO SERVERS.
+ONE FAILURE.</textarea>
+          <div class="yt-edit-row">
+            <span class="yt-muted">Reuses the same image</span
+            ><button type="button" data-apply="A">Apply headline</button>
+          </div>
+        </details>
+      </article>
+      <article
+        class="yt-variant"
+        data-slot="B"
+        data-selected="false"
+        aria-label="Variant B"
+      >
+        <div class="yt-card-heading">
+          <span class="yt-slot">B · The useful insight</span
+          ><span class="yt-selection"></span>
+        </div>
+        <div class="yt-art-wrap">
+          <div
+            class="yt-art yt-art-b"
+            role="img"
+            aria-label="A dependency diagram with the headline Find the single point."
+          >
+            <div class="yt-link" aria-hidden="true"></div>
+            <div class="yt-link lower" aria-hidden="true"></div>
+            <div class="yt-node" aria-hidden="true"></div>
+            <div class="yt-node two" aria-hidden="true"></div>
+            <div class="yt-node three" aria-hidden="true"></div>
+            <span class="yt-headline">FIND THE SINGLE POINT.</span
+            ><span class="yt-duration" aria-hidden="true">12:48</span>
+          </div>
+        </div>
+        <div class="yt-video-title">Redundancy is not high availability</div>
+        <div class="yt-angle">
+          Make the shared dependency the thing viewers notice first.
+        </div>
+        <button
+          class="yt-choose"
+          type="button"
+          data-choose="B"
+          aria-pressed="false"
+        >
+          Choose B
+        </button>
+        <details>
+          <summary>Edit headline</summary>
+          <label for="yt-headline-b">Headline</label
+          ><textarea id="yt-headline-b" maxlength="50">
+FIND THE
+SINGLE POINT.</textarea>
+          <div class="yt-edit-row">
+            <span class="yt-muted">Reuses the same image</span
+            ><button type="button" data-apply="B">Apply headline</button>
+          </div>
+        </details>
+      </article>
+    </div>
+    <div class="yt-footer">
+      <span class="yt-live" aria-live="polite"
+        >Your choice will be included when you approve packaging.</span
+      >
+      <button type="button" class="yt-primary" id="yt-use-thumbnail">
+        Use A for upload
+      </button>
+    </div>
+  </section>
+  <script>
+    (() => {
+      const root = document.getElementById("yt-thumbnail-proposal");
+      const state = { selected: "A", size: "large", artwork: "dark" };
+      const status = root.querySelector(".yt-live");
+      const useButton = root.querySelector("#yt-use-thumbnail");
+      function render() {
+        root.dataset.size = state.size;
+        root.dataset.art = state.artwork;
+        root.querySelectorAll("[data-slot]").forEach((card) => {
+          const selected = card.dataset.slot === state.selected;
+          card.dataset.selected = String(selected);
+          card.querySelector(".yt-selection").textContent = selected
+            ? "Selected for upload"
+            : "";
+          const button = card.querySelector("[data-choose]");
+          button.setAttribute("aria-pressed", String(selected));
+          button.textContent = selected
+            ? "✓ Selected"
+            : `Choose ${card.dataset.slot}`;
+        });
+        root
+          .querySelectorAll("button[data-size]")
+          .forEach((button) =>
+            button.setAttribute(
+              "aria-pressed",
+              String(button.dataset.size === state.size),
+            ),
+          );
+        useButton.textContent = `Use ${state.selected} for upload`;
+      }
+      root.querySelectorAll("[data-choose]").forEach((button) =>
+        button.addEventListener("click", () => {
+          state.selected = button.dataset.choose;
+          status.textContent = `${state.selected} is your current choice. Publication still needs packaging approval.`;
+          render();
+        }),
+      );
+      root.querySelectorAll("button[data-size]").forEach((button) =>
+        button.addEventListener("click", () => {
+          state.size = button.dataset.size;
+          render();
+        }),
+      );
+      root.querySelectorAll("[data-apply]").forEach((button) =>
+        button.addEventListener("click", () => {
+          const slot = button.dataset.apply;
+          const card = root.querySelector(`[data-slot="${slot}"]`);
+          const value = card.querySelector("textarea").value.trim();
+          if (!value) {
+            status.textContent = "Enter a headline before applying it.";
+            return;
+          }
+          card.querySelector(".yt-headline").textContent = value;
+          card
+            .querySelector(".yt-art")
+            .setAttribute("aria-label", `Variant ${slot}: ${value}`);
+          status.textContent = `Headline ${slot} updated. The background image is unchanged.`;
+        }),
+      );
+      useButton.addEventListener("click", () => {
+        status.textContent = `${state.selected} selected for upload. Review and approve packaging to continue.`;
+      });
+      render();
+      if (globalThis.Tweak) {
+        const tweak = new Tweak({ container: root, onChange: render });
+        tweak.addSelect(state, "artwork", {
+          label: "Thumbnail art direction",
+          options: [
+            { label: "Dark technical", value: "dark" },
+            { label: "Light editorial", value: "light" },
+          ],
+        });
+      }
+    })();
+  </script>
+</div>

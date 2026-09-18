@@ -298,10 +298,20 @@ struct PublishingView: View {
             "Uploaded \(pub.publishedAt) • review visibility in YouTube Studio before going wide."
           )
           .font(.caption2).foregroundStyle(.secondary)
+          if let warning = pub.warning {
+            Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(
+              .orange)
+          }
+          Button("Open YouTube Studio") {
+            if let url = URL(string: "https://studio.youtube.com/video/\(pub.videoId)/edit") {
+              NSWorkspace.shared.open(url)
+            }
+          }.buttonStyle(QuietButtonStyle())
         }
+        ThumbnailSection(p: p)
       } else {
         Text(
-          "The Packaging Agent proposes titles, thumbnail concepts, the description with chapter timestamps, and upload metadata. Nothing leaves this Mac until you approve a version and publish."
+          "Review titles, render thumbnail variants, and approve the description, chapters and selected image before publishing. Image generation uses your configured provider."
         ).font(.caption).foregroundStyle(.secondary)
         Button(m.provider == "mock" ? "Generate Packaging (mock)" : "Generate Packaging") {
           Task { await m.packageVideo() }
@@ -309,7 +319,7 @@ struct PublishingView: View {
         if let d = doc { packagingBody(d) }
         if let approval = p.publishApproval, approval.version == (p.packaging?.version ?? 0) {
           Label(
-            "Packaging v\(approval.version) approved — publishing uploads exactly this document.",
+            "Packaging v\(approval.version) approved · \(approval.thumbnail.map { "thumbnail \($0.slot), revision \($0.revision)" } ?? "no custom thumbnail").",
             systemImage: "checkmark.seal"
           ).font(.caption).foregroundStyle(Color.studioSuccess)
         }
@@ -348,15 +358,7 @@ struct PublishingView: View {
         }
       }
     }
-    VStack(alignment: .leading, spacing: 6) {
-      Text("Thumbnail concepts").font(.caption).foregroundStyle(.secondary)
-      ForEach(d.packaging.thumbnailConcepts) { c in
-        VStack(alignment: .leading, spacing: 2) {
-          Text(c.headline).font(.system(size: 13, weight: .semibold))
-          Text("\(c.emotionalHook) — \(c.direction)").font(.caption2).foregroundStyle(.secondary)
-        }
-      }
-    }
+    ThumbnailSection(p: p)
     if !d.packaging.chapters.isEmpty {
       VStack(alignment: .leading, spacing: 4) {
         Text("Chapters (from the rendered timeline)").font(.caption).foregroundStyle(.secondary)
