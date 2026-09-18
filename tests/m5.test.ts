@@ -229,6 +229,134 @@ console.log('WTS_RESULT:' + JSON.stringify({available: false, reason: 'Render pr
     }
   }));
 
+test("Resolve marker read-back normalizes timeline frames and maps scenes", async () =>
+  temporary(async (root, store) => {
+    const p = await finishedProject(store);
+    const app = path.join(root, "Resolve.app");
+    const interpreter = path.join(app, "Contents/Applications/ResolvePython");
+    await mkdir(path.dirname(interpreter), { recursive: true });
+    await writeFile(
+      interpreter,
+      `#!${process.execPath}
+console.log('WTS_RESULT:' + JSON.stringify({
+  available: true, version: "21.1", product: "DaVinci Resolve Studio",
+  project: "WTS Demo v1", timeline: "WTS Demo v1",
+  timelineStartFrame: 108000, timelineEndFrame: 108900,
+  markers: [
+    { source: "timeline", frame: 108000, color: "Red", name: "Opening", note: "Too dark", duration: 1, clipName: null },
+    { source: "timeline", frame: 108450, color: "Yellow", name: null, note: "Slow", duration: 1, clipName: null },
+    { source: "clip", frame: 108930, color: "Blue", name: null, note: "Outro trim", duration: 1, clipName: "take-b.mov" },
+  ],
+}));
+`,
+      { mode: 0o755 },
+    );
+    const oldApp = process.env.WTS_RESOLVE_APP;
+    process.env.WTS_RESOLVE_APP = app;
+    try {
+      await new Studio(store).readResolveMarkers(p.id);
+      const after = store.get(p.id);
+      const review = after.resolveMarkers.at(-1)!;
+      assert.equal(review.planVersion, 1);
+      assert.equal(review.resolveProject, "WTS Demo v1");
+      assert.deepEqual(
+        review.markers.map((m) => [m.frame, m.source, m.sceneIndex]),
+        [
+          [0, "timeline", 0],
+          [450, "timeline", 1],
+          [930, "clip", null],
+        ],
+      );
+      assert.equal(review.markers[2].clipName, "take-b.mov");
+      assert.ok(
+        existsSync(
+          path.join(store.dir(after), `resolve/markers-${review.id}.json`),
+        ),
+      );
+      const events = store.events(p.id).map((e) => JSON.parse(String(e.data)));
+      assert.ok(
+        events.some((e) => e.event === "resolve.markers" && e.count === 3),
+      );
+      // Rows persisted before Resolve marker read-backs read as empty lists.
+      store.update(p.id, (x) => {
+        delete (x as Partial<typeof x>).resolveMarkers;
+      });
+      assert.deepEqual(store.get(p.id).resolveMarkers, []);
+    } finally {
+      if (oldApp === undefined) delete process.env.WTS_RESOLVE_APP;
+      else process.env.WTS_RESOLVE_APP = oldApp;
+    }
+  }));
+
+test("delivering a Resolve-finished render verifies and adopts it as the final master", async () =>
+  temporary(async (root, store) => {
+    const p = await finishedProject(store);
+    const plan = validatePlan(p.plans[0]);
+    const ffmpeg = await executable("ffmpeg");
+    const encode = (file: string, size: string) =>
+      runBinary(ffmpeg, [
+        "-f",
+        "lavfi",
+        "-i",
+        `color=c=black:s=${size}:r=30`,
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=r=48000:cl=stereo",
+        "-t",
+        String(plan.durationFrames / plan.frameRate),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-y",
+        file,
+      ]);
+    const compliant = path.join(root, "creator-master.mp4");
+    await encode(
+      compliant,
+      `${plan.resolution.width}x${plan.resolution.height}`,
+    );
+    const studio = new Studio(store);
+    await studio.deliverFinal(p.id, compliant);
+    const after = store.get(p.id);
+    assert.equal(after.finalRenderEngine, "resolve-delivered");
+    assert.match(
+      after.finalRender!,
+      /^renders\/final-v1-delivered-[0-9a-f]{8}\.mp4$/,
+    );
+    assert.ok(existsSync(path.join(store.dir(after), after.finalRender!)));
+    assert.ok(
+      store
+        .events(p.id)
+        .some((e) => String(e.data).includes('"final.delivered"')),
+    );
+    // A render that does not match the plan is rejected, never adopted.
+    const wrong = path.join(root, "wrong.mp4");
+    await encode(wrong, "1280x720");
+    await assert.rejects(studio.deliverFinal(p.id, wrong), /1280×720/);
+    assert.equal(store.get(p.id).finalRenderEngine, "resolve-delivered");
+    // So are unapproved projects and non-absolute paths.
+    store.update(p.id, (x) => {
+      x.status = "AWAITING_ROUGH_CUT_APPROVAL";
+    });
+    await assert.rejects(
+      studio.deliverFinal(p.id, compliant),
+      /Approve the rough cut/,
+    );
+    store.update(p.id, (x) => {
+      x.status = "READY_TO_RENDER";
+    });
+    await assert.rejects(
+      studio.deliverFinal(p.id, "relative.mp4"),
+      /absolute MP4 or MOV/,
+    );
+  }));
+
 test("packaging walks a final render to YouTube publication through the local CLI", async () =>
   temporary(async (root, store) => {
     const { cli, argsFile } = await stubCLI(root);

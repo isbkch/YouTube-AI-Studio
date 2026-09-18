@@ -31,9 +31,42 @@ def main():
     result = {"available": True, "version": resolve.GetVersionString(), "product": resolve.GetProductName()}
     if sys.argv[1] == "probe":
         return result
+    if sys.argv[1] == "markers":
+        if len(sys.argv) != 2:
+            raise ValueError("markers reads the currently open project; it takes no files")
+        project = resolve.GetProjectManager().GetCurrentProject()
+        if project is None:
+            raise RuntimeError("No Resolve project is open. Open the imported timeline project, then read markers again.")
+        timeline = project.GetCurrentTimeline()
+        if timeline is None:
+            raise RuntimeError("The open Resolve project has no current timeline.")
+        def reading(frame, info, source, clip_name=None):
+            return {
+                "source": source,
+                "frame": int(frame),
+                "color": info.get("color"),
+                "name": info.get("name") or None,
+                "note": info.get("note") or None,
+                "duration": int(info.get("duration") or 0),
+                "clipName": clip_name,
+            }
+        markers = [reading(frame, info, "timeline") for frame, info in (timeline.GetMarkers() or {}).items()]
+        for index in range(1, timeline.GetTrackCount("video") + 1):
+            for item in timeline.GetItemListInTrack("video", index) or []:
+                start = int(item.GetStart())
+                for frame, info in (item.GetMarkers() or {}).items():
+                    markers.append(reading(start + int(frame), info, "clip", item.GetName()))
+        result.update(
+            project=project.GetName(),
+            timeline=timeline.GetName(),
+            timelineStartFrame=int(timeline.GetStartFrame()),
+            timelineEndFrame=int(timeline.GetEndFrame()),
+            markers=sorted(markers, key=lambda marker: marker["frame"]),
+        )
+        return result
     if sys.argv[1] == "import":
         if len(sys.argv) != 4:
-            raise ValueError("Only probe, import and render actions are supported")
+            raise ValueError("Only probe, markers, import and render actions are supported")
         file_path, project_name = sys.argv[2:]
         if not os.path.isfile(file_path) or os.path.splitext(file_path)[1] not in (".fcpxml", ".otio"):
             raise ValueError("Expected an existing FCPXML or OTIO file")
@@ -50,7 +83,7 @@ def main():
         result.update(project=project.GetName(), timeline=timeline.GetName(), videoTracks=timeline.GetTrackCount("video"), audioTracks=timeline.GetTrackCount("audio"), startFrame=timeline.GetStartFrame(), endFrame=timeline.GetEndFrame())
         return result
     if sys.argv[1] != "render" or len(sys.argv) not in (6, 7):
-        raise ValueError("Only probe, import and render actions are supported")
+        raise ValueError("Only probe, markers, import and render actions are supported")
     file_path, project_name, output_path, preset = sys.argv[2:6]
     macro_path = sys.argv[6] if len(sys.argv) == 7 else None
     if not os.path.isfile(file_path) or os.path.splitext(file_path)[1] != ".fcpxml":

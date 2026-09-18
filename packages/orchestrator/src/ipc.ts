@@ -264,6 +264,10 @@ async function dispatch(
         signal,
       });
     }
+    case "final.deliver": {
+      const p = project.extend({ path: z.string() }).parse(params);
+      return studio.deliverFinal(p.projectId, p.path, { signal });
+    }
     case "final.macros":
       return fusionMacros();
     case "revision.decide": {
@@ -353,6 +357,8 @@ async function dispatch(
         `WTS ${p.title.slice(0, 80)} v${build.planVersion} ${Date.now()}`,
       );
     }
+    case "resolve.markers":
+      return studio.readResolveMarkers(project.parse(params).projectId);
     case "qa.get": {
       const p = store.get(project.parse(params).projectId);
       const build = p.builds.at(-1);
