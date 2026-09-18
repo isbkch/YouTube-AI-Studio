@@ -119,7 +119,7 @@ import {
 import {
   latestTranscripts,
   rememberTranscripts,
-  requireReviewedTranscripts,
+  transcriptReviewContext,
   transcriptsForPlan,
 } from "./transcript-history.ts";
 import {
@@ -184,6 +184,7 @@ export class Studio {
     return {
       ...p,
       transcriptHistory: undefined,
+      transcriptReviewContext: transcriptReviewContext(p),
       transcripts: latestTranscripts(p).map((t) => ({
         ...t,
         retakeReview: reviewRetakes(t, sentences),
@@ -1074,7 +1075,6 @@ export class Studio {
     signal?: AbortSignal,
   ) {
     const result = await this.locked(projectId, async (p) => {
-      requireReviewedTranscripts(p);
       if (options.fromReviewedTranscripts) requireTranscriptIdle(p);
       // The hired director owns the defaults: its persona resolves the density,
       // tightening, caption style and audio polish this plan is directed at.
@@ -1212,7 +1212,6 @@ export class Studio {
    */
   async importPlan(projectId: string, input: unknown, signal?: AbortSignal) {
     const result = await this.locked(projectId, async (p) => {
-      requireReviewedTranscripts(p);
       const transcripts = p.recordings
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
         .filter((t): t is Transcript => !!t);
@@ -1256,7 +1255,8 @@ export class Studio {
             x.plans.push(plan);
             x.planApproval = null;
             x.roughCutApproval = null;
-            x.status = transition(x.status, "AWAITING_STORYBOARD_APPROVAL");
+            if (x.status !== "AWAITING_STORYBOARD_APPROVAL")
+              x.status = transition(x.status, "AWAITING_STORYBOARD_APPROVAL");
           });
           this.store.event(p.id, {
             event: "plan.imported",
@@ -1279,7 +1279,6 @@ export class Studio {
     options: { director?: DirectorId; tightening?: SilenceTightening } = {},
   ) {
     const p = this.store.get(projectId);
-    requireReviewedTranscripts(p);
     const alignment = await this.computeAlignment(projectId);
     const style =
       DIRECTOR_PROFILES[

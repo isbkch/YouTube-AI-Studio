@@ -26,7 +26,7 @@ import { decideTranscriptIssue } from "../packages/orchestrator/src/transcriptio
 import {
   latestTranscripts,
   rememberTranscripts,
-  requireReviewedTranscripts,
+  transcriptReviewContext,
   transcriptsForPlan,
 } from "../packages/orchestrator/src/transcript-history.ts";
 import {
@@ -239,7 +239,7 @@ test("a reviewer cannot attach a finding to another chunk's segment", async () =
   } as unknown as AIProvider;
   await assert.rejects(candidate(undefined, reviewer), /unknown segment/);
 });
-test("transcript decisions preserve original evidence and plan timing, reject stale clicks and enforce the review gate", async () => {
+test("transcript decisions preserve original evidence and plan timing and reject stale clicks", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wts-transcript-history-"));
   const store = new Store(root);
   try {
@@ -255,7 +255,6 @@ test("transcript decisions preserve original evidence and plan timing, reject st
     });
     const before = store.get(p.id),
       report = before.transcriptionReviews![0];
-    assert.throws(() => requireReviewedTranscripts(before), /review queue/);
     const input = {
       reviewId: report.id,
       issueId: report.issues[0].id,
@@ -276,7 +275,6 @@ test("transcript decisions preserve original evidence and plan timing, reject st
       "Post grass stores rows.",
     );
     assert.equal(after.transcriptionReviews![0].decisions.length, 1);
-    assert.doesNotThrow(() => requireReviewedTranscripts(after));
     await assert.rejects(decideTranscriptIssue(store, after, input), /changed/);
     assert.throws(
       () =>
@@ -313,6 +311,125 @@ test("keeping the original records a human decision without changing transcript 
     assert.equal(
       store.get(p.id).transcriptionReviews![0].issues[0].status,
       "kept",
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("pending transcript suggestions allow drafts, generated plans and imports without accepting corrections", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-advisory-review-"));
+  const store = new Store(root);
+  try {
+    const studio = new Studio(store, new MockAIProvider());
+    const p = store.create("Draft first");
+    const result = await candidate();
+    await studio.saveScript(
+      p.id,
+      result.output.segments.map((s) => s.text).join(" "),
+    );
+    await studio.approveScript(p.id, 1);
+    store.update(p.id, (x) => {
+      x.status = "MEDIA_IMPORTED";
+      x.recordings = [recording];
+      x.transcripts = [result.output];
+      x.transcriptionReviews = [result.review!];
+    });
+    assert.equal(result.review!.status, "needs-review");
+    assert.ok((await studio.draftAroll(p.id)).scenes.length > 0);
+    const generated = await studio.generatePlan(p.id);
+    const plan = generated.plans.at(-1)!;
+    assert.ok(plan.scenes.length > 0);
+    assert.ok(
+      generated.transcriptReviewContext.issueIdsInStoryboard!.length > 0,
+    );
+    await studio.importPlan(p.id, { ...plan, version: plan.version + 1 });
+    const after = store.get(p.id);
+    assert.deepEqual(latestTranscripts(after), [result.output]);
+    assert.deepEqual(after.transcriptionReviews, [result.review]);
+    assert.equal(after.plans.length, 2);
+    assert.equal(after.status, "AWAITING_STORYBOARD_APPROVAL");
+    assert.equal(after.planApproval, null);
+
+    // Optional suggestions do not relax the actual input requirements.
+    store.update(p.id, (x) => {
+      x.transcripts = [];
+    });
+    await assert.rejects(
+      studio.generatePlan(p.id),
+      /transcript for every recording/,
+    );
+    await assert.rejects(
+      studio.importPlan(p.id, { ...plan, version: 3 }),
+      /transcript for every recording/,
+    );
+    store.update(p.id, (x) => {
+      x.transcripts = [result.output];
+      x.scriptApproval = null;
+    });
+    await assert.rejects(studio.generatePlan(p.id), /approved script/);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("optional review focuses on source footage in the current storyboard and excludes stale revisions", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-review-scope-"));
+  const store = new Store(root);
+  try {
+    const p = store.create("Review selected footage");
+    const result = await candidate();
+    const other = { ...result.output, recordingId: "recording-2" };
+    const issue = result.review!.issues[0];
+    const plan = fixture();
+    plan.transcriptHash = hash([result.output, other]);
+    plan.scenes[0].sourceInFrame = 60;
+    plan.scenes[0].enabled = false; // Disabling a graphic does not remove its A-roll.
+    const current = store.update(p.id, (x) => {
+      x.recordings = [recording, { ...recording, id: "recording-2" }];
+      x.transcripts = [result.output, other];
+      x.plans = [plan];
+      x.transcriptionReviews = [
+        {
+          ...result.review!,
+          issues: [
+            { ...issue, id: "used", start: 3, end: 4 },
+            { ...issue, id: "discarded", start: 0, end: 1 },
+            { ...issue, id: "before", start: 1, end: 2 },
+            { ...issue, id: "after", start: 5, end: 6 },
+            { ...issue, id: "straddles", start: 4, end: 6 },
+          ],
+        },
+        {
+          ...result.review!,
+          candidateHash: hash(other),
+          recordingId: other.recordingId,
+          issues: [{ ...issue, id: "other-recording", start: 3, end: 4 }],
+        },
+        {
+          ...result.review!,
+          candidateHash: hash("old revision"),
+          issues: [{ ...issue, id: "old", start: 3, end: 4 }],
+        },
+      ];
+    });
+    assert.deepEqual(transcriptReviewContext(current), {
+      planVersion: 1,
+      issueIdsInStoryboard: ["used", "straddles"],
+    });
+    assert.deepEqual(transcriptReviewContext({ ...current, plans: [] }), {
+      planVersion: null,
+      issueIdsInStoryboard: null,
+    });
+    assert.deepEqual(
+      transcriptReviewContext({
+        ...current,
+        transcripts: [
+          ...current.transcripts,
+          { ...result.output, model: "new revision" },
+        ],
+      }),
+      { planVersion: 1, issueIdsInStoryboard: null },
     );
   } finally {
     store.close();

@@ -10,25 +10,31 @@ struct TranscriptReviewPanel: View {
     HStack(spacing: 16) {
       VStack(alignment: .leading, spacing: 4) {
         Text(
-          p.pendingTranscriptIssues > 0
-            ? "\(p.pendingTranscriptIssues) checks need listening"
-            : p.activeTranscriptReviews.isEmpty
-              ? "Make every word count" : "Transcript checks complete"
+          p.hasCompleteTranscript
+            ? "Transcript ready" : "Finish transcribing your recordings"
         )
         .font(.headline)
         Text(
-          p.activeTranscriptReviews.isEmpty
-            ? "Recognize with GPT Transcribe, align words to audio, and review uncertain passages."
-            : "Originals and decisions are saved. Existing storyboards keep their transcript version."
+          p.hasCompleteTranscript
+            ? p.plans.isEmpty
+              ? "Generate your storyboard now. Reviewing AI suggestions is optional."
+              : "You can keep editing. Transcript suggestions are optional; corrections apply to a new storyboard."
+            : "Each recording needs a transcript before you can create a storyboard."
         )
         .font(.caption).foregroundStyle(.secondary)
+        if p.pendingTranscriptIssues > 0 {
+          Text(
+            "\(p.pendingTranscriptIssues) suggestions saved for later. Continuing keeps the current wording."
+          )
+          .font(.caption).foregroundStyle(.secondary)
+        }
       }
       Spacer()
       if !p.transcripts.isEmpty {
         Button("History") { showHistory = true }.buttonStyle(QuietButtonStyle())
       }
       if !p.activeTranscriptReviews.isEmpty {
-        Button("Review passages") { showReview = true }.buttonStyle(QuietButtonStyle())
+        Button("Review suggestions…") { showReview = true }.buttonStyle(QuietButtonStyle())
       }
       Menu {
         Button("All recordings") { Task { await m.reviewTranscription() } }
@@ -36,8 +42,9 @@ struct TranscriptReviewPanel: View {
           Button(r.name) { Task { await m.reviewTranscription(recordingID: r.id) } }
         }
       } label: {
-        Label("Transcribe & Review", systemImage: "waveform.badge.magnifyingglass")
-      }.disabled(m.busy || !p.transcriptReviewIdle || p.recordings.isEmpty)
+        Label("Re-transcribe…", systemImage: "arrow.clockwise")
+      }.disabled(m.busy || !p.transcriptReviewIdle || p.recordings.isEmpty).fixedSize()
+        .help("Re-run transcription and AI review using OpenAI. This makes new billed API calls.")
     }.padding(16).studioCard(cornerRadius: 12)
       .sheet(isPresented: $showReview) { TranscriptListeningReview(projectID: p.id) }
       .sheet(isPresented: $showHistory) { TranscriptHistoryView(p: p) }
@@ -90,29 +97,49 @@ struct TranscriptListeningReview: View {
   @State private var player: AVPlayer?
   @State private var playingID: String?
   @State private var showResolved = false
+  @State private var onlyStoryboard = true
   @State private var editingIssue: String?
   @State private var correctionText = ""
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack {
-        Text("Listen, then decide").font(.title2)
+        Text("Optional transcript suggestions").font(.title2)
         Spacer()
         Toggle("Show resolved", isOn: $showResolved).toggleStyle(.switch)
         Button("Done") { dismiss() }
       }
       Text(
-        "The script provides context. The recording is the evidence. Accept uses the independently recognized, audio-aligned text below."
+        "You can create your storyboard without resolving these. Listen only where you want to check the wording. Accept uses the audio recheck; corrections apply to a new storyboard."
       )
       .font(.callout).foregroundStyle(.secondary)
+      if let p = m.project, p.id == projectID {
+        if let count = p.storyboardTranscriptIssueCount {
+          HStack {
+            Toggle("Only footage used in storyboard", isOn: $onlyStoryboard)
+            Spacer()
+            Text(
+              "\(count) suggestions in this storyboard · \(p.pendingTranscriptIssues) across all recordings"
+            )
+            .font(.caption).foregroundStyle(.secondary)
+          }
+        } else if p.transcriptReviewContext?.planVersion != nil {
+          Text(
+            "The transcript has changed since this storyboard. Showing all suggestions until you generate a new storyboard."
+          )
+          .font(.caption).foregroundStyle(.secondary)
+        }
+      }
       if let error = m.error { Text(error).font(.callout).foregroundStyle(.red) }
       if let player { VideoPlayer(player: player).frame(height: 220) }
       ScrollView {
         if let p = m.project, p.id == projectID {
           ForEach(p.activeTranscriptReviews) { report in
-            if let r = p.recordings.first(where: { $0.id == report.recordingId }) {
+            if let r = p.recordings.first(where: { $0.id == report.recordingId }),
+              !visibleIssues(report, project: p).isEmpty
+            {
               VStack(alignment: .leading, spacing: 12) {
                 Text(r.name).font(.headline)
-                ForEach(report.issues.filter { showResolved || $0.status == "pending" }) { issue in
+                ForEach(visibleIssues(report, project: p)) { issue in
                   VStack(alignment: .leading, spacing: 8) {
                     HStack {
                       Text("\(timestamp(issue.start))–\(timestamp(issue.end)) · \(issue.kind)")
@@ -165,9 +192,11 @@ struct TranscriptListeningReview: View {
               }.padding(.bottom, 12)
             }
           }
-          if p.pendingTranscriptIssues == 0 && !showResolved {
-            Text("No passages awaiting a decision. Show resolved to inspect the review findings.")
-              .foregroundStyle(.secondary)
+          if p.activeTranscriptReviews.allSatisfy({ visibleIssues($0, project: p).isEmpty }) {
+            Text(
+              "No suggestions in this view. You can continue editing, or change the filters to see more."
+            )
+            .foregroundStyle(.secondary)
           }
         }
       }
@@ -176,6 +205,13 @@ struct TranscriptListeningReview: View {
         player?.pause()
         player = nil
       }
+  }
+  private func visibleIssues(_ report: TranscriptionReview, project: Project) -> [TranscriptIssue] {
+    let included = project.transcriptReviewContext?.issueIdsInStoryboard.map { Set($0) }
+    return report.issues.filter {
+      (showResolved || $0.status == "pending")
+        && (!onlyStoryboard || (included?.contains($0.id) ?? true))
+    }
   }
   private func play(p: Project, r: Recording, issue: TranscriptIssue) {
     guard let url = p.url(r.path) else { return }

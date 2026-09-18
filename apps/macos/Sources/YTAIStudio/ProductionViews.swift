@@ -57,6 +57,7 @@ struct StoryboardView: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
   @State private var editing: ProductionScene?
+  @State private var showTranscriptReview = false
   /// The two hireable director cards; shown before planning (the choice
   /// drives generation) and beside the plan (re-hire to regenerate).
   @ViewBuilder private var directorCards: some View {
@@ -252,6 +253,19 @@ struct StoryboardView: View {
           }
         }
       }
+      if p.plan != nil && p.pendingTranscriptIssues > 0 {
+        HStack {
+          Text(
+            p.storyboardTranscriptIssueCount.map {
+              "\($0) transcript suggestions in selected footage"
+            }
+              ?? "Transcript suggestions available"
+          ).font(.caption).foregroundStyle(.secondary)
+          Spacer()
+          Button("Review suggestions (optional)…") { showTranscriptReview = true }
+            .buttonStyle(QuietButtonStyle())
+        }
+      }
       ScrollView {
         LazyVGrid(
           columns: [GridItem(.adaptive(minimum: 300), spacing: 18)], alignment: .leading,
@@ -296,6 +310,7 @@ struct StoryboardView: View {
       .sheet(item: $editing) { scene in
         SceneEditor(p: p, scene: scene).environmentObject(m)
       }
+      .sheet(isPresented: $showTranscriptReview) { TranscriptListeningReview(projectID: p.id) }
   }
 }
 struct SceneCard: View {
