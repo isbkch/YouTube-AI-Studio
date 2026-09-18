@@ -18,7 +18,7 @@ const words = (text: string) =>
 // Ignore only small delivery differences. Negation, numbers and content words
 // remain significant: "is safe" and "is not safe" are different statements.
 const signature = (text: string) =>
-  words(text)
+  words(text.replace(/^(\s*)(actually|well|so)(?:[,\s]+\2)+\b/i, "$1$2"))
     .filter((word) => !/^(a|an|the|uh|um|erm|er)$/.test(word))
     .join(" ");
 const MAX_RETAKE_GAP = 10;

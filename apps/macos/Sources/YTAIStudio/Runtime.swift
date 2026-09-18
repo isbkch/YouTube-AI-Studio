@@ -6,6 +6,7 @@ import SwiftUI
   @Published var connected = false
   @Published var root = ""
   @Published var startupError: String?
+  var onTranscriptionProgress: ((String) -> Void)?
   var onJob: (() -> Void)?
   private var process: Process?
   private var stdin: FileHandle?
@@ -91,6 +92,10 @@ import SwiftUI
       if obj["event"] as? String == "ready" {
         connected = true
         root = obj["root"] as? String ?? ""
+        continue
+      }
+      if obj["event"] as? String == "transcription.progress" {
+        onTranscriptionProgress?(obj["message"] as? String ?? "Reviewing transcript")
         continue
       }
       if obj["event"] as? String == "job" {

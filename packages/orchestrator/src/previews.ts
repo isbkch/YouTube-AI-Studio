@@ -1,3 +1,4 @@
+import { transcriptsForPlan } from "./transcript-history.ts";
 import {
   captionKey,
   graphicKey,
@@ -196,7 +197,7 @@ export async function renderStoryboardPreviews(options: {
   // rendered with identical keys so storyboard previews are the build's
   // cache entries and the creator sees the subtitle layer before approving.
   if (plan.captionStyle !== "none") {
-    const captions = computeCaptionEvents(plan, p.transcripts);
+    const captions = computeCaptionEvents(plan, transcriptsForPlan(p, plan));
     for (const event of captions.events) {
       signal?.throwIfAborted();
       const key = captionKey(

@@ -47,6 +47,7 @@ import UniformTypeIdentifiers
   /** Plan version the director selection was last synced from. */
   private var directorSyncedVersion: Int?
   init() {
+    runtime.onTranscriptionProgress = { [weak self] message in self?.busyLabel = message }
     runtime.onJob = { [weak self] in
       guard let self, Date().timeIntervalSince(self.lastRefresh) > 0.3 else { return }
       self.lastRefresh = Date()
@@ -155,6 +156,16 @@ import UniformTypeIdentifiers
     busy = false
     await refresh()
     return succeeded
+  }
+  func reviewTranscription(recordingID: String? = nil) async {
+    transcriptionProvider = "openai"
+    await configureProvider()
+    guard transcriptionProvider == "openai", error == nil else { return }
+    var params: [String: Any] = [:]
+    if let recordingID { params["recordingId"] = recordingID }
+    if await perform("transcript.review", label: "Transcription and audio review", params: params) {
+      aroll = nil
+    }
   }
   func create(title: String, description: String, minutes: Double, autonomy: String = "supervised")
     async

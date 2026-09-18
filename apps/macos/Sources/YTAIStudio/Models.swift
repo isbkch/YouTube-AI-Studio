@@ -231,6 +231,7 @@ struct Transcript: Decodable {
   let model: String
   let segments: [Segment]
   let retakeReview: RetakeReview?
+  let revision: TranscriptRevision?
 }
 struct RetakeReview: Decodable {
   let segments: [Segment]
@@ -542,6 +543,7 @@ struct Project: Decodable, Identifiable {
   let scriptApproval: Approval?
   let recordings: [Recording]
   let transcripts: [Transcript]
+  let transcriptionReviews: [TranscriptionReview]?
   let plans: [Plan]
   let planApproval: Approval?
   let roughCutApproval: Approval?
@@ -799,4 +801,52 @@ enum JSONValue: Codable {
 func timestamp(_ seconds: Double) -> String {
   let s = max(0, Int(seconds))
   return String(format: "%02d:%02d", s / 60, s % 60)
+}
+
+struct TranscriptRevision: Decodable {
+  let id: String
+  let parentHash: String?
+  let reviewId: String
+  let createdAt: String
+}
+struct TranscriptionReview: Decodable, Identifiable {
+  let id: String
+  let recordingId: String
+  let candidateHash: String
+  let status: String
+  let summary: String
+  let issues: [TranscriptIssue]
+}
+struct TranscriptIssue: Decodable, Identifiable {
+  let id: String
+  let kind: String
+  let reason: String
+  let start: Double
+  let end: Double
+  let originalText: String
+  let suggestedText: String?
+  let proposed: [Segment]?
+  let verification: TranscriptVerification?
+  let status: String
+}
+struct TranscriptVerification: Decodable {
+  let model: String
+  let text: String
+  let alignmentCoverage: Double
+}
+extension Project {
+  var transcriptReviewIdle: Bool {
+    [
+      "MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL", "AWAITING_ROUGH_CUT_APPROVAL",
+      "READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL",
+    ].contains(status)
+  }
+  var activeTranscriptReviews: [TranscriptionReview] {
+    (transcriptionReviews ?? []).filter { review in
+      transcripts.contains { $0.revision?.reviewId == review.id }
+    }
+  }
+  var pendingTranscriptIssues: Int {
+    activeTranscriptReviews.reduce(0) { $0 + $1.issues.filter { $0.status == "pending" }.count }
+  }
 }
