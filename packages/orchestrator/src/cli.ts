@@ -42,6 +42,7 @@ const directorArg = (
 const { positionals: a, values: v } = parseArgs({
   allowPositionals: true,
   options: {
+    file: { type: "string" },
     provider: { type: "string" },
     transcriber: { type: "string" },
     images: { type: "string" },

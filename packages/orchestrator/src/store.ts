@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { migrateLibrary } from "./migrations.ts";
 import {
   mkdirSync,
   writeFileSync,
@@ -87,15 +88,15 @@ export class Store {
       mode: 0o700,
     });
     this.db = new DatabaseSync(path.join(this.root, "studio.sqlite"));
-    this.db
-      .exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
-      CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, slug TEXT UNIQUE NOT NULL, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS locks (project_id TEXT PRIMARY KEY, pid INTEGER NOT NULL, token TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, project_id TEXT, created_at TEXT NOT NULL, data TEXT NOT NULL);
-      PRAGMA user_version=1;`);
+    this.db.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000",
+    );
+    try {
+      migrateLibrary(this.db);
+    } catch (e) {
+      this.db.close();
+      throw e;
+    }
   }
   close() {
     this.db.close();
@@ -128,6 +129,23 @@ export class Store {
     return base;
   }
   create(
+    title: string,
+    description = "",
+    targetDuration = 900,
+    autonomy: Project["autonomy"] = "supervised",
+  ): Project {
+    const project = this.prepareProject(
+      title,
+      description,
+      targetDuration,
+      autonomy,
+    );
+    this.insertPreparedProject(project);
+    this.materializeProject(project);
+    return project;
+  }
+  /** Build the document without database or filesystem side effects. */
+  prepareProject(
     title: string,
     description = "",
     targetDuration = 900,
@@ -183,16 +201,22 @@ export class Store {
       publishApproval: null,
       usage: [],
     };
+    return p;
+  }
+  /** Caller may include these rows/events in a larger SQLite transaction. */
+  insertPreparedProject(p: Project) {
+    this.db
+      .prepare("INSERT INTO projects VALUES (?,?,?)")
+      .run(p.id, p.slug, JSON.stringify(p));
+    this.event(p.id, { event: "project.created" });
+  }
+  /** Files are recoverable projections, materialized only after database commit. */
+  materializeProject(p: Project) {
     const dir = this.dir(p);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     for (const folder of folders)
       mkdirSync(inside(dir, folder), { recursive: true });
-    this.db
-      .prepare("INSERT INTO projects VALUES (?,?,?)")
-      .run(p.id, p.slug, JSON.stringify(p));
     this.snapshot(p);
-    this.event(p.id, { event: "project.created" });
-    return p;
   }
   update(projectId: string, change: (p: Project) => void): Project {
     this.db.exec("BEGIN IMMEDIATE");
