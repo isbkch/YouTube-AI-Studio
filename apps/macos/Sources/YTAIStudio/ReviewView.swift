@@ -286,7 +286,7 @@ struct PublishingView: View {
         Image(systemName: "shippingbox").foregroundStyle(Color.studioAccent)
         Text("Packaging & publishing").font(.headline)
         Spacer()
-        if let pub = p.publication {
+        if p.publication != nil {
           Label("Published", systemImage: "checkmark.seal.fill")
             .font(.caption).foregroundStyle(Color.studioSuccess)
         }

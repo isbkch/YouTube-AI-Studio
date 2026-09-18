@@ -548,7 +548,7 @@ struct SceneEditor: View {
       guard let values = seriesValues, !unit.isEmpty else { return nil }
       return [
         "title": title, "subtitle": subtitle, "unit": String(unit.prefix(10)),
-        "series": values, "threshold": Double(threshold),
+        "series": values, "threshold": Double(threshold).map { $0 as Any } ?? NSNull(),
         "goodDirection": goodDirection, "basis": basis,
       ]
     case "FailureAnimation":
