@@ -24,6 +24,17 @@ const tighteningArg = (
     );
   return value as "natural" | "tight" | "punchy" | undefined;
 };
+/** Shared `--director` parse: the hired persona drives every knob's default. */
+const directorArg = (
+  value: string | undefined,
+): "purist" | "craftsman" | "showman" | undefined => {
+  if (value && !["purist", "craftsman", "showman"].includes(value))
+    throw new StudioError(
+      "INVALID_INPUT",
+      "--director must be purist, craftsman or showman.",
+    );
+  return value as "purist" | "craftsman" | "showman" | undefined;
+};
 const { positionals: a, values: v } = parseArgs({
   allowPositionals: true,
   options: {
@@ -31,6 +42,7 @@ const { positionals: a, values: v } = parseArgs({
     transcriber: { type: "string" },
     images: { type: "string" },
     music: { type: "string" },
+    director: { type: "string" },
     density: { type: "string" },
     tightening: { type: "string" },
     model: { type: "string", default: process.env.WTS_MODEL || "gpt-5.4" },
@@ -66,8 +78,9 @@ bun run wts transcript load <project> <transcript.json>
 bun run wts transcript fcp <project> <fcpbundle-or-folder>
 bun run wts transcribe <project> [--transcriber whisper|openai]
 bun run wts align <project>
-bun run wts aroll <project> [--tightening natural|tight|punchy]
-bun run wts plan <project> [--provider openai] [--density minimal|balanced|rich] [--tightening natural|tight|punchy]
+bun run wts aroll <project> [--director purist|craftsman|showman] [--tightening natural|tight|punchy]
+bun run wts plan <project> [--provider openai] [--director purist|craftsman|showman] [--density minimal|balanced|rich] [--tightening natural|tight|punchy]
+                         (--director hires the persona that drives density, tightening, captions and audio polish; --density/--tightening override individual knobs)
 bun run wts plan import <project> <plan.json>
 bun run wts plan validate <project>
 bun run wts plan approve <project> --version 1
@@ -215,7 +228,10 @@ try {
       result = await studio.transcribe(a[1], abort.signal);
     else if (a[0] === "align") result = await studio.computeAlignment(a[1]);
     else if (a[0] === "aroll") {
-      result = await studio.draftAroll(a[1], tighteningArg(v.tightening));
+      result = await studio.draftAroll(a[1], {
+        director: directorArg(v.director),
+        tightening: tighteningArg(v.tightening),
+      });
     } else if (a[0] === "plan" && a[1] === "validate")
       result = validatePlan(store.get(a[2]).plans.at(-1));
     else if (a[0] === "plan" && a[1] === "approve")
@@ -237,6 +253,7 @@ try {
       result = await studio.generatePlan(
         a[1],
         {
+          director: directorArg(v.director),
           density: v.density as "minimal" | "balanced" | "rich" | undefined,
           tightening: tighteningArg(v.tightening),
         },

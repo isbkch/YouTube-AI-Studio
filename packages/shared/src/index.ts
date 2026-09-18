@@ -251,12 +251,103 @@ export type SilenceTightening = "natural" | "tight" | "punchy";
 export function asSilenceTightening(value: unknown): SilenceTightening {
   return value === "tight" || value === "punchy" ? value : "natural";
 }
+/** How punch-line subtitles animate over the assembled cut. */
+export type CaptionStyle = "none" | "pop" | "karaoke";
+/** Tolerant read in the same shape as `asVisualDensity`. */
+export function asCaptionStyle(value: unknown): CaptionStyle {
+  return value === "pop" || value === "karaoke" ? value : "none";
+}
+/** Narration audio engineering the deterministic mix applies. */
+export type AudioPolish = "natural" | "polished" | "loud";
+/** Tolerant read in the same shape as `asVisualDensity`. */
+export function asAudioPolish(value: unknown): AudioPolish {
+  return value === "polished" || value === "loud" ? value : "natural";
+}
+/** How liberally the visual pass proposes SFX events. */
+export type SfxDensity = "sparse" | "punctuated" | "playful";
+/**
+ * The director the creator hires for a production. The persona resolves to
+ * the derived style bundle below; the individual knobs it drives stay
+ * recorded on each plan, and explicit per-generation overrides still win.
+ */
+export type DirectorId = "purist" | "craftsman" | "showman";
+/**
+ * Tolerant read for creator profiles persisted before the director existed:
+ * anything unrecognized reads as the default director for creators. Plans use
+ * their own schema default ("purist") so legacy plans keep their behavior.
+ */
+export function asDirectorPersona(value: unknown): DirectorId {
+  return value === "purist" || value === "showman" ? value : "craftsman";
+}
+/** The derived style each director brings to a production. */
+export interface DirectorStyle {
+  name: string;
+  tagline: string;
+  visualDensity: VisualDensity;
+  silenceTightening: SilenceTightening;
+  captionStyle: CaptionStyle;
+  sfxDensity: SfxDensity;
+  audioPolish: AudioPolish;
+}
+/**
+ * Single source of truth for what each director means. The plan records the
+ * resolved captionStyle/audioPolish (and the density/tightening knobs); the
+ * visual pass and build read the persona for everything else.
+ */
+/**
+ * The resolved direction a plan is generated under: the persona plus the
+ * knob values it drove (explicit per-generation overrides included). Studio
+ * computes it once and hands it to the Director agent, which records it on
+ * the plan and threads it into prompts.
+ */
+export interface DirectedStyle {
+  director: DirectorId;
+  visualDensity: VisualDensity;
+  silenceTightening: SilenceTightening;
+  captionStyle: CaptionStyle;
+  audioPolish: AudioPolish;
+}
+export const DIRECTOR_PROFILES: Record<DirectorId, DirectorStyle> = {
+  purist: {
+    name: "The Purist",
+    tagline: "Let the content speak.",
+    visualDensity: "minimal",
+    silenceTightening: "natural",
+    captionStyle: "none",
+    sfxDensity: "sparse",
+    audioPolish: "natural",
+  },
+  craftsman: {
+    name: "The Craftsman",
+    tagline: "Polish it until it shines.",
+    visualDensity: "rich",
+    silenceTightening: "tight",
+    captionStyle: "pop",
+    sfxDensity: "punctuated",
+    audioPolish: "polished",
+  },
+  showman: {
+    name: "The Showman",
+    tagline: "Keep them watching, by all means.",
+    visualDensity: "rich",
+    silenceTightening: "punchy",
+    captionStyle: "karaoke",
+    sfxDensity: "playful",
+    audioPolish: "loud",
+  },
+};
 export interface CreatorProfile {
   name: string;
   channel: string;
   format: string;
   targetMinutes: [number, number];
   subjects: string[];
+  /**
+   * The hired director. Owns the derived knobs below: the profile stores the
+   * persona's resolved visualDensity/silenceTightening so snapshots stay
+   * self-describing, but regeneration derives them from the director.
+   */
+  director: DirectorId;
   /** Advises the Director: fewer visuals (minimal) vs graphics-first (rich). */
   visualDensity: VisualDensity;
   /** Advises the deterministic A-roll editor, never the model. */
@@ -279,8 +370,9 @@ export const defaultCreator: CreatorProfile = {
   channel: "YouTube-AI-Studio",
   format: "Long-form technical YouTube essay",
   targetMinutes: [12, 18],
-  visualDensity: "balanced",
-  silenceTightening: "natural",
+  director: "craftsman",
+  visualDensity: DIRECTOR_PROFILES.craftsman.visualDensity,
+  silenceTightening: DIRECTOR_PROFILES.craftsman.silenceTightening,
   subjects: [
     "cloud architecture",
     "reliability",

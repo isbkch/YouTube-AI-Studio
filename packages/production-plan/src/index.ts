@@ -496,8 +496,31 @@ export const visualDensitySchema = z.enum(["minimal", "balanced", "rich"]);
  * editor applies it, never the model.
  */
 export const silenceTighteningSchema = z.enum(["natural", "tight", "punchy"]);
+/**
+ * The director persona the plan was directed under: "purist" (presenter-led,
+ * straight cuts), "craftsman" (polished: rich visuals, tight pacing, punch-line
+ * captions, engineered narration), "showman" (max retention: everything the
+ * craftsman does, turned up). Legacy plans default to "purist" so their
+ * behavior never changes; the runtime records the persona, never the model.
+ */
+export const directorPersonaSchema = z.enum(["purist", "craftsman", "showman"]);
+/**
+ * How punch-line subtitles animate over the assembled cut: "none" (default),
+ * "pop" (the line pops in bottom-center), "karaoke" (words reveal in sync with
+ * the spoken word timings, active word highlighted). Events are computed
+ * deterministically from the approved plan and transcripts at preview/build
+ * time; the plan records only the style.
+ */
+export const captionStyleSchema = z.enum(["none", "pop", "karaoke"]);
+/**
+ * Narration audio engineering the deterministic mix applies: "natural" leaves
+ * the recorded levels untouched, "polished" adds a high-pass and gentle
+ * compression, "loud" compresses harder and normalizes to streaming loudness.
+ * Applied by the mix task, never the model.
+ */
+export const audioPolishSchema = z.enum(["natural", "polished", "loud"]);
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("4.4.0"),
+  schemaVersion: z.literal("4.5.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -520,6 +543,12 @@ export const planSchema = z.strictObject({
   visualDensity: visualDensitySchema.default("balanced"),
   /** Pacing the deterministic cut was tightened at; revisions inherit it. */
   silenceTightening: silenceTighteningSchema.default("natural"),
+  /** Persona the plan was directed under; steers revisions and the visual pass. */
+  directorPersona: directorPersonaSchema.default("purist"),
+  /** Punch-line subtitle style; events are derived at render time. */
+  captionStyle: captionStyleSchema.default("none"),
+  /** Narration engineering the mix applies when this plan builds. */
+  audioPolish: audioPolishSchema.default("natural"),
   audioDesign: audioDesignSchema.default({ music: null, sfx: [] }),
   scriptCoverage: scriptCoverageSchema.nullable().default(null),
 });
@@ -628,6 +657,11 @@ export function migratePlan(input: unknown): unknown {
     // v4.4 records the silence tightening the cut was made at; filled by the
     // schema default.
     return migratePlan({ ...plan, schemaVersion: "4.4.0" });
+  if (plan.schemaVersion === "4.4.0")
+    // v4.5 records the director persona, punch-line caption style and narration
+    // polish the plan was directed at; filled by the schema defaults, which
+    // keep legacy plans building exactly as before.
+    return migratePlan({ ...plan, schemaVersion: "4.5.0" });
   return input;
 }
 
@@ -1262,6 +1296,42 @@ export function graphicKey(
   return hash({
     graphic: scene.visual.graphic,
     durationFrames: scene.durationFrames,
+    frameRate: plan.frameRate,
+    resolution: plan.resolution,
+    brand,
+    templateSourceHash,
+    renderer: "remotion-4.0.525",
+  });
+}
+
+/**
+ * Caption clip identity in the same shape as `graphicKey`: what the clip's
+ * pixels depend on — the text, the word reveal offsets relative to the clip's
+ * own start, its duration, style, brand and renderer. Absolute timeline
+ * placement never changes pixels, so a moved punch line reuses its bytes.
+ */
+export function captionKey(
+  event: {
+    id: string;
+    startFrame: number;
+    endFrame: number;
+    text: string;
+    words: { atFrame: number; text: string }[];
+  },
+  style: "pop" | "karaoke",
+  plan: Pick<ProductionPlan, "frameRate" | "resolution">,
+  brand: unknown,
+  templateSourceHash: string,
+) {
+  return hash({
+    id: event.id,
+    text: event.text,
+    durationFrames: event.endFrame - event.startFrame,
+    words: event.words.map((w) => ({
+      atFrame: w.atFrame - event.startFrame,
+      text: w.text,
+    })),
+    style,
     frameRate: plan.frameRate,
     resolution: plan.resolution,
     brand,

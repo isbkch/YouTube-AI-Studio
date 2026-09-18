@@ -61,7 +61,10 @@
                 "properties": {
                   "type": {
                     "type": "string",
-                    "enum": ["presenter", "graphic"]
+                    "enum": [
+                      "presenter",
+                      "graphic"
+                    ]
                   },
                   "description": {
                     "type": "string",
@@ -99,7 +102,10 @@
                                     "maxLength": 180
                                   }
                                 },
-                                "required": ["title", "subtitle"],
+                                "required": [
+                                  "title",
+                                  "subtitle"
+                                ],
                                 "additionalProperties": false
                               }
                             },
@@ -139,7 +145,10 @@
                                     "maxLength": 180
                                   }
                                 },
-                                "required": ["title", "subtitle"],
+                                "required": [
+                                  "title",
+                                  "subtitle"
+                                ],
                                 "additionalProperties": false
                               }
                             },
@@ -179,7 +188,10 @@
                                     "maxLength": 80
                                   }
                                 },
-                                "required": ["quote", "attribution"],
+                                "required": [
+                                  "quote",
+                                  "attribution"
+                                ],
                                 "additionalProperties": false
                               }
                             },
@@ -301,7 +313,10 @@
                                           }
                                         }
                                       },
-                                      "required": ["name", "components"],
+                                      "required": [
+                                        "name",
+                                        "components"
+                                      ],
                                       "additionalProperties": false
                                     }
                                   },
@@ -497,19 +512,29 @@
                                       "properties": {
                                         "kind": {
                                           "type": "string",
-                                          "enum": ["input", "output", "error"]
+                                          "enum": [
+                                            "input",
+                                            "output",
+                                            "error"
+                                          ]
                                         },
                                         "text": {
                                           "type": "string",
                                           "maxLength": 100
                                         }
                                       },
-                                      "required": ["kind", "text"],
+                                      "required": [
+                                        "kind",
+                                        "text"
+                                      ],
                                       "additionalProperties": false
                                     }
                                   }
                                 },
-                                "required": ["title", "lines"],
+                                "required": [
+                                  "title",
+                                  "lines"
+                                ],
                                 "additionalProperties": false
                               }
                             },
@@ -640,12 +665,18 @@
                                   },
                                   "goodDirection": {
                                     "type": "string",
-                                    "enum": ["up", "down"]
+                                    "enum": [
+                                      "up",
+                                      "down"
+                                    ]
                                   },
                                   "basis": {
                                     "default": "narration",
                                     "type": "string",
-                                    "enum": ["narration", "illustrative"]
+                                    "enum": [
+                                      "narration",
+                                      "illustrative"
+                                    ]
                                   }
                                 },
                                 "required": [
@@ -740,11 +771,19 @@
                     ]
                   }
                 },
-                "required": ["type", "description", "graphic"],
+                "required": [
+                  "type",
+                  "description",
+                  "graphic"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "sceneId", "visual"],
+            "required": [
+              "type",
+              "sceneId",
+              "visual"
+            ],
             "additionalProperties": false
           },
           {
@@ -760,7 +799,11 @@
               },
               "framing": {
                 "type": "string",
-                "enum": ["wide", "medium", "close"]
+                "enum": [
+                  "wide",
+                  "medium",
+                  "close"
+                ]
               },
               "punchIn": {
                 "type": "number",
@@ -768,7 +811,12 @@
                 "maximum": 1.35
               }
             },
-            "required": ["type", "sceneId", "framing", "punchIn"],
+            "required": [
+              "type",
+              "sceneId",
+              "framing",
+              "punchIn"
+            ],
             "additionalProperties": false
           },
           {
@@ -784,7 +832,11 @@
               },
               "parameters": {}
             },
-            "required": ["type", "sceneId", "parameters"],
+            "required": [
+              "type",
+              "sceneId",
+              "parameters"
+            ],
             "additionalProperties": false
           },
           {
@@ -811,7 +863,11 @@
                 ]
               }
             },
-            "required": ["type", "sceneId", "chapterTitle"],
+            "required": [
+              "type",
+              "sceneId",
+              "chapterTitle"
+            ],
             "additionalProperties": false
           },
           {
@@ -826,7 +882,10 @@
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
               }
             },
-            "required": ["type", "sceneId"],
+            "required": [
+              "type",
+              "sceneId"
+            ],
             "additionalProperties": false
           },
           {
@@ -844,7 +903,11 @@
                 "type": "boolean"
               }
             },
-            "required": ["type", "sceneId", "disabled"],
+            "required": [
+              "type",
+              "sceneId",
+              "disabled"
+            ],
             "additionalProperties": false
           },
           {
@@ -900,7 +963,11 @@
                 "maximum": 12
               }
             },
-            "required": ["type", "sceneId", "gainDb"],
+            "required": [
+              "type",
+              "sceneId",
+              "gainDb"
+            ],
             "additionalProperties": false
           },
           {
@@ -921,7 +988,11 @@
                 "maximum": 1
               }
             },
-            "required": ["type", "sceneId", "intensity"],
+            "required": [
+              "type",
+              "sceneId",
+              "intensity"
+            ],
             "additionalProperties": false
           },
           {
@@ -945,7 +1016,12 @@
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
               }
             },
-            "required": ["type", "sceneId", "atFrame", "newSceneId"],
+            "required": [
+              "type",
+              "sceneId",
+              "atFrame",
+              "newSceneId"
+            ],
             "additionalProperties": false
           },
           {
@@ -964,7 +1040,11 @@
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$"
               }
             },
-            "required": ["type", "sceneId", "nextSceneId"],
+            "required": [
+              "type",
+              "sceneId",
+              "nextSceneId"
+            ],
             "additionalProperties": false
           },
           {
@@ -1000,7 +1080,10 @@
                     },
                     "placement": {
                       "type": "string",
-                      "enum": ["inset", "fullframe"]
+                      "enum": [
+                        "inset",
+                        "fullframe"
+                      ]
                     },
                     "inset": {
                       "anyOf": [
@@ -1023,7 +1106,11 @@
                               "maximum": 1
                             }
                           },
-                          "required": ["x", "y", "width"],
+                          "required": [
+                            "x",
+                            "y",
+                            "width"
+                          ],
                           "additionalProperties": false
                         },
                         {
@@ -1101,7 +1188,11 @@
                                 },
                                 "quality": {
                                   "type": "string",
-                                  "enum": ["low", "medium", "high"]
+                                  "enum": [
+                                    "low",
+                                    "medium",
+                                    "high"
+                                  ]
                                 },
                                 "expectsText": {
                                   "type": "boolean"
@@ -1173,7 +1264,11 @@
                                       "maximum": 24
                                     }
                                   },
-                                  "required": ["template", "nodes", "packets"],
+                                  "required": [
+                                    "template",
+                                    "nodes",
+                                    "packets"
+                                  ],
                                   "additionalProperties": false
                                 },
                                 {
@@ -1275,7 +1370,11 @@
                                       "maximum": 12
                                     }
                                   },
-                                  "required": ["template", "segments", "speed"],
+                                  "required": [
+                                    "template",
+                                    "segments",
+                                    "speed"
+                                  ],
                                   "additionalProperties": false
                                 },
                                 {
@@ -1336,7 +1435,11 @@
                 }
               }
             },
-            "required": ["type", "sceneId", "broll"],
+            "required": [
+              "type",
+              "sceneId",
+              "broll"
+            ],
             "additionalProperties": false
           },
           {
@@ -1472,16 +1575,27 @@
                           "maximum": 0
                         }
                       },
-                      "required": ["id", "atFrame", "trackId", "gainDb"],
+                      "required": [
+                        "id",
+                        "atFrame",
+                        "trackId",
+                        "gainDb"
+                      ],
                       "additionalProperties": false
                     }
                   }
                 },
-                "required": ["music", "sfx"],
+                "required": [
+                  "music",
+                  "sfx"
+                ],
                 "additionalProperties": false
               }
             },
-            "required": ["type", "audioDesign"],
+            "required": [
+              "type",
+              "audioDesign"
+            ],
             "additionalProperties": false
           }
         ]

@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "4.4.0"
+      "const": "4.5.0"
     },
     "id": {
       "type": "string",
@@ -63,7 +63,10 @@
           "maximum": 2160
         }
       },
-      "required": ["width", "height"],
+      "required": [
+        "width",
+        "height"
+      ],
       "additionalProperties": false
     },
     "durationFrames": {
@@ -87,7 +90,11 @@
           "maxLength": 2000
         }
       },
-      "required": ["provider", "model", "summary"],
+      "required": [
+        "provider",
+        "model",
+        "summary"
+      ],
       "additionalProperties": false
     },
     "scenes": {
@@ -136,7 +143,11 @@
               },
               "framing": {
                 "type": "string",
-                "enum": ["wide", "medium", "close"]
+                "enum": [
+                  "wide",
+                  "medium",
+                  "close"
+                ]
               },
               "punchIn": {
                 "type": "number",
@@ -144,7 +155,11 @@
                 "maximum": 1.35
               }
             },
-            "required": ["recordingId", "framing", "punchIn"],
+            "required": [
+              "recordingId",
+              "framing",
+              "punchIn"
+            ],
             "additionalProperties": false
           },
           "visual": {
@@ -152,7 +167,10 @@
             "properties": {
               "type": {
                 "type": "string",
-                "enum": ["presenter", "graphic"]
+                "enum": [
+                  "presenter",
+                  "graphic"
+                ]
               },
               "description": {
                 "type": "string",
@@ -190,7 +208,10 @@
                                 "maxLength": 180
                               }
                             },
-                            "required": ["title", "subtitle"],
+                            "required": [
+                              "title",
+                              "subtitle"
+                            ],
                             "additionalProperties": false
                           }
                         },
@@ -230,7 +251,10 @@
                                 "maxLength": 180
                               }
                             },
-                            "required": ["title", "subtitle"],
+                            "required": [
+                              "title",
+                              "subtitle"
+                            ],
                             "additionalProperties": false
                           }
                         },
@@ -270,7 +294,10 @@
                                 "maxLength": 80
                               }
                             },
-                            "required": ["quote", "attribution"],
+                            "required": [
+                              "quote",
+                              "attribution"
+                            ],
                             "additionalProperties": false
                           }
                         },
@@ -392,7 +419,10 @@
                                       }
                                     }
                                   },
-                                  "required": ["name", "components"],
+                                  "required": [
+                                    "name",
+                                    "components"
+                                  ],
                                   "additionalProperties": false
                                 }
                               },
@@ -588,19 +618,29 @@
                                   "properties": {
                                     "kind": {
                                       "type": "string",
-                                      "enum": ["input", "output", "error"]
+                                      "enum": [
+                                        "input",
+                                        "output",
+                                        "error"
+                                      ]
                                     },
                                     "text": {
                                       "type": "string",
                                       "maxLength": 100
                                     }
                                   },
-                                  "required": ["kind", "text"],
+                                  "required": [
+                                    "kind",
+                                    "text"
+                                  ],
                                   "additionalProperties": false
                                 }
                               }
                             },
-                            "required": ["title", "lines"],
+                            "required": [
+                              "title",
+                              "lines"
+                            ],
                             "additionalProperties": false
                           }
                         },
@@ -731,12 +771,18 @@
                               },
                               "goodDirection": {
                                 "type": "string",
-                                "enum": ["up", "down"]
+                                "enum": [
+                                  "up",
+                                  "down"
+                                ]
                               },
                               "basis": {
                                 "default": "narration",
                                 "type": "string",
-                                "enum": ["narration", "illustrative"]
+                                "enum": [
+                                  "narration",
+                                  "illustrative"
+                                ]
                               }
                             },
                             "required": [
@@ -831,7 +877,11 @@
                 ]
               }
             },
-            "required": ["type", "description", "graphic"],
+            "required": [
+              "type",
+              "description",
+              "graphic"
+            ],
             "additionalProperties": false
           },
           "broll": {
@@ -857,7 +907,10 @@
                 },
                 "placement": {
                   "type": "string",
-                  "enum": ["inset", "fullframe"]
+                  "enum": [
+                    "inset",
+                    "fullframe"
+                  ]
                 },
                 "inset": {
                   "anyOf": [
@@ -880,7 +933,11 @@
                           "maximum": 1
                         }
                       },
-                      "required": ["x", "y", "width"],
+                      "required": [
+                        "x",
+                        "y",
+                        "width"
+                      ],
                       "additionalProperties": false
                     },
                     {
@@ -958,7 +1015,11 @@
                             },
                             "quality": {
                               "type": "string",
-                              "enum": ["low", "medium", "high"]
+                              "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                              ]
                             },
                             "expectsText": {
                               "type": "boolean"
@@ -1030,7 +1091,11 @@
                                   "maximum": 24
                                 }
                               },
-                              "required": ["template", "nodes", "packets"],
+                              "required": [
+                                "template",
+                                "nodes",
+                                "packets"
+                              ],
                               "additionalProperties": false
                             },
                             {
@@ -1051,7 +1116,11 @@
                                   "maximum": 6
                                 }
                               },
-                              "required": ["template", "racks", "pulseRate"],
+                              "required": [
+                                "template",
+                                "racks",
+                                "pulseRate"
+                              ],
                               "additionalProperties": false
                             },
                             {
@@ -1072,7 +1141,11 @@
                                   "maximum": 3
                                 }
                               },
-                              "required": ["template", "rings", "revolutions"],
+                              "required": [
+                                "template",
+                                "rings",
+                                "revolutions"
+                              ],
                               "additionalProperties": false
                             },
                             {
@@ -1124,7 +1197,11 @@
                                   "maximum": 12
                                 }
                               },
-                              "required": ["template", "segments", "speed"],
+                              "required": [
+                                "template",
+                                "segments",
+                                "speed"
+                              ],
                               "additionalProperties": false
                             },
                             {
@@ -1145,7 +1222,11 @@
                                   "maximum": 0.6
                                 }
                               },
-                              "required": ["template", "ridges", "amplitude"],
+                              "required": [
+                                "template",
+                                "ridges",
+                                "amplitude"
+                              ],
                               "additionalProperties": false
                             }
                           ]
@@ -1189,7 +1270,9 @@
                 "maximum": 12
               }
             },
-            "required": ["gainDb"],
+            "required": [
+              "gainDb"
+            ],
             "additionalProperties": false
           },
           "musicIntensity": {
@@ -1260,12 +1343,21 @@
                           "maximum": 1
                         }
                       },
-                      "required": ["recordingId", "start", "end", "score"],
+                      "required": [
+                        "recordingId",
+                        "start",
+                        "end",
+                        "score"
+                      ],
                       "additionalProperties": false
                     }
                   }
                 },
-                "required": ["score", "bridged", "alternates"],
+                "required": [
+                  "score",
+                  "bridged",
+                  "alternates"
+                ],
                 "additionalProperties": false
               },
               {
@@ -1298,12 +1390,47 @@
     "visualDensity": {
       "default": "balanced",
       "type": "string",
-      "enum": ["minimal", "balanced", "rich"]
+      "enum": [
+        "minimal",
+        "balanced",
+        "rich"
+      ]
     },
     "silenceTightening": {
       "default": "natural",
       "type": "string",
-      "enum": ["natural", "tight", "punchy"]
+      "enum": [
+        "natural",
+        "tight",
+        "punchy"
+      ]
+    },
+    "directorPersona": {
+      "default": "purist",
+      "type": "string",
+      "enum": [
+        "purist",
+        "craftsman",
+        "showman"
+      ]
+    },
+    "captionStyle": {
+      "default": "none",
+      "type": "string",
+      "enum": [
+        "none",
+        "pop",
+        "karaoke"
+      ]
+    },
+    "audioPolish": {
+      "default": "natural",
+      "type": "string",
+      "enum": [
+        "natural",
+        "polished",
+        "loud"
+      ]
     },
     "audioDesign": {
       "default": {
@@ -1435,12 +1562,20 @@
                 "maximum": 0
               }
             },
-            "required": ["id", "atFrame", "trackId", "gainDb"],
+            "required": [
+              "id",
+              "atFrame",
+              "trackId",
+              "gainDb"
+            ],
             "additionalProperties": false
           }
         }
       },
-      "required": ["music", "sfx"],
+      "required": [
+        "music",
+        "sfx"
+      ],
       "additionalProperties": false
     },
     "scriptCoverage": {
@@ -1462,7 +1597,10 @@
                   },
                   "status": {
                     "type": "string",
-                    "enum": ["included", "omitted"]
+                    "enum": [
+                      "included",
+                      "omitted"
+                    ]
                   },
                   "sceneId": {
                     "default": null,
@@ -1489,12 +1627,19 @@
                     ]
                   }
                 },
-                "required": ["text", "status", "sceneId", "reason"],
+                "required": [
+                  "text",
+                  "status",
+                  "sceneId",
+                  "reason"
+                ],
                 "additionalProperties": false
               }
             }
           },
-          "required": ["sentences"],
+          "required": [
+            "sentences"
+          ],
           "additionalProperties": false
         },
         {
@@ -1518,6 +1663,9 @@
     "scenes",
     "visualDensity",
     "silenceTightening",
+    "directorPersona",
+    "captionStyle",
+    "audioPolish",
     "audioDesign",
     "scriptCoverage"
   ],

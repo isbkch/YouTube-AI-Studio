@@ -1,21 +1,21 @@
 {
-  "schemaVersion": "4.3.0",
+  "schemaVersion": "4.5.0",
   "id": "demo-plan",
   "projectId": "demo-project",
   "version": 1,
   "createdAt": "2026-09-16T00:00:00.000Z",
   "scriptVersion": 1,
-  "transcriptHash": "634e29508f2809daa24ed17b3bc9443cad6929fce785a675c49f04c1a50f7fa2",
+  "transcriptHash": "8c28281b8dd1f5e2cf790f62a85df515e36afbc3fc0664ba871e14ea3e49f3e1",
   "frameRate": 30,
   "resolution": {
     "width": 1920,
     "height": 1080
   },
-  "durationFrames": 2157,
+  "durationFrames": 2140,
   "director": {
     "provider": "mock",
     "model": "deterministic-v1",
-    "summary": "Deterministic alignment-based cut: 4 scenes, 72s of kept speech, 0 sentence(s) dropped for retakes or dead space, 2 graphic suggestion(s). This is a mock, not AI interpretation."
+    "summary": "Deterministic alignment-based cut: 4 scenes, 71s of kept speech, 0 sentence(s) dropped for retakes or dead space, 3 graphic suggestion(s). This is a mock, not AI interpretation."
   },
   "scenes": [
     {
@@ -24,7 +24,10 @@
       "durationFrames": 530,
       "sourceInFrame": 0,
       "narration": "You have two servers. Two copies of the database. Maybe even two regions. Then one ordinary deployment takes everything down. The architecture was redundant. The service was not available. Redundancy describes the parts you own. Availability describes what a user can actually do.",
-      "transcriptSegmentIds": ["segment-1", "segment-2"],
+      "transcriptSegmentIds": [
+        "segment-1",
+        "segment-2"
+      ],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "close",
@@ -57,37 +60,37 @@
         "bridged": false,
         "alternates": [
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 1.5151724137931035,
             "end": 4.024137931034483,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 3.5841379310344825,
             "end": 5.679310344827586,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 5.239310344827587,
             "end": 8.575862068965519,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 8.135862068965517,
             "end": 10.231034482758622,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 9.79103448275862,
             "end": 12.3,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 11.86,
             "end": 14.700000000000001,
             "score": 1
@@ -98,10 +101,14 @@
     {
       "id": "scene-002",
       "startFrame": 530,
-      "durationFrames": 552,
-      "sourceInFrame": 531,
+      "durationFrames": 545,
+      "sourceInFrame": 537,
       "narration": "Adding another copy only helps when the failure that breaks one copy leaves the other useful. Imagine two application servers behind a load balancer. Both depend on one database endpoint. When that shared dependency fails, the second application server is just another machine returning the same error.",
-      "transcriptSegmentIds": ["segment-2", "segment-3", "segment-4"],
+      "transcriptSegmentIds": [
+        "segment-2",
+        "segment-3",
+        "segment-4"
+      ],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "medium",
@@ -120,15 +127,23 @@
             "layers": [
               {
                 "name": "Clients",
-                "components": ["Web", "Mobile"]
+                "components": [
+                  "Web",
+                  "Mobile"
+                ]
               },
               {
                 "name": "App tier",
-                "components": ["App A", "App B"]
+                "components": [
+                  "App A",
+                  "App B"
+                ]
               },
               {
                 "name": "Data",
-                "components": ["Database"]
+                "components": [
+                  "Database"
+                ]
               }
             ],
             "failedLayer": 2
@@ -149,25 +164,25 @@
         "bridged": false,
         "alternates": [
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 17.46,
             "end": 24.3,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 23.86,
             "end": 27.39677419354839,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 26.956774193548387,
             "end": 29.719354838709677,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 29.279354838709676,
             "end": 36.3,
             "score": 1
@@ -177,66 +192,85 @@
     },
     {
       "id": "scene-003",
-      "startFrame": 1082,
-      "durationFrames": 557,
-      "sourceInFrame": 1084,
+      "startFrame": 1075,
+      "durationFrames": 551,
+      "sourceInFrame": 1089,
       "narration": "Even independent copies are not enough. Something must detect the failure, route traffic, and preserve the information needed to continue. A standby that nobody can reach is capacity, not recovery. So test the entire path. Break a dependency. Watch detection. Measure the switch. Check a real request.",
-      "transcriptSegmentIds": ["segment-4", "segment-5"],
+      "transcriptSegmentIds": [
+        "segment-4",
+        "segment-5"
+      ],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "close",
         "punchIn": 1.1
       },
       "visual": {
-        "type": "presenter",
-        "description": "Let the presenter carry the thought.",
-        "graphic": null
+        "type": "graphic",
+        "description": "Failure or cascade narrative across services.",
+        "graphic": {
+          "engine": "remotion",
+          "template": "FailureAnimation",
+          "templateVersion": "1.0.0",
+          "parameters": {
+            "title": "Cascade",
+            "subtitle": "Failure propagates through the path.",
+            "nodes": [
+              "Users",
+              "Gateway",
+              "App",
+              "Database"
+            ],
+            "failedNode": 3,
+            "recovered": true
+          }
+        }
       },
       "broll": [],
       "audio": {
         "gainDb": 0
       },
-      "musicIntensity": 1,
+      "musicIntensity": 0.6,
       "transition": "cut",
       "enabled": true,
-      "rationale": "Aligned take; kept in script order.",
+      "rationale": "Failure or cascade narrative across services.",
       "chapterTitle": null,
       "selection": {
         "score": 1,
         "bridged": false,
         "alternates": [
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 35.86,
             "end": 38.699999999999996,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 38.26,
             "end": 44.3,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 43.86,
             "end": 48.3,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 47.86,
             "end": 50.23548387096774,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 49.79548387096774,
-            "end": 51.39677419354839,
+            "end": 51.39677419354838,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 50.956774193548384,
             "end": 52.170967741935485,
             "score": 1
@@ -246,11 +280,14 @@
     },
     {
       "id": "scene-004",
-      "startFrame": 1639,
-      "durationFrames": 518,
-      "sourceInFrame": 1642,
+      "startFrame": 1626,
+      "durationFrames": 514,
+      "sourceInFrame": 1646,
       "narration": "Include the control plane, credentials, and the people who have to make the decision. The useful question is not, how many copies do we have? It is, what happens to the next user request when this part fails? Availability is a behavior. Build it, then prove it.",
-      "transcriptSegmentIds": ["segment-5", "segment-6"],
+      "transcriptSegmentIds": [
+        "segment-5",
+        "segment-6"
+      ],
       "camera": {
         "recordingId": "demo-recording",
         "framing": "close",
@@ -275,31 +312,31 @@
         "bridged": false,
         "alternates": [
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 54.44064516129032,
             "end": 60.3,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 59.86,
             "end": 64.3,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 63.86,
             "end": 69.02727272727272,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 68.58727272727272,
-            "end": 70.48181818181817,
+            "end": 70.48181818181818,
             "score": 1
           },
           {
-            "recordingId": "recording-422651ba-c65a-404f-a3ec-100a93b92878",
+            "recordingId": "recording-700db21a-a65b-46ea-aaf2-5471c99c1301",
             "start": 70.04181818181819,
             "end": 72,
             "score": 1
@@ -308,7 +345,11 @@
       }
     }
   ],
-  "visualDensity": "balanced",
+  "visualDensity": "rich",
+  "silenceTightening": "tight",
+  "directorPersona": "craftsman",
+  "captionStyle": "pop",
+  "audioPolish": "polished",
   "audioDesign": {
     "music": null,
     "sfx": []

@@ -1,18 +1,8 @@
-import {
-  copyFile,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { copyFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import {
-  atomicJSON,
   fileHash,
   hash,
-  id,
   now,
   safePath,
   StudioError,
@@ -21,6 +11,7 @@ import {
 import {
   coverageSummary,
   graphicKey,
+  captionKey,
   validateAudioDesign,
   validatePlan,
   validateSources,
@@ -32,6 +23,7 @@ import {
   detectAnomalies,
   extractAudio,
   mixAudio,
+  overlayCaptions,
   proxy,
   sampleFrames,
   verifyOutput,
@@ -46,6 +38,7 @@ import {
   type VisualReview,
 } from "../../agents/src/index.ts";
 import {
+  renderCaption,
   renderGraphic,
   templateHash,
 } from "../../remotion-engine/src/index.ts";
@@ -73,6 +66,8 @@ import { Store } from "./store.ts";
 import { transition, type Asset } from "./model.ts";
 import { JobGraph, type Task, type TaskContext } from "./jobs.ts";
 import { readLibrary, resolveTrack, trackRefs } from "./library.ts";
+import { computeCaptionEvents } from "./captions.ts";
+import { builtinSfxFile, builtinSfxTrack, builtinSfxTracks } from "./sfx.ts";
 import {
   makeTimeline,
   toOTIO,
@@ -95,88 +90,8 @@ export interface BuildContext {
   provider: AIProvider | null;
 }
 const visualQAEnabled = () => process.env.WTS_VISUAL_QA !== "off";
-interface Cached {
-  path: string;
-  outputHash: string;
-  renderMs: number;
-}
-export async function cachedFile(
-  dir: string,
-  key: string,
-  relative: string,
-  render: (temp: string) => Promise<void>,
-): Promise<Cached & { reused: boolean }> {
-  const output = await safePath(dir, relative);
-  const manifest = await safePath(dir, `cache/${key}.json`);
-  try {
-    const c = JSON.parse(await readFile(manifest, "utf8")) as Cached;
-    if (
-      c.path === relative &&
-      (await stat(output)).size > 0 &&
-      (await fileHash(output)) === c.outputHash
-    )
-      return { ...c, reused: true };
-  } catch (e) {
-    if (e instanceof StudioError) throw e;
-  }
-  const temp =
-    output.replace(/\.(mp4|mp3)$/, "") +
-    `.${id("partial")}.` +
-    output.split(".").at(-1);
-  const started = performance.now();
-  try {
-    await render(temp);
-    const outputHash = await fileHash(temp);
-    await rename(temp, output);
-    const c = {
-      path: relative,
-      outputHash,
-      renderMs: performance.now() - started,
-    };
-    await atomicJSON(manifest, c);
-    return { ...c, reused: false };
-  } finally {
-    await rm(temp, { force: true });
-  }
-}
-/**
- * Persist a derived-output asset row. Shared by builds and storyboard
- * previews so both record provenance the same way; callers add their own
- * job linkage (builds attach `producedAssets`, previews use the synthetic id).
- */
-export function recordAsset(
-  store: Store,
-  projectId: string,
-  planVersion: number,
-  jobId: string,
-  type: Asset["type"],
-  key: string,
-  c: Cached & { reused: boolean },
-  sceneId: string | null,
-  extra: Partial<Asset> = {},
-): Asset {
-  const a: Asset = {
-    assetId: id("asset"),
-    type,
-    sceneId,
-    productionPlanVersion: planVersion,
-    generator: type === "remotion-render" ? "remotion" : "ffmpeg",
-    template: null,
-    templateVersion: null,
-    parameters: {},
-    inputHash: key,
-    outputHash: c.outputHash,
-    createdAt: now(),
-    path: c.path,
-    jobId,
-    reused: c.reused,
-    sourceAssets: [],
-    renderMs: c.reused ? 0 : c.renderMs,
-    ...extra,
-  };
-  store.asset(projectId, a);
-  return a;
-}
+export { cachedFile, recordAsset, type Cached } from "./cache.ts";
+import { cachedFile, recordAsset, type Cached } from "./cache.ts";
 export async function buildProject(
   store: Store,
   projectId: string,
@@ -198,7 +113,9 @@ export async function buildProject(
     /** sceneId → brollId → rendered clip asset. */
     brollClips = new Map<string, Map<string, Asset>>(),
     /** sceneId/brollId → generated-still review verdict. */
-    stillReviews = new Map<string, StillReview>();
+    stillReviews = new Map<string, StillReview>(),
+    /** captionEvent.id → rendered transparent clip asset. */
+    captionClips = new Map<string, Asset>();
   try {
     const plan = validatePlan(p.plans.at(-1));
     if (
@@ -243,10 +160,27 @@ export async function buildProject(
     // (generated beds resolve against the configured music engine instead).
     validateEngines(plan, context.images, context.blender, context.music);
     const library = await readLibrary(store.root);
-    validateAudioDesign(plan, trackRefs(library.tracks), {
+    // Built-in synthesized SFX resolve like library tracks (ADR 007 rule):
+    // the bank guarantees the floor so persona-driven plans build without a
+    // hand-curated SFX library.
+    validateAudioDesign(plan, [...trackRefs(library.tracks), ...builtinSfxTracks()], {
       musicGeneration: !!context.music,
     });
     const design = plan.audioDesign;
+    // Punch-line captions are derived from the approved plan + transcripts,
+    // never stored on the plan, so patches can never leave stale frames.
+    const captions = computeCaptionEvents(plan, p.transcripts);
+    const hasCaptions = captions.events.length > 0;
+    const captionStyle = plan.captionStyle as "pop" | "karaoke";
+    // The showman punctuates caption onsets with the built-in pop; a mix-time
+    // flourish derived from the persona, not plan audioDesign data.
+    const showmanPops =
+      plan.directorPersona === "showman" && hasCaptions
+        ? captions.events.map((event) => ({
+            id: `caption-pop-${event.id}`,
+            atFrame: event.startFrame,
+          }))
+        : [];
     const generatedMusic =
       design.music?.source === "generated" ? design.music : null;
     const libraryMusic =
@@ -259,16 +193,31 @@ export async function buildProject(
       : null;
     const sfxTracks = [] as {
       event: (typeof design)["sfx"][number];
-      resolved: Awaited<ReturnType<typeof resolveTrack>>;
+      file: string;
+      hash: string;
+      duration: number;
     }[];
     for (const event of design.sfx) {
-      sfxTracks.push({
-        event,
-        resolved: await resolveTrack(
+      if (builtinSfxTrack(event.trackId)) {
+        const synth = await builtinSfxFile(dir, event.trackId);
+        sfxTracks.push({
+          event,
+          file: synth.file,
+          hash: await fileHash(synth.file),
+          duration: synth.duration,
+        });
+      } else {
+        const resolved = await resolveTrack(
           store.root,
           library.tracks.find((t) => t.trackId === event.trackId)!,
-        ),
-      });
+        );
+        sfxTracks.push({
+          event,
+          file: resolved.file,
+          hash: resolved.hash,
+          duration: resolved.duration,
+        });
+      }
     }
     const templateSourceHash = await templateHash();
     const tasks: Task[] = [];
@@ -782,8 +731,62 @@ export async function buildProject(
       exportPath = `renders/resolve-v${plan.version}-${signature}.fcpxml`,
       qaPath = `renders/qa-v${plan.version}-${signature}.json`;
     const hasAudioDesign = !!(design.music || design.sfx.length);
-    /** Set by the assembly task; the mix task reads it after its dependency. */
+    // The narration itself gets engineered (compression/loudness) even when
+    // the plan designs no music or SFX — the mix then runs narration-only.
+    const needsMix = hasAudioDesign || plan.audioPolish !== "natural";
+    /** Set by the assembly task; later tasks read them after their dependency. */
     const concatOutput = { key: "", relative: previewPath };
+    const burnOutput = { key: "", relative: "" };
+    // One cached transparent clip per caption event; the burn task composites
+    // them all in a single pass. Keyed like graphics: identity is the event's
+    // text/timings plus brand and renderer, never the plan version.
+    for (const event of captions.events) {
+      tasks.push({
+        id: `caption-${event.id}`,
+        type: "remotion",
+        label: `Caption • ${event.id}`,
+        dependencies: [],
+        run: async (ctx) => {
+          const key = captionKey(
+            event,
+            captionStyle,
+            plan,
+            p.creator.brand,
+            templateSourceHash,
+          );
+          const c = await cachedFile(
+            dir,
+            key,
+            `assets/generated/caption-${key}.webm`,
+            async (temp) => {
+              await renderCaption(
+                event,
+                captionStyle,
+                plan,
+                p.creator.brand,
+                temp,
+                ctx.signal,
+                ctx.progress,
+              );
+              await verifyOutput(
+                temp,
+                (event.endFrame - event.startFrame) / plan.frameRate,
+                ctx.signal,
+              );
+            },
+          );
+          captionClips.set(
+            event.id,
+            persistAsset(ctx, "caption-render", key, c, event.sceneId, {
+              template: "PunchLineCaption",
+              parameters: { style: captionStyle, text: event.text },
+              sourceAssets: [event.sceneId],
+              instruction: event.text,
+            }),
+          );
+        },
+      });
+    }
     tasks.push({
       id: "assembly",
       type: "assembly",
@@ -799,9 +802,12 @@ export async function buildProject(
           operation: "concat-v1",
         });
         concatOutput.key = concatKey;
-        concatOutput.relative = hasAudioDesign
-          ? `cache/concat-${concatKey}.mp4`
-          : previewPath;
+        // When captions burn or the mix re-encodes, the concat is an
+        // intermediate; otherwise it is already the preview deliverable.
+        concatOutput.relative =
+          needsMix || hasCaptions
+            ? `cache/concat-${concatKey}.mp4`
+            : previewPath;
         // Copy referenced library tracks into the project so every timeline
         // path stays project-relative (and survives library reorganization);
         // generated beds already live in the project cache.
@@ -829,19 +835,17 @@ export async function buildProject(
           };
         }
         for (const s of sfxTracks) {
-          const ext = path.extname(s.resolved.file) || ".m4a";
+          const ext = path.extname(s.file) || ".m4a";
           const c = await cachedFile(
             dir,
-            `library-${s.resolved.hash}`,
-            `cache/library-${s.resolved.hash}${ext}`,
-            (temp) => copyFile(s.resolved.file, temp),
+            `library-${s.hash}`,
+            `cache/library-${s.hash}${ext}`,
+            (temp) => copyFile(s.file, temp),
           );
           audio.sfx.push({
             event: s.event,
             path: c.path,
-            sourceDurationFrames: Math.floor(
-              s.resolved.duration * plan.frameRate,
-            ),
+            sourceDurationFrames: Math.floor(s.duration * plan.frameRate),
           });
         }
         const timelineBroll: Map<string, TimelineBrollClip[]> = new Map();
@@ -897,28 +901,117 @@ export async function buildProject(
         );
       },
     });
-    if (hasAudioDesign) {
+    if (hasCaptions) {
+      tasks.push({
+        id: "captions",
+        type: "captions",
+        label: `Burn ${captions.events.length} punch-line caption(s)`,
+        dependencies: [
+          "assembly",
+          ...captions.events.map((e) => `caption-${e.id}`),
+        ],
+        run: async (ctx) => {
+          const burnKey = hash({
+            concat: concatOutput.key,
+            style: captionStyle,
+            clips: captions.events.map((e) => ({
+              startFrame: e.startFrame,
+              endFrame: e.endFrame,
+              outputHash: captionClips.get(e.id)!.outputHash,
+            })),
+            operation: "caption-burn-v1",
+          });
+          // With a mix following, the burn is an intermediate; otherwise its
+          // output is already the preview deliverable.
+          burnOutput.key = burnKey;
+          burnOutput.relative = needsMix
+            ? `cache/captions-${burnKey}.mp4`
+            : previewPath;
+          const c = await cachedFile(
+            dir,
+            burnKey,
+            burnOutput.relative,
+            async (temp) => {
+              const clips: {
+                file: string;
+                startSec: number;
+                endSec: number;
+              }[] = [];
+              for (const e of captions.events)
+                clips.push({
+                  file: await safePath(dir, captionClips.get(e.id)!.path),
+                  startSec: e.startFrame / plan.frameRate,
+                  endSec: (e.endFrame - 1) / plan.frameRate,
+                });
+              await overlayCaptions({
+                video: await safePath(dir, concatOutput.relative),
+                output: temp,
+                duration: plan.durationFrames / plan.frameRate,
+                captions: clips,
+                signal: ctx.signal,
+                progress: ctx.progress,
+              });
+              await verifyOutput(
+                temp,
+                plan.durationFrames / plan.frameRate,
+                ctx.signal,
+              );
+            },
+          );
+          persistAsset(ctx, "caption-burn", burnKey, c, null, {
+            generator: "ffmpeg-overlay",
+            parameters: {
+              style: captionStyle,
+              count: captions.events.length,
+              skippedRecordings: captions.skippedRecordings,
+            },
+          });
+          ctx.log(
+            `${c.reused ? "Reused" : "Burned"} ${captions.events.length} punch-line caption(s)${captions.skippedRecordings.length ? ` (${captions.skippedRecordings.length} recording(s) skipped — no word timings)` : ""}.`,
+          );
+        },
+      });
+    }
+    if (needsMix) {
       tasks.push({
         id: "mix",
         type: "mix",
-        label: "Mix music bed and SFX under narration",
-        dependencies: ["assembly"],
+        label:
+          plan.audioPolish === "natural"
+            ? "Mix music bed and SFX under narration"
+            : `Engineer narration (${plan.audioPolish}) and mix the bed`,
+        dependencies: [hasCaptions ? "captions" : "assembly"],
         run: async (ctx) => {
           // Per-scene intensity becomes a contiguous gain envelope on the
           // music bed: effective gain = music.gainDb + 20·log10(intensity).
-          const musicSegments = plan.scenes
-            .filter((s) => s.musicIntensity !== 1)
-            .map((s) => ({
-              startSec: s.startFrame / plan.frameRate,
-              endSec: (s.startFrame + s.durationFrames) / plan.frameRate,
-              gainDb: Math.max(
-                design.music!.gainDb - 42,
-                design.music!.gainDb +
-                  20 * Math.log10(Math.max(s.musicIntensity, 0.001)),
-              ),
-            }));
+          const musicSegments = design.music
+            ? plan.scenes
+                .filter((s) => s.musicIntensity !== 1)
+                .map((s) => ({
+                  startSec: s.startFrame / plan.frameRate,
+                  endSec: (s.startFrame + s.durationFrames) / plan.frameRate,
+                  gainDb: Math.max(
+                    design.music!.gainDb - 42,
+                    design.music!.gainDb +
+                      20 * Math.log10(Math.max(s.musicIntensity, 0.001)),
+                  ),
+                }))
+            : [];
+          // The showman's caption pops are synthesized from the built-in bank
+          // at mix time; derived from the persona, so they never touch the
+          // plan's audioDesign data.
+          const popMix: { file: string; atSec: number; gainDb: number }[] = [];
+          if (showmanPops.length) {
+            const pop = await builtinSfxFile(dir, "builtin.pop", ctx.signal);
+            for (const pop2 of showmanPops)
+              popMix.push({
+                file: pop.file,
+                atSec: pop2.atFrame / plan.frameRate,
+                gainDb: -12,
+              });
+          }
           const mixKey = hash({
-            concat: concatOutput.key,
+            video: burnOutput.key || concatOutput.key,
             music: generatedMusic
               ? {
                   bed: musicBed.key,
@@ -934,16 +1027,27 @@ export async function buildProject(
                     segments: musicSegments,
                   }
                 : null,
-            sfx: sfxTracks.map((s) => ({
-              hash: s.resolved.hash,
-              atFrame: s.event.atFrame,
-              gainDb: s.event.gainDb,
-            })),
-            renderer: "mix-v2-sidechain-intensity",
+            sfx: [
+              ...sfxTracks.map((s) => ({
+                hash: s.hash,
+                atFrame: s.event.atFrame,
+                gainDb: s.event.gainDb,
+              })),
+              ...showmanPops.map((s) => ({
+                trackId: "builtin.pop",
+                atFrame: s.atFrame,
+                gainDb: -12,
+              })),
+            ],
+            narration: plan.audioPolish,
+            renderer: "mix-v3-persona-audio",
           });
           const c = await cachedFile(dir, mixKey, previewPath, async (temp) => {
             await mixAudio({
-              video: await safePath(dir, concatOutput.relative),
+              video: await safePath(
+                dir,
+                burnOutput.relative || concatOutput.relative,
+              ),
               output: temp,
               duration: plan.durationFrames / plan.frameRate,
               music:
@@ -964,11 +1068,18 @@ export async function buildProject(
                       segments: musicSegments,
                     }
                   : null,
-              sfx: sfxTracks.map((s) => ({
-                file: s.resolved.file,
-                atSec: s.event.atFrame / plan.frameRate,
-                gainDb: s.event.gainDb,
-              })),
+              sfx: [
+                ...sfxTracks.map((s) => ({
+                  file: s.file,
+                  atSec: s.event.atFrame / plan.frameRate,
+                  gainDb: s.event.gainDb,
+                })),
+                ...popMix,
+              ],
+              narration:
+                plan.audioPolish === "polished" || plan.audioPolish === "loud"
+                  ? plan.audioPolish
+                  : undefined,
               signal: ctx.signal,
               progress: ctx.progress,
             });
@@ -980,10 +1091,15 @@ export async function buildProject(
           });
           persistAsset(ctx, "audio-mix", mixKey, c, null, {
             generator: "ffmpeg-sidechain",
-            parameters: { music: design.music, sfxCount: design.sfx.length },
+            parameters: {
+              music: design.music,
+              sfxCount: design.sfx.length,
+              narration: plan.audioPolish,
+              captionPops: showmanPops.length,
+            },
           });
           ctx.log(
-            `${c.reused ? "Reused" : "Mixed"} music/SFX bed into the rough cut.`,
+            `${c.reused ? "Reused" : "Mixed"} the rough cut's audio${plan.audioPolish !== "natural" ? ` with ${plan.audioPolish} narration` : ""}.`,
           );
         },
       });
@@ -992,7 +1108,9 @@ export async function buildProject(
       id: "qa",
       type: "qa",
       label: "QA • decode, duration and asset completeness",
-      dependencies: [hasAudioDesign ? "mix" : "assembly"],
+      dependencies: [
+        needsMix ? "mix" : hasCaptions ? "captions" : "assembly",
+      ],
       run: async (ctx) => {
         const meta = await verifyOutput(
           await safePath(dir, previewPath),
