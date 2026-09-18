@@ -173,13 +173,80 @@ test("pre-production agents walk an idea to a teleprompter-ready script", async 
     assert.ok(approved.usage.every((u) => u.costUSD === 0));
   }));
 
-test("the example shooting script parses into structured sections and blocks", async () => {
-  const text = await readFile(
-    path.join(import.meta.dirname, "..", "docs", "video-script-example.md"),
-    "utf8",
-  );
+test("the example shooting script parses into structured sections and blocks", () => {
+  // Self-contained fixture in the checked-in example format: timed sections,
+  // A-ROLL/B-ROLL/ON SCREEN/SCREEN RECORDING blocks, spoken blockquotes.
+  const text = `# Example video
+
+## **The example shoot**
+
+**Target:** 14–17 minutes
+**Format:** primarily talking head + screen recordings/B-roll
+**Core thesis:** AI reduced the cost of producing software, not of owning it.
+
+---
+
+## 0:00–0:50 — Cold open
+
+**A-ROLL**
+
+> I think we're about to have a production-readiness crisis.
+>
+> **If the application works, the application is ready.**
+>
+> It's not.
+>
+> The hard part begins after it works.
+
+**B-ROLL**
+
+- prompt → generated code
+- terminal errors / monitoring dashboard / incident alert
+
+Cut back to you on the final question.
+
+---
+
+## 0:50–2:20 — The illusion AI has created
+
+**A-ROLL**
+
+> I've been building software for a long time.
+>
+> Friction forced understanding.
+
+**ON SCREEN**
+
+> **Generation speed > comprehension speed**
+
+Pause on this.
+
+---
+
+## 2:20–3:30 — Owning it
+
+**A-ROLL**
+
+> Nobody actually understands the system.
+
+**SCREEN RECORDING**
+
+Walk the deploy: push, pipeline, pages going green, then the 3 AM alert.
+
+---
+
+## 3:30–4:10 — Availability is a behavior
+
+**A-ROLL**
+
+> Availability is a behavior. Build it, then prove it.
+
+**B-ROLL / SCREEN**
+
+Monitoring dashboard over the recovery test.
+`;
   const parsed = parseScriptDocument(text);
-  assert.ok(parsed.sections.length >= 10);
+  assert.ok(parsed.sections.length >= 4);
   const cold = parsed.sections.find((s) => s.heading.includes("Cold open"))!;
   assert.equal(cold.startSeconds, 0);
   assert.equal(cold.endSeconds, 50);
