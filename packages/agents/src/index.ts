@@ -225,6 +225,46 @@ function mockUsage(agent: string): Usage {
     createdAt: now(),
   };
 }
+/**
+ * OpenAI strict structured outputs only accept a small allowlist of string
+ * `format` keywords and reject the whole request otherwise — `uri` (emitted
+ * by z.url()) fails with a 400 before generation starts. Strip unsupported
+ * formats from the wire schema; the Zod schema still validates every parsed
+ * response, so URL checks move from request rejection to output validation.
+ */
+const OPENAI_STRICT_FORMATS = new Set([
+  "date-time",
+  "time",
+  "date",
+  "duration",
+  "email",
+  "hostname",
+  "uuid",
+  "ipv4",
+  "ipv6",
+]);
+function strictTextFormat<T>(schema: z.ZodType<T>, name: string) {
+  const format = zodTextFormat(schema, name);
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    for (const [key, value] of Object.entries(record)) {
+      if (
+        key === "format" &&
+        typeof value === "string" &&
+        !OPENAI_STRICT_FORMATS.has(value)
+      )
+        delete record[key];
+      else visit(value);
+    }
+  };
+  visit(format.schema);
+  return format;
+}
 export class OpenAIProvider implements AIProvider, Transcriber {
   readonly name = "openai";
   readonly audioFormat = "mp3" as const;
@@ -271,7 +311,7 @@ export class OpenAIProvider implements AIProvider, Transcriber {
         store: false,
         instructions: r.instructions,
         input,
-        text: { format: zodTextFormat(r.schema, r.name) },
+        text: { format: strictTextFormat(r.schema, r.name) },
       },
       { signal: r.signal },
     );

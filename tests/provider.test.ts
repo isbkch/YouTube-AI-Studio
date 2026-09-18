@@ -83,6 +83,60 @@ test("OpenAI adapter uses Responses strict structured output and records usage w
   assert.equal(result.usage.outputTokens, 5);
   assert.equal(result.usage.costUSD, null);
 });
+test("OpenAI wire schema strips unsupported string formats (uri) but keeps strict allowlisted ones", async () => {
+  let body: Record<string, unknown> = {};
+  const provider = new OpenAIProvider("test-key-not-a-secret", "gpt-5.4", {
+    fetch: async (_url, options) => {
+      body = JSON.parse(String(options?.body));
+      return new Response(
+        JSON.stringify({
+          id: "resp_uri",
+          object: "response",
+          created_at: 1,
+          status: "completed",
+          model: "gpt-5.4",
+          output: [
+            {
+              id: "msg_uri",
+              type: "message",
+              role: "assistant",
+              status: "completed",
+              content: [
+                {
+                  type: "output_text",
+                  text: '{"home":"https://example.com/adr","at":"2026-09-18T00:00:00Z"}',
+                  annotations: [],
+                },
+              ],
+            },
+          ],
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+  const result = await provider.generateStructured({
+    name: "uri_notes",
+    schema: z.strictObject({ home: z.url(), at: z.iso.datetime() }),
+    instructions: "Return one URL and one timestamp.",
+    input: { topic: "uris" },
+  });
+  const properties = (
+    body.text as {
+      format: {
+        schema: {
+          properties: Record<string, { type: string; format?: string }>;
+        };
+      };
+    }
+  ).format.schema.properties;
+  assert.equal(properties.home.type, "string");
+  assert.equal("format" in properties.home, false);
+  assert.equal(properties.at.format, "date-time");
+  assert.equal(result.output.home, "https://example.com/adr");
+});
+
 test("OpenAI refusals are surfaced as actionable failures, never executed as prose", async () => {
   const provider = new OpenAIProvider("test", "gpt-5.4", {
     fetch: async () =>
