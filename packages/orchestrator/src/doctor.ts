@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { executable, runBinary } from "../../media/src/index.ts";
 import { defaultRoot } from "./store.ts";
-import { resolveApp } from "../../resolve-engine/src/index.ts";
+import { resolveApp, resolveCommand } from "../../resolve-engine/src/index.ts";
 import { defaultWhisperModel } from "../../agents/src/whisper.ts";
 import {
   envCredential,
@@ -195,13 +195,21 @@ export async function doctor(root = defaultRoot()) {
         { timeoutMs: 5000 },
       )
     ).stdout.trim();
+    let scripting: string;
+    try {
+      const probe = await resolveCommand("probe");
+      scripting = probe.available
+        ? `Scripting verified live: ${probe.product ?? "Resolve"} ${probe.version ?? ""} responded.`
+        : `Scripting unavailable: ${probe.reason ?? "Resolve did not respond."}`;
+    } catch (err) {
+      scripting = `Scripting not verified: ${err instanceof Error ? err.message : String(err)}`;
+    }
     checks.push({
       name: "DaVinci Resolve",
       status: "AVAILABLE",
       version,
       required: false,
-      guidance:
-        "Detection does not prove scripting access. Use FCPXML import or test the Resolve connection.",
+      guidance: `${scripting} FCPXML import works without scripting; "bun run wts resolve probe" tests the connection.`,
     });
   } catch {
     checks.push({

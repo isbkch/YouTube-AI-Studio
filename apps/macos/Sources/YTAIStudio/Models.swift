@@ -554,6 +554,8 @@ struct Project: Decodable, Identifiable {
   let builds: [Build]
   let finalRender: String?
   let finalRenderEngine: String?
+  /// Read-backs of creator review markers from Resolve sessions, oldest first.
+  let resolveMarkers: [ResolveMarkerReview]?
   let usage: [Usage]
   let directory: String?
   let assets: [Asset]?
@@ -564,6 +566,7 @@ struct Project: Decodable, Identifiable {
   var isAutonomous: Bool { autonomy == "autonomous" }
   var reviews: [ProducerReview] { producerReviews ?? [] }
   var lastProducerReview: ProducerReview? { reviews.last }
+  var lastResolveMarkers: ResolveMarkerReview? { (resolveMarkers ?? []).last }
   func transcript(for recording: Recording) -> Transcript? {
     transcripts.last { $0.recordingId == recording.id }
   }
@@ -593,6 +596,27 @@ struct ResolveReport: Decodable {
   let reason: String?
   let project: String?
   let timeline: String?
+}
+/// One Resolve review marker mapped onto the plan's output frames.
+struct ResolveMarker: Decodable, Identifiable {
+  var id: String { "\(source)#\(frame)#\(name ?? note ?? "")" }
+  let frame: Int
+  let color: String?
+  let name: String?
+  let note: String?
+  let durationFrames: Int?
+  let source: String
+  let clipName: String?
+  let sceneIndex: Int?
+}
+/// A read-back of creator review markers from the open Resolve project.
+struct ResolveMarkerReview: Decodable, Identifiable {
+  let id: String
+  let readAt: String
+  let planVersion: Int
+  let resolveProject: String
+  let timeline: String?
+  let markers: [ResolveMarker]
 }
 struct QAFinding: Decodable {
   let kind: String

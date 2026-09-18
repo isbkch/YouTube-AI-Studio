@@ -53,8 +53,18 @@ export interface ResolveProbe {
   product?: string;
   reason?: string;
 }
+/** A review marker read from an open Resolve timeline, in timeline frames. */
+export interface ResolveMarkerReading {
+  source: "timeline" | "clip";
+  frame: number;
+  color: string | null;
+  name: string | null;
+  note: string | null;
+  duration: number;
+  clipName: string | null;
+}
 export async function resolveCommand(
-  command: "probe" | "import" | "render",
+  command: "probe" | "import" | "render" | "markers",
   file?: string,
   name?: string,
   output?: string,
@@ -69,6 +79,9 @@ export async function resolveCommand(
     audioTracks?: number;
     startFrame?: number;
     endFrame?: number;
+    timelineStartFrame?: number;
+    timelineEndFrame?: number;
+    markers?: ResolveMarkerReading[];
     fusionMacro?: string;
     fusionApplied?: number;
     renderJob?: string;

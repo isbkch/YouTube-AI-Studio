@@ -69,6 +69,7 @@ struct ReviewView: View {
               ProducerReviewStrip(review: review)
             }
           }
+          if p.latestBuild != nil { ResolveMarkersCard(p: p) }
           if p.roughCutApproval != nil { FinalRenderView(p: p, preset: $preset, macro: $macro) }
           PublishingView(p: p)
           Text(
@@ -398,6 +399,9 @@ struct FinalRenderView: View {
       Text(
         "Approving the rough cut starts the final render autonomously: Resolve first, with an automatic FFmpeg fallback when Resolve cannot finish. The pickers below override the engine for a manual re-render."
       ).font(.caption).foregroundStyle(.secondary)
+      Text(
+        "Finished grading in Resolve instead? Deliver your exported MP4/MOV: it is verified against the plan (resolution, frame rate, duration, audio) and adopted as the final master."
+      ).font(.caption).foregroundStyle(.secondary)
       HStack {
         Picker("Preset", selection: $preset) {
           ForEach(m.finalPresets, id: \.self) { Text($0).tag($0) }
@@ -412,6 +416,10 @@ struct FinalRenderView: View {
           Task { await m.renderFinal(preset: preset, macro: macro) }
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(
           m.busy || !["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].contains(p.status))
+        Button("Adopt Resolve Render…") {
+          Task { await m.deliverResolveRender() }
+        }.buttonStyle(QuietButtonStyle()).disabled(
+          m.busy || !["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].contains(p.status))
         if let f = p.finalRender, let url = p.url(f) {
           Label(
             URL(fileURLWithPath: f).lastPathComponent
@@ -422,6 +430,82 @@ struct FinalRenderView: View {
         }
       }
     }.padding(16).studioCard(cornerRadius: 11)
+  }
+}
+
+/// Review markers dropped on the timeline in the creator's Resolve session,
+/// read back read-only and mapped onto the current plan's scenes. They are
+/// notes for revising the plan, never timeline edits.
+struct ResolveMarkersCard: View {
+  @EnvironmentObject var m: StudioModel
+  let p: Project
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Image(systemName: "map.pin").foregroundStyle(Color.studioAccent)
+        Text("Resolve Markers").font(.headline)
+        Spacer()
+        Button("Read from Resolve") { Task { await m.readResolveMarkers() } }
+          .buttonStyle(QuietButtonStyle())
+          .disabled(m.busy || p.currentBuild == nil)
+      }
+      if let review = p.lastResolveMarkers {
+        Text(
+          "\(review.markers.count) marker(s) · \(review.resolveProject) · mapped to plan v\(review.planVersion)"
+        ).font(.caption).foregroundStyle(.secondary)
+        if review.markers.isEmpty {
+          Text("The open Resolve timeline has no markers.")
+            .font(.caption).foregroundStyle(.secondary)
+        } else {
+          ForEach(review.markers) { marker in
+            ResolveMarkerRow(marker: marker, p: p)
+          }
+        }
+      } else {
+        Text(
+          "Drop review markers on the timeline in your Resolve session, then read them back here as scene-mapped notes for the next revision."
+        ).font(.caption).foregroundStyle(.secondary)
+      }
+    }.padding(16).studioCard(cornerRadius: 11)
+  }
+}
+
+struct ResolveMarkerRow: View {
+  let marker: ResolveMarker
+  let p: Project
+  var body: some View {
+    HStack(alignment: .top, spacing: 8) {
+      Circle().fill(tint).frame(width: 8, height: 8).padding(.top, 4)
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 6) {
+          Text(
+            timestamp(Double(marker.frame) / Double(p.plan?.frameRate ?? 30))
+          ).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+          if let scene = marker.sceneIndex {
+            Text("Scene \(scene + 1)").font(.caption2).padding(.horizontal, 5)
+              .padding(.vertical, 1)
+              .background(Color.studioAccent.opacity(0.18), in: Capsule())
+          }
+          if let name = marker.name, !name.isEmpty {
+            Text(name).font(.caption).bold()
+          }
+        }
+        if let note = marker.note, !note.isEmpty {
+          Text(note).font(.caption).foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
+      }
+    }
+  }
+  var tint: Color {
+    switch marker.color?.lowercased() {
+    case "red": .red
+    case "yellow", "orange", "gold": .orange
+    case "green", "lime", "apple": .green
+    case "blue", "navy": .blue
+    case "purple", "violet", "magenta", "pink": .purple
+    default: .secondary
+    }
   }
 }
 

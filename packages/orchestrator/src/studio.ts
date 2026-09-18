@@ -63,7 +63,11 @@ import {
   type SilenceTightening,
   type VisualDensity,
 } from "../../shared/src/index.ts";
-import { importRecording, verifyOutput } from "../../media/src/index.ts";
+import {
+  importRecording,
+  inspect,
+  verifyOutput,
+} from "../../media/src/index.ts";
 import {
   MockImageProvider,
   GeminiImageProvider,
@@ -94,6 +98,7 @@ import {
   type ProducerReview,
   type Project,
   type Job,
+  type ResolveMarkerReview,
   type Transcript,
 } from "./model.ts";
 import { buildProject } from "./build.ts";
@@ -2109,6 +2114,160 @@ export class Studio {
       });
     });
   }
+  /**
+   * Read creator review markers from the currently open Resolve timeline and
+   * map them onto the current plan. Markers are creator feedback — they drive
+   * revisions through the normal gates and never mutate the timeline or any
+   * approval. Read-only on the Resolve side: no project is created, switched
+   * or saved.
+   */
+  async readResolveMarkers(projectId: string) {
+    return this.locked(projectId, async (p) => {
+      const plan = validatePlan(p.plans.at(-1));
+      const report = await resolveCommand("markers");
+      if (!report.available)
+        throw new StudioError(
+          "EXTERNAL_TOOL",
+          report.reason ?? "Resolve is unavailable.",
+          "Open Resolve with the imported timeline project, then read markers again.",
+          true,
+        );
+      const start = report.timelineStartFrame ?? 0;
+      const review: ResolveMarkerReview = {
+        id: id("resolve-markers"),
+        readAt: now(),
+        planVersion: plan.version,
+        resolveProject: report.project ?? "",
+        timeline: report.timeline ?? null,
+        markers: (report.markers ?? []).map((m) => ({
+          frame: m.frame - start,
+          color: m.color ?? null,
+          name: m.name ?? null,
+          note: m.note ?? null,
+          durationFrames: Math.max(0, Math.round(m.duration ?? 0)),
+          source: m.source,
+          clipName: m.clipName ?? null,
+          sceneIndex: sceneIndexForFrame(plan.scenes, m.frame - start),
+        })),
+      };
+      await this.store.artifact(p, `resolve/markers-${review.id}.json`, review);
+      return this.store.update(p.id, (x) => {
+        x.resolveMarkers.push(review);
+        this.store.event(p.id, {
+          event: "resolve.markers",
+          planVersion: plan.version,
+          resolveProject: review.resolveProject,
+          count: review.markers.length,
+        });
+      });
+    });
+  }
+  /**
+   * Adopt a render the creator finished manually in Resolve as the project's
+   * final render. The delivered bytes are verified against the approved plan
+   * (resolution, frame rate, duration, decodability) and copied into the
+   * library; nothing is parsed out of the Resolve project itself. Recorded
+   * with `finalRenderEngine: "resolve-delivered"` and invalidated by plan
+   * revisions exactly like a pipeline render.
+   */
+  async deliverFinal(
+    projectId: string,
+    file: string,
+    options: { signal?: AbortSignal } = {},
+  ) {
+    return this.locked(projectId, async (p) => {
+      if (!["READY_TO_RENDER", "AWAITING_PUBLISH_APPROVAL"].includes(p.status))
+        throw new StudioError(
+          "CONFLICT",
+          "Approve the rough cut before delivering a finished render.",
+        );
+      if (p.publication)
+        throw new StudioError(
+          "CONFLICT",
+          `This video is already published as ${p.publication.videoId}.`,
+        );
+      const ext = path.extname(file).toLowerCase();
+      if (!path.isAbsolute(file) || ![".mp4", ".mov"].includes(ext))
+        throw new StudioError(
+          "INVALID_INPUT",
+          "Deliver an absolute MP4 or MOV rendered from your Resolve project.",
+        );
+      try {
+        await stat(file);
+      } catch {
+        throw new StudioError(
+          "INVALID_INPUT",
+          "The delivered render file was not found.",
+        );
+      }
+      const plan = validatePlan(p.plans.at(-1));
+      const expected = plan.durationFrames / plan.frameRate;
+      const dir = this.store.dir(p);
+      let relative: string | null = null;
+      let provenance:
+        | {
+            source: string;
+            bytes: number;
+            codec: string;
+            frameRate: number;
+          }
+        | undefined;
+      await this.operation(
+        p,
+        "final-deliver",
+        "Adopt • Resolve deliver",
+        async (signal) => {
+          const meta = await inspect(file);
+          if (
+            meta.width !== plan.resolution.width ||
+            meta.height !== plan.resolution.height
+          )
+            throw new StudioError(
+              "INVALID_INPUT",
+              `Delivered render is ${meta.width}×${meta.height}; the plan delivers ${plan.resolution.width}×${plan.resolution.height}.`,
+            );
+          if (Math.abs(meta.frameRate - plan.frameRate) > 0.5)
+            throw new StudioError(
+              "INVALID_INPUT",
+              `Delivered render is ${meta.frameRate.toFixed(2)} fps; the plan delivers ${plan.frameRate}.`,
+            );
+          if (!meta.hasAudio)
+            throw new StudioError(
+              "INVALID_INPUT",
+              "Delivered render has no audio stream.",
+            );
+          await verifyOutput(file, expected, signal);
+          const hash = (await fileHash(file)).slice(0, 8);
+          const target = await safePath(
+            dir,
+            `renders/final-v${plan.version}-delivered-${hash}${ext}`,
+          );
+          await copyFile(file, target);
+          // Verify the adopted copy, not just the source: the library's bytes
+          // are the deliverable from here on.
+          await verifyOutput(target, expected, signal);
+          relative = path.relative(dir, target);
+          provenance = {
+            source: path.basename(file),
+            bytes: meta.bytes,
+            codec: meta.codec,
+            frameRate: meta.frameRate,
+          };
+        },
+        options.signal,
+      );
+      return this.store.update(p.id, (x) => {
+        x.finalRender = relative;
+        x.finalRenderEngine = "resolve-delivered";
+        this.store.event(p.id, {
+          event: "final.delivered",
+          planVersion: plan.version,
+          engine: "resolve-delivered",
+          ...provenance,
+        });
+      });
+    });
+  }
   // ---------------------------------------------------------------------
   // The Producer — deterministic autonomy for the machine gates. An
   // autonomous project lets a fixed review (packages/orchestrator/src/
@@ -2802,6 +2961,18 @@ const parseClock = (value: string): number | null => {
   if (hh) return Number(hh[1]) * 3600 + Number(hh[2]) * 60 + Number(hh[3]);
   return null;
 };
+/** Scene whose output range contains `frame`; null outside every scene. */
+export function sceneIndexForFrame(
+  scenes: { startFrame: number; durationFrames: number }[],
+  frame: number,
+): number | null {
+  for (let i = 0; i < scenes.length; i++) {
+    const s = scenes[i];
+    if (frame >= s.startFrame && frame < s.startFrame + s.durationFrames)
+      return i;
+  }
+  return null;
+}
 /** Accepts 3:42-4:10, 3:42–4:10, "3:42 to 4:10" and plain seconds. */
 export function parseTimeRange(text: string): [number, number] | null {
   const parts = text.split(/\s*(?:-|–|—|\bto\b)\s*/i);

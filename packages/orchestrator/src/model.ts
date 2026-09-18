@@ -96,6 +96,33 @@ export interface ProducerReview {
     attention?: number;
   };
 }
+/** One Resolve review marker mapped onto the plan's output frames. */
+export interface ResolveMarker {
+  /** Output frame in the plan timebase (timeline numbering normalized to zero). */
+  frame: number;
+  color: string | null;
+  name: string | null;
+  note: string | null;
+  durationFrames: number;
+  source: "timeline" | "clip";
+  clipName: string | null;
+  /** Scene the frame lands in; null when outside every scene range. */
+  sceneIndex: number | null;
+}
+/**
+ * A read-back of creator review markers from the currently open Resolve
+ * project. Markers are creator feedback for revising the plan — they never
+ * mutate the timeline or any approval.
+ */
+export interface ResolveMarkerReview {
+  id: string;
+  readAt: string;
+  /** Plan version the marker frames were mapped against. */
+  planVersion: number;
+  resolveProject: string;
+  timeline: string | null;
+  markers: ResolveMarker[];
+}
 export interface MediaInfo {
   duration: number;
   width: number;
@@ -235,8 +262,14 @@ export interface Project {
     completedAt: string;
   }[];
   finalRender: string | null;
-  /** Which engine produced `finalRender`; null when no final render exists. */
-  finalRenderEngine: "resolve" | "ffmpeg" | null;
+  /**
+   * Which engine produced `finalRender`; null when no final render exists.
+   * `resolve-delivered` marks bytes the creator finished manually in Resolve
+   * and the studio verified and adopted.
+   */
+  finalRenderEngine: "resolve" | "ffmpeg" | "resolve-delivered" | null;
+  /** Read-backs of creator review markers from Resolve sessions, oldest first. */
+  resolveMarkers: ResolveMarkerReview[];
   publication: {
     videoId: string;
     url: string;

@@ -510,5 +510,18 @@ import UniformTypeIdentifiers
       }
     } catch { self.error = error.localizedDescription }
   }
+  /** Read review markers from the open Resolve timeline as plan-mapped notes. */
+  func readResolveMarkers() async {
+    await perform("resolve.markers", label: "Read Resolve markers")
+  }
+  /** Verify and adopt a render finished manually in Resolve as the final master. */
+  func deliverResolveRender() async {
+    guard
+      let url = chooseFile(types: [.mpeg4Movie, .quickTimeMovie, .movie])
+    else { return }
+    await perform(
+      "final.deliver", label: "Adopt Resolve render",
+      params: ["path": url.path])
+  }
   func reveal(_ url: URL?) { if let url { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
 }

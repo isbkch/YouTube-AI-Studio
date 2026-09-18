@@ -128,7 +128,8 @@ bun run wts revision apply <project> <patch-id> | revision reject <project> <pat
 bun run wts plan undo <project>
 bun run wts review approve <project> --version 1
 bun run wts final macros | final render <project> [--preset "H.264 Master"] [--macro CinematicGrade]
-bun run wts resolve probe | resolve import <absolute.fcpxml> "New project name"
+bun run wts final deliver <project> <absolute.mp4|mov rendered in Resolve>
+bun run wts resolve probe | resolve import <absolute.fcpxml> "New project name" | resolve markers <project>
 
 All approvals refer to an exact version. Publishing uploads through the local
 YouTube CLI (youtubeuploader; WTS_YOUTUBEUPLOADER_PATH / WTS_YOUTUBE_ARGS) only after packaging approval.
@@ -146,7 +147,7 @@ try {
     console.log(JSON.stringify(await doctor(), null, 2));
   else if (a[0] === "media" && a[1] === "inspect")
     console.log(JSON.stringify(await inspect(a[2]), null, 2));
-  else if (a[0] === "resolve")
+  else if (a[0] === "resolve" && a[1] !== "markers")
     console.log(
       JSON.stringify(
         await resolveCommand(a[1] as "probe" | "import", a[2], a[3]),
@@ -467,6 +468,12 @@ try {
         macroId: v.macro,
         signal: abort.signal,
       });
+    else if (a[0] === "final" && a[1] === "deliver")
+      result = await studio.deliverFinal(a[2], a[3], {
+        signal: abort.signal,
+      });
+    else if (a[0] === "resolve" && a[1] === "markers")
+      result = await studio.readResolveMarkers(a[2]);
     else
       throw new StudioError(
         "INVALID_INPUT",
