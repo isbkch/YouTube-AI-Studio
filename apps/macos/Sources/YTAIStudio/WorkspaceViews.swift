@@ -62,6 +62,20 @@ struct OverviewView: View {
               .disabled(p.latestBuild == nil)
           }
         }.padding(22).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
+        VStack(alignment: .leading, spacing: 12) {
+          Text("Audience & outcomes").font(.headline)
+          Text(
+            p.publication == nil
+              ? "Choose a buyer problem and a testable hypothesis in Channel before your next production."
+              : "Review public video evidence and record the conversations this work creates. Review windows start when the video becomes public."
+          )
+          .foregroundStyle(.secondary)
+          Button("Open Channel reviews") {
+            m.showingChannel = true
+            m.channel.tab = "Outcomes"
+            Task { await m.channel.open() }
+          }.buttonStyle(QuietButtonStyle())
+        }.padding(22).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
         CostView(p: p)
       }.padding(30)
     }

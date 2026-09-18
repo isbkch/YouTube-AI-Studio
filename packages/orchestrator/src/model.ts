@@ -169,6 +169,7 @@ export interface Asset {
   instruction?: string;
 }
 export interface Project {
+  topicOrigin?: import("./analytics/model.ts").TopicOrigin;
   schemaVersion: "1.0.0";
   id: string;
   title: string;

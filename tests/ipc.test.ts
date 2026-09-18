@@ -46,6 +46,22 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
   const timer = setTimeout(() => child.kill(), 15000);
   try {
     await ready;
+    const emptyChannel = await call("analytics.snapshot");
+    assert.equal((emptyChannel.result as { channel: unknown }).channel, null);
+    const channelSample = await call("analytics.sample");
+    const channelData = channelSample.result as {
+      channel: { id: string };
+      topics: { id: string }[];
+    };
+    assert.equal(channelData.channel.id, "sample-channel");
+    assert.equal(channelData.topics.length, 3);
+    const channelGate = await call("topics.createProject", {
+      channelId: "sample-channel",
+      topicId: channelData.topics[0].id,
+      version: 1,
+      brief: {},
+    });
+    assert.equal((channelGate.error as { kind: string }).kind, "CONFLICT");
     const created = await call("project.create", {
       title: "IPC Project",
       description: "Test",

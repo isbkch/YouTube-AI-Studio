@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { parseArgs } from "node:util";
+import { channelCLI } from "./analytics/cli.ts";
 import { Store, type ProviderSelection } from "./store.ts";
 import { Studio, readJSONFile, parseTimeRange } from "./studio.ts";
 import { doctor } from "./doctor.ts";
@@ -38,6 +39,9 @@ const directorArg = (
 const { positionals: a, values: v } = parseArgs({
   allowPositionals: true,
   options: {
+    file: { type: "string" },
+    channel: { type: "string" },
+    complete: { type: "boolean" },
     provider: { type: "string" },
     transcriber: { type: "string" },
     images: { type: "string" },
@@ -71,6 +75,13 @@ const autonomyArg = (
 };
 const help = `YouTube-AI-Studio — local production CLI
 
+bun run wts analytics sample | analytics status | analytics connect [desktop-client.json]
+bun run wts analytics sync [--channel <id>] | analytics older
+bun run wts analytics import <report.csv> --file <options.json> [--yes --complete]
+bun run wts strategy save --file <strategy.json>
+bun run wts topics list | topics generate | topics createProject --file <selection.json>
+bun run wts outcomes save --file <outcome.json> | reviews save --file <review.json>
+bun run wts analytics call <operation> --file <params.json>
 bun run wts doctor
 bun run wts project create "Title" --duration 900 --description "Idea" [--autonomy supervised|autonomous]
 bun run wts project list | project inspect <project> | project recover <project>
@@ -148,7 +159,9 @@ try {
         "previsualize",
         "packaging",
       ].includes(a[0]) ||
-      (a[0] === "script" && a[1] === "draft");
+      (a[0] === "script" && a[1] === "draft") ||
+      (a[0] === "topics" && a[1] === "generate") ||
+      (a[0] === "analytics" && a[1] === "call" && a[2] === "topics.generate");
     // Flags win over the persisted Settings selection; without either, the
     // free defaults apply (and images follow the Director provider, as the
     // CLI always did).
@@ -194,7 +207,11 @@ try {
       },
     );
     let result: unknown;
-    if (a[0] === "project" && a[1] === "create")
+    if (
+      ["analytics", "strategy", "outcomes", "reviews", "topics"].includes(a[0])
+    )
+      result = await channelCLI(studio.analytics, a, v, abort.signal);
+    else if (a[0] === "project" && a[1] === "create")
       result = store.create(
         a[2],
         v.description,

@@ -101,6 +101,7 @@ import {
 } from "./alignment.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import { computeCaptionEvents } from "./captions.ts";
+import { AnalyticsService } from "./analytics/service.ts";
 import {
   reviewRoughCut,
   reviewStoryboard,
@@ -114,6 +115,7 @@ import {
 } from "./fcp.ts";
 
 export class Studio {
+  readonly analytics: AnalyticsService;
   public transcription: Transcriber;
   /** Still-image generation engine; null fails B-roll plans closed (ADR 007). */
   public images: ImageProvider | null = null;
@@ -138,6 +140,7 @@ export class Studio {
     transcription?: Transcriber,
     private notify?: (event: unknown) => void,
   ) {
+    this.analytics = new AnalyticsService(store, () => this.provider, notify);
     this.transcription =
       transcription ??
       (("transcribe" in provider &&
@@ -344,6 +347,12 @@ export class Studio {
               idea: p.description,
               creator: p.creator,
               targetDuration: p.targetDuration,
+              editorialContext: p.topicOrigin
+                ? {
+                    buyerProblem: p.description,
+                    hypothesis: p.topicOrigin.hypothesis,
+                  }
+                : undefined,
             },
             signal,
           );
