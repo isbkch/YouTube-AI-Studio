@@ -492,7 +492,9 @@ export async function sampleFrames(
 /**
  * Full-resolution JPEG frames at the given seconds — thumbnail backgrounds
  * need every pixel the master carries, unlike the downscaled review stills.
- * An explicit `width` (even) scales; omitted, the frame is untouched.
+ * An explicit `width` (finite, positive) scales; omitted, the frame is
+ * untouched. The prefix is sanitized to a path-safe slug so no caller can
+ * direct the write outside `outputDir`.
  */
 export async function extractFrames(
   file: string,
@@ -502,6 +504,17 @@ export async function extractFrames(
   signal?: AbortSignal,
 ) {
   await mkdir(outputDir, { recursive: true });
+  if (
+    options.width !== undefined &&
+    (!Number.isFinite(options.width) || options.width <= 0)
+  )
+    throw new StudioError(
+      "INVALID_INPUT",
+      "Frame width must be a positive number of pixels.",
+    );
+  const prefix =
+    (options.prefix ?? "frame").replace(/[^\w.-]+/g, "-").replace(/^\.+/, "") ||
+    "frame";
   const frames: string[] = [];
   let index = 0;
   for (const seconds of times) {
@@ -509,7 +522,7 @@ export async function extractFrames(
     if (!Number.isFinite(seconds) || seconds < 0) continue;
     const output = path.join(
       outputDir,
-      `${options.prefix ?? "frame"}-${String(++index).padStart(4, "0")}.jpg`,
+      `${prefix}-${String(++index).padStart(4, "0")}.jpg`,
     );
     const args = [
       "-ss",
@@ -532,13 +545,30 @@ export async function extractFrames(
 
 /**
  * Momentary loudness over time (one ebur128 pass, ~10 points per second):
- * the deterministic prosody signal behind expressive-frame scoring.
+ * the deterministic prosody signal behind expressive-frame scoring. The
+ * envelope is parsed from the stderr stream as it runs — runTool keeps only
+ * the last 32 KB of buffered stderr, which a long render's ebur128 output
+ * would overflow.
  */
 export async function loudnessEnvelope(
   file: string,
   signal?: AbortSignal,
 ): Promise<{ seconds: number; loudnessDb: number }[]> {
-  const { stderr } = await runTool(
+  const points: { seconds: number; loudnessDb: number }[] = [];
+  let buffer = "";
+  const consume = (chunk: string) => {
+    buffer += chunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.includes("TARGET:")) continue;
+      const t = line.match(/\bt:\s*([\d.]+)/);
+      const m = line.match(/\bM:\s*(-?[\d.]+)/);
+      if (t && m)
+        points.push({ seconds: Number(t[1]), loudnessDb: Number(m[1]) });
+    }
+  };
+  await runTool(
     "ffmpeg",
     [
       "-hide_banner",
@@ -552,16 +582,8 @@ export async function loudnessEnvelope(
       "null",
       "-",
     ],
-    { signal },
+    { signal, onOutput: consume },
   );
-  const points: { seconds: number; loudnessDb: number }[] = [];
-  for (const line of stderr.split("\n")) {
-    if (!line.includes("TARGET:")) continue;
-    const t = line.match(/\bt:\s*([\d.]+)/);
-    const m = line.match(/\bM:\s*(-?[\d.]+)/);
-    if (t && m)
-      points.push({ seconds: Number(t[1]), loudnessDb: Number(m[1]) });
-  }
   return points;
 }
 
@@ -810,14 +832,21 @@ export interface LeadNarrationSource {
   atSec: number;
   /** The scene's narration gain, matching what the segment render applies. */
   gainDb: number;
+  /**
+   * The previous boundary's lead, when it has one: the block's leading
+   * silence is muted for exactly that long so a single room-tone bed (the
+   * outgoing tail) occupies the crossing instead of two summed ones.
+   */
+  headMuteSec?: number;
 }
 /**
  * Swap the assembled cut's audio for a narration track whose outgoing tails
  * cross scene boundaries by the computed leads (packages/orchestrator/src/
  * narration-lead.ts): each block is trimmed from its own proxy and placed at
  * its original output time — only the tail extension crosses the cut — and
- * the blocks are summed (overlaps are word-free room tone by construction).
- * The video stream is stream-copied — the picture stays frame-exact.
+ * the blocks are summed. During a crossing the incoming block's leading
+ * silence is muted, so the overlap carries the outgoing tail alone. The
+ * video stream is stream-copied — the picture stays frame-exact.
  */
 export async function applyNarrationLead(options: {
   video: string;
@@ -838,6 +867,11 @@ export async function applyNarrationLead(options: {
       "INVALID_INPUT",
       "The narration lead needs at least one audio source.",
     );
+  if (!Number.isFinite(o.duration) || o.duration <= 0)
+    throw new StudioError(
+      "INVALID_INPUT",
+      "The narration lead needs a positive output duration.",
+    );
   const inputs = ["-i", path.resolve(o.video)];
   const chains: string[] = [];
   const labels: string[] = [];
@@ -850,9 +884,12 @@ export async function applyNarrationLead(options: {
     const startSec = s.startSec + preRollSec;
     const delayMs = Math.max(0, Math.round(s.atSec * 1000));
     if (
+      !Number.isFinite(s.atSec) ||
       !Number.isFinite(startSec) ||
       !Number.isFinite(s.endSec) ||
       !Number.isFinite(s.gainDb) ||
+      (s.headMuteSec !== undefined &&
+        (!Number.isFinite(s.headMuteSec) || s.headMuteSec < 0)) ||
       s.endSec <= startSec
     )
       throw new StudioError(
@@ -860,8 +897,14 @@ export async function applyNarrationLead(options: {
         `Invalid narration lead source range for input ${index}.`,
       );
     inputs.push("-i", path.resolve(s.file));
+    // Timestamps restart at zero after the trim, so t inside the chain is
+    // segment-relative: the head mute covers exactly the crossing window.
+    const headMute =
+      s.headMuteSec && s.headMuteSec > 0
+        ? `,volume=0:enable='lt(t,${s.headMuteSec.toFixed(3)})'`
+        : "";
     chains.push(
-      `[${index}:a]atrim=start=${startSec.toFixed(3)}:end=${s.endSec.toFixed(3)},asetpts=N/SR/TB,volume=${s.gainDb}dB,adelay=${delayMs}:all=1[lead${i}]`,
+      `[${index}:a]atrim=start=${startSec.toFixed(3)}:end=${s.endSec.toFixed(3)},asetpts=N/SR/TB,volume=${s.gainDb}dB${headMute},adelay=${delayMs}:all=1[lead${i}]`,
     );
     labels.push(`[lead${i}]`);
   });

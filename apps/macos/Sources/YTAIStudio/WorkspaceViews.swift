@@ -319,12 +319,14 @@ struct AdvanceAllSheet: View {
             ForEach(m.advanceAllResults) { outcome in
               HStack(alignment: .top, spacing: 10) {
                 Image(
-                  systemName: outcome.needsYou
-                    ? "exclamationmark.triangle"
-                    : outcome.stopped == "publication"
-                      ? "person.crop.circle" : "checkmark.circle"
+                  systemName: outcome.stopped == "publication"
+                    ? "person.crop.circle"
+                    : outcome.needsYou
+                      ? "exclamationmark.triangle" : "checkmark.circle"
                 ).font(.caption).foregroundStyle(
-                  outcome.needsYou ? .orange : Color.studioSuccess)
+                  outcome.stopped == "publication"
+                    ? Color.studioAccent
+                    : outcome.needsYou ? .orange : Color.studioSuccess)
                 VStack(alignment: .leading, spacing: 3) {
                   Text(outcome.title).font(.system(size: 12, weight: .medium))
                   Text(outcome.stoppedLabel).font(.caption).foregroundStyle(

@@ -1,6 +1,4 @@
 import { test } from "node:test";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, stat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -10,6 +8,7 @@ import {
   inspect,
   proxy,
   extractAudio,
+  runTool,
   verifyOutput,
   PREVIEW,
 } from "../packages/media/src/index.ts";
@@ -738,26 +737,23 @@ test("narration leads cross scene boundaries with word-safe audio", async () => 
 
 /** Overall RMS (dB) of a short audio window, via ffmpeg astats. */
 async function windowRmsDb(file: string, start: number, seconds: number) {
-  const { stderr } = await promisify(execFile)(
-    "ffmpeg",
-    [
-      "-hide_banner",
-      "-ss",
-      String(start),
-      "-t",
-      String(seconds),
-      "-i",
-      file,
-      "-map",
-      "0:a",
-      "-af",
-      "astats=measure_overall=RMS_level:measure_perchannel=none",
-      "-f",
-      "null",
-      "-",
-    ],
-    { maxBuffer: 1 << 20 },
-  );
+  const { stderr } = await runTool("ffmpeg", [
+    "-hide_banner",
+    "-nostdin",
+    "-ss",
+    String(start),
+    "-t",
+    String(seconds),
+    "-i",
+    file,
+    "-map",
+    "0:a",
+    "-af",
+    "astats=measure_overall=RMS_level:measure_perchannel=none",
+    "-f",
+    "null",
+    "-",
+  ]);
   const levels = [...stderr.matchAll(/RMS level dB:\s*(-?[\d.]+|-inf)/g)];
   const value = levels.at(-1)?.[1];
   assert.ok(value, `astats reported an RMS level for [${start}, ${seconds}]`);

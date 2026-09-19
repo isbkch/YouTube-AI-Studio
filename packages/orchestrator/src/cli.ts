@@ -354,7 +354,12 @@ try {
         });
       else {
         if (!slot)
-          throw new StudioError("INVALID_INPUT", "Choose thumbnail A or B.");
+          throw new StudioError(
+            "INVALID_INPUT",
+            action === "frame"
+              ? "Usage: thumbnails frame <project> <A|B> <frame-id> (list ids with: thumbnails frames)."
+              : "Choose thumbnail A or B.",
+          );
         const context = {
           packagingVersion,
           slot: slot.id,

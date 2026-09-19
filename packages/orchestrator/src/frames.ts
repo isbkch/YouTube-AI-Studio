@@ -106,7 +106,13 @@ export async function extractExpressiveFrames(
       "Expressive frames need a completed final render.",
       "Approve the rough cut and finish the final render first.",
     );
-  const plan = p.plans.at(-1)!;
+  const plan = p.plans.at(-1);
+  if (!plan)
+    throw new StudioError(
+      "CONFLICT",
+      "Expressive frames need the production plan that created the final render.",
+      "The project has a render but no plan — rebuild from an approved plan.",
+    );
   const file = await safePath(store.dir(p), p.finalRender);
   const finalRenderHash = await fileHash(file);
   if (p.thumbnailFrames?.finalRenderHash === finalRenderHash)

@@ -367,16 +367,29 @@ export class Thumbnails {
   /**
    * Set a slot's background to an extracted expressive frame and compose it
    * through the normal pipeline — no image provider involved. The frame's
-   * bytes are hash-verified before use; headline-only edits later recompose
-   * offline exactly like generated backgrounds.
+   * bytes are hash-verified before use, and the candidate set must belong to
+   * the *current* final render (a re-render invalidates old frame ids);
+   * headline-only edits later recompose offline exactly like generated
+   * backgrounds.
    */
   async setFrame(input: unknown, signal?: AbortSignal) {
     const request = thumbnailSetFrameSchema.parse(input);
     this.context(request.packagingVersion);
     const slot = this.slot(request.slot, request.expectedRevision);
-    const frame = this.project.thumbnailFrames?.items.find(
-      (f) => f.id === request.frameId,
-    );
+    const frames = this.project.thumbnailFrames;
+    if (
+      !frames ||
+      !this.project.finalRender ||
+      (await fileHash(
+        await safePath(this.store.dir(this.project), this.project.finalRender),
+      )) !== frames.finalRenderHash
+    )
+      throw new StudioError(
+        "CONFLICT",
+        "Frame candidates are out of date for the current render.",
+        "Reload the frame list and retry.",
+      );
+    const frame = frames.items.find((f) => f.id === request.frameId);
     if (!frame)
       throw new StudioError(
         "INVALID_INPUT",

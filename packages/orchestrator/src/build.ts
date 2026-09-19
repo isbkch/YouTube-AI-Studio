@@ -927,23 +927,25 @@ export async function buildProject(
         );
         if (hasLeads) {
           // Swap the assembled audio for the lead-shifted narration track;
-          // the picture is stream-copied, so it stays frame-exact.
+          // the picture is stream-copied, so it stays frame-exact. v2 mutes
+          // the incoming block's leading silence during a crossing so the
+          // overlap carries one room-tone bed, not two summed ones.
           const leadKey = hash({
             concat: concatKey,
             leads: leadDecision.scenes,
-            renderer: "narration-lead-v1",
+            renderer: "narration-lead-v2",
           });
           leadOutput.key = leadKey;
           leadOutput.relative =
             needsMix || hasCaptions ? `cache/lead-${leadKey}.mp4` : previewPath;
-          const offsets = new Map(
-            leadDecision.scenes.map((s) => [s.sceneId, s]),
+          const tailOf = new Map(
+            leadDecision.scenes.map((s) => [s.sceneId, s.tailLeadSec]),
           );
           // Single-shift transform: every block keeps its exact source↔
           // timeline mapping; only an outgoing tail extends, landing inside
           // the next scene's leading silence. No word can move or drop.
           const sources: LeadNarrationSource[] = [];
-          for (const scene of plan.scenes) {
+          for (const [index, scene] of plan.scenes.entries()) {
             const recording = p.recordings.find(
               (r) => r.id === scene.camera.recordingId,
             )!;
@@ -953,9 +955,13 @@ export async function buildProject(
               startSec: scene.sourceInFrame / plan.frameRate,
               endSec:
                 (scene.sourceInFrame + scene.durationFrames) / plan.frameRate +
-                (offsets.get(scene.id)?.tailLeadSec ?? 0),
+                (tailOf.get(scene.id) ?? 0),
               atSec: scene.startFrame / plan.frameRate,
               gainDb: scene.audio.gainDb,
+              // When the previous boundary crosses, this block's head silence
+              // is the crossing room — mute it for the tail to land in.
+              headMuteSec:
+                index > 0 ? (tailOf.get(plan.scenes[index - 1].id) ?? 0) : 0,
             });
           }
           const led = await cachedFile(
