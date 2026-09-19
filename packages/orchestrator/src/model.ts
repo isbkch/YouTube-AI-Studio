@@ -3,7 +3,11 @@ import type {
   PlanPatch,
 } from "../../production-plan/src/index.ts";
 import type { CreatorProfile, Usage } from "../../shared/src/index.ts";
-import type { ThumbnailSelection, ThumbnailState } from "./thumbnail-model.ts";
+import type {
+  ThumbnailFrames,
+  ThumbnailSelection,
+  ThumbnailState,
+} from "./thumbnail-model.ts";
 import { StudioError } from "../../shared/src/index.ts";
 
 export const statuses = [
@@ -240,6 +244,8 @@ export interface Project {
   /** Milestone 5 — latest Packaging agent document version. */
   packaging: { version: number | null };
   thumbnails?: ThumbnailState | null;
+  /** Expressive-frame candidates cached against the final render's bytes. */
+  thumbnailFrames?: ThumbnailFrames | null;
   scripts: { version: number; text: string; createdAt: string }[];
   scriptApproval: Approval | null;
   recordings: Recording[];

@@ -96,6 +96,14 @@ struct ProducerStatusCard: View {
   @EnvironmentObject var m: StudioModel
   let p: Project
   var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      statusRow
+      if p.reviews.count > 1 {
+        ProducerTrailCard(reviews: p.reviews)
+      }
+    }
+  }
+  private var statusRow: some View {
     HStack(alignment: .center, spacing: 14) {
       Image(systemName: "wand.and.stars").foregroundStyle(Color.studioAccent)
       VStack(alignment: .leading, spacing: 3) {
@@ -149,6 +157,45 @@ struct ProducerStatusCard: View {
     }.padding(18).frame(maxWidth: .infinity, alignment: .leading).studioCard(cornerRadius: 14)
   }
 }
+/// The full deterministic review trail, newest first: every gate judgment the
+/// Producer ever recorded for this project, findings a popover away.
+struct ProducerTrailCard: View {
+  let reviews: [ProducerReview]
+  var body: some View {
+    DisclosureGroup {
+      VStack(alignment: .leading, spacing: 10) {
+        ForEach(reviews.reversed()) { review in
+          HStack(spacing: 8) {
+            Image(
+              systemName: review.verdict == "approved"
+                ? "checkmark.seal" : "exclamationmark.triangle"
+            ).font(.caption2).foregroundStyle(
+              review.verdict == "approved" ? Color.studioSuccess : .orange)
+            VStack(alignment: .leading, spacing: 1) {
+              Text(
+                "\(review.gate == "rough-cut" ? "Rough cut" : "Storyboard") v\(review.planVersion) · \(review.verdict)"
+              ).font(.system(size: 11, weight: .medium))
+              if let accepted = review.evidence.approvedWithWarnings, !accepted.isEmpty {
+                Text("Approved with: \(accepted.joined(separator: ", "))")
+                  .font(.caption2).foregroundStyle(Color.studioAccent)
+              }
+              Text(review.checkedAt).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !review.findings.isEmpty {
+              PopoverButton(label: "\(review.findings.count) finding(s)") {
+                ProducerFindingsPopover(review: review)
+              }
+            }
+          }
+        }
+      }.padding(.top, 6)
+    } label: {
+      Text("Producer review history · \(reviews.count)").font(.caption).foregroundStyle(
+        .secondary)
+    }.padding(.horizontal, 18).padding(.bottom, 14)
+  }
+}
 /// Findings list in the QA finding-row pattern: severity icon, code, message.
 struct ProducerFindingsPopover: View {
   let review: ProducerReview
@@ -161,6 +208,11 @@ struct ProducerFindingsPopover: View {
         "Coverage \(review.evidence.sentences - review.evidence.omitted)/\(review.evidence.sentences) sentences · \(review.evidence.scenes) scenes · \(Int(review.evidence.durationSeconds))s"
           + (review.evidence.qaStatus.map { " · QA \($0)" } ?? "")
       ).font(.caption2).foregroundStyle(.secondary)
+      if let accepted = review.evidence.approvedWithWarnings, !accepted.isEmpty {
+        Text(
+          "Approved with evidence — benign warnings: \(accepted.joined(separator: ", "))"
+        ).font(.caption2).foregroundStyle(Color.studioAccent)
+      }
       ForEach(review.findings) { finding in
         ProducerFindingRow(finding: finding)
       }
@@ -213,6 +265,100 @@ struct Metric: View {
       Text(value).font(.system(size: 30, weight: .light, design: .rounded))
       Text(label).font(.caption).foregroundStyle(.secondary)
     }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+/// The library-wide Producer pass: every autonomous project advances once,
+/// self-recovering crashed builds, and reports where it stopped. Stops that
+/// need the creator read as actions; machine stops read as states.
+struct AdvanceAllSheet: View {
+  @EnvironmentObject var m: StudioModel
+  @Environment(\.dismiss) var dismiss
+  private var autonomous: [Project] { m.projects.filter { $0.isAutonomous } }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("Run the Producer across the library.").studioHeading(23)
+          Text(
+            "Every autonomous project advances once — review, repair, build, rough cut, final render, packaging — and stops at the first gate that needs you. Crashed builds self-recover first; script and publication approvals stay human in every mode."
+          ).font(.caption).foregroundStyle(.secondary).padding(.trailing, 12)
+        }
+        Spacer()
+        Button {
+          dismiss()
+        } label: {
+          Image(systemName: "xmark")
+        }.buttonStyle(.plain)
+      }
+      HStack(spacing: 12) {
+        Button {
+          Task { await m.runProducerAll() }
+        } label: {
+          Label(
+            m.busy
+              ? "Running…"
+              : "Advance \(autonomous.count) project\(autonomous.count == 1 ? "" : "s")",
+            systemImage: "wand.and.stars"
+          )
+        }.buttonStyle(PrimaryActionButtonStyle()).disabled(m.busy || autonomous.isEmpty)
+        if autonomous.isEmpty {
+          Text(
+            "No autonomous projects yet. Switch a project's autonomy to let the Producer carry its machine gates."
+          ).font(.caption).foregroundStyle(.secondary)
+        } else if !m.busy {
+          Text(
+            autonomous.map { $0.title }.joined(separator: " · ")
+          ).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+        }
+      }
+      if !m.advanceAllResults.isEmpty {
+        Text("LAST PASS").font(.system(size: 10, weight: .semibold)).tracking(2).foregroundStyle(
+          .secondary)
+        ScrollView {
+          VStack(alignment: .leading, spacing: 8) {
+            ForEach(m.advanceAllResults) { outcome in
+              HStack(alignment: .top, spacing: 10) {
+                Image(
+                  systemName: outcome.needsYou
+                    ? "exclamationmark.triangle"
+                    : outcome.stopped == "publication"
+                      ? "person.crop.circle" : "checkmark.circle"
+                ).font(.caption).foregroundStyle(
+                  outcome.needsYou ? .orange : Color.studioSuccess)
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(outcome.title).font(.system(size: 12, weight: .medium))
+                  Text(outcome.stoppedLabel).font(.caption).foregroundStyle(
+                    outcome.needsYou ? .orange : .secondary)
+                  if let failure = outcome.failed {
+                    Text(failure.reason).font(.caption2).foregroundStyle(.orange).lineLimit(3)
+                  }
+                  if !outcome.acted.isEmpty {
+                    Text(outcome.acted.joined(separator: " → ")).font(.caption2)
+                      .foregroundStyle(.secondary).lineLimit(3)
+                  }
+                }
+                Spacer()
+              }.padding(10).studioCard(cornerRadius: 10)
+            }
+          }.padding(.bottom, 6)
+        }
+        Text(
+          "Failed or escalated projects keep their full findings in the project's Producer row and Review tab. Re-run after fixing; verified outputs are reused."
+        ).font(.caption2).foregroundStyle(.secondary)
+      } else {
+        Spacer()
+        VStack(spacing: 10) {
+          Image(systemName: "wand.and.stars").font(.system(size: 40, weight: .ultraLight))
+            .foregroundStyle(Color.studioAccent)
+          Text(
+            autonomous.isEmpty
+              ? "Switch a project to autonomous to put it on the Producer's rounds."
+              : "Results from the next pass appear here, one line per project."
+          ).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }.frame(maxWidth: .infinity)
+        Spacer()
+      }
+    }.padding(30)
   }
 }
 struct CostView: View {

@@ -519,8 +519,16 @@ export const captionStyleSchema = z.enum(["none", "pop", "karaoke"]);
  * Applied by the mix task, never the model.
  */
 export const audioPolishSchema = z.enum(["natural", "polished", "loud"]);
+/**
+ * How far narration audio may lead its video at scene boundaries: "none"
+ * (default) keeps the hard A/V cut, "subtle" crosses a fraction of the
+ * available word gap, "flowing" uses all of it. Leads are computed
+ * deterministically from word timings at assembly time; the plan records
+ * only the level. Legacy plans default to "none" and build exactly as before.
+ */
+export const narrationLeadSchema = z.enum(["none", "subtle", "flowing"]);
 export const planSchema = z.strictObject({
-  schemaVersion: z.literal("4.5.0"),
+  schemaVersion: z.literal("4.6.0"),
   id: identifier,
   projectId: identifier,
   version: z.number().int().positive(),
@@ -549,6 +557,8 @@ export const planSchema = z.strictObject({
   captionStyle: captionStyleSchema.default("none"),
   /** Narration engineering the mix applies when this plan builds. */
   audioPolish: audioPolishSchema.default("natural"),
+  /** Audio-lead level the assembly applies at scene boundaries. */
+  narrationLead: narrationLeadSchema.default("none"),
   audioDesign: audioDesignSchema.default({ music: null, sfx: [] }),
   scriptCoverage: scriptCoverageSchema.nullable().default(null),
 });
@@ -662,6 +672,10 @@ export function migratePlan(input: unknown): unknown {
     // polish the plan was directed at; filled by the schema defaults, which
     // keep legacy plans building exactly as before.
     return migratePlan({ ...plan, schemaVersion: "4.5.0" });
+  if (plan.schemaVersion === "4.5.0")
+    // v4.6 records the narration-lead level the assembly crosses scene
+    // boundaries at; "none" keeps legacy plans cutting exactly as before.
+    return migratePlan({ ...plan, schemaVersion: "4.6.0" });
   return input;
 }
 

@@ -263,6 +263,18 @@ export type AudioPolish = "natural" | "polished" | "loud";
 export function asAudioPolish(value: unknown): AudioPolish {
   return value === "polished" || value === "loud" ? value : "natural";
 }
+/**
+ * How far narration audio may lead its video at scene boundaries: "none"
+ * keeps the hard A/V cut, "subtle" lets room tone and first words breathe
+ * across the cut by a fraction of the available word gap, "flowing" uses the
+ * whole available gap. Computed deterministically from word timings by the
+ * assembly, never the model.
+ */
+export type NarrationLead = "none" | "subtle" | "flowing";
+/** Tolerant read in the same shape as `asVisualDensity`. */
+export function asNarrationLead(value: unknown): NarrationLead {
+  return value === "subtle" || value === "flowing" ? value : "none";
+}
 /** How liberally the visual pass proposes SFX events. */
 export type SfxDensity = "sparse" | "punctuated" | "playful";
 /**
@@ -288,6 +300,7 @@ export interface DirectorStyle {
   captionStyle: CaptionStyle;
   sfxDensity: SfxDensity;
   audioPolish: AudioPolish;
+  narrationLead: NarrationLead;
 }
 /**
  * The resolved direction a plan is generated under: the persona plus the
@@ -301,6 +314,7 @@ export interface DirectedStyle {
   silenceTightening: SilenceTightening;
   captionStyle: CaptionStyle;
   audioPolish: AudioPolish;
+  narrationLead: NarrationLead;
 }
 /**
  * Single source of truth for what each director means. The plan records the
@@ -316,6 +330,7 @@ export const DIRECTOR_PROFILES: Record<DirectorId, DirectorStyle> = {
     captionStyle: "none",
     sfxDensity: "sparse",
     audioPolish: "natural",
+    narrationLead: "none",
   },
   craftsman: {
     name: "The Craftsman",
@@ -325,6 +340,7 @@ export const DIRECTOR_PROFILES: Record<DirectorId, DirectorStyle> = {
     captionStyle: "pop",
     sfxDensity: "punctuated",
     audioPolish: "polished",
+    narrationLead: "subtle",
   },
   showman: {
     name: "The Showman",
@@ -334,6 +350,7 @@ export const DIRECTOR_PROFILES: Record<DirectorId, DirectorStyle> = {
     captionStyle: "karaoke",
     sfxDensity: "playful",
     audioPolish: "loud",
+    narrationLead: "flowing",
   },
 };
 export interface CreatorProfile {

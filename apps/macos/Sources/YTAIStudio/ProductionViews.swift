@@ -240,6 +240,15 @@ struct StoryboardView: View {
     }
   }
   @ViewBuilder private func brollChip(_ plan: Plan) -> some View {
+    if plan.lead != "none" {
+      Label(
+        "Narration lead · \(plan.lead)",
+        systemImage: "waveform"
+      ).font(.caption).lineLimit(1).foregroundStyle(Color.studioAccent)
+        .help(
+          "Narration audio crosses scene boundaries by the word-safe gap the transcripts allow — the picture stays frame-exact"
+        )
+    }
     let bed = plan.audioDesign?.music
     let sfx = plan.audioDesign?.sfx ?? []
     if plan.brollCount > 0 || bed != nil || !sfx.isEmpty {
@@ -340,13 +349,20 @@ struct StoryboardView: View {
       }.padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 14)
       Divider()
       ScrollView {
-        LazyVGrid(
-          columns: [GridItem(.adaptive(minimum: 300), spacing: 18)], alignment: .leading,
-          spacing: 18
-        ) {
-          ForEach(plan.scenes) { scene in SceneCard(p: p, scene: scene) { editing = scene } }
-        }
-      }.padding(28)
+        VStack(alignment: .leading, spacing: 18) {
+          if let coverage = p.plan?.scriptCoverage,
+            !coverage.omitted.isEmpty || m.rerecord != nil
+          {
+            PickupCard(p: p)
+          }
+          LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 300), spacing: 18)], alignment: .leading,
+            spacing: 18
+          ) {
+            ForEach(plan.scenes) { scene in SceneCard(p: p, scene: scene) { editing = scene } }
+          }
+        }.padding(28)
+      }
     }
   }
   /// No plan yet: hiring the director is the whole page.
@@ -380,6 +396,83 @@ struct StoryboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14))
       Spacer()
     }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+}
+/// The pickup list: script sentences no usable take contains, each with the
+/// surrounding included lines for delivery context. Record them as one short
+/// take, import and transcribe it, then regenerate the storyboard — the
+/// alignment splices the pickup in without a reshoot.
+struct PickupCard: View {
+  @EnvironmentObject var m: StudioModel
+  let p: Project
+  /// A loaded list is only valid against the plan (or pre-plan script) it
+  /// was computed for; a regeneration invalidates it visibly.
+  private var currentList: RerecordList? {
+    guard let list = m.rerecord else { return nil }
+    guard list.scriptVersion == p.scripts.last?.version else { return nil }
+    guard list.planVersion == p.plan?.version else { return nil }
+    return list
+  }
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        Image(systemName: "mic.badge.plus").foregroundStyle(Color.studioAccent)
+        Text("Pickup list").font(.headline)
+        Spacer()
+        Button("Refresh") { Task { await m.loadRerecordList() } }.buttonStyle(QuietButtonStyle())
+          .disabled(m.busy)
+      }
+      if let list = currentList {
+        Text(
+          "\(list.included)/\(list.sentences) sentences covered · \(list.omitted.count) to re-record"
+            + (list.planVersion.map { " · plan v\($0)" } ?? "")
+        ).font(.caption).foregroundStyle(.secondary)
+        ForEach(list.omitted) { entry in
+          HStack(alignment: .top, spacing: 10) {
+            Text(String(format: "%02d", entry.index + 1))
+              .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.studioAccent)
+              .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 3) {
+              if let heading = entry.heading, !heading.isEmpty {
+                Text(heading).font(.caption2).foregroundStyle(.secondary)
+              }
+              Text(entry.text).font(.system(size: 12, weight: .medium))
+              if let before = entry.before {
+                Text("Deliver after “\(before)”")
+                  .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+              }
+              Text(entry.reason).font(.caption2).foregroundStyle(.orange).lineLimit(2)
+            }
+            Spacer()
+          }.padding(.vertical, 4)
+        }
+        HStack {
+          Button("Import Pickup Take…") { Task { await m.importVideo() } }.buttonStyle(
+            QuietButtonStyle()
+          ).disabled(m.busy)
+          Button("Regenerate Storyboard") {
+            Task { await regenerate() }
+          }.buttonStyle(QuietButtonStyle()).disabled(
+            m.busy
+              || !["MEDIA_IMPORTED", "AWAITING_STORYBOARD_APPROVAL"].contains(p.status))
+        }
+        Text(list.next).font(.caption2).foregroundStyle(.secondary)
+      } else {
+        Text(
+          "Sentences of the approved script that no take contains — record just those lines as one pickup take instead of reshooting."
+        ).font(.caption).foregroundStyle(.secondary)
+        Button("Load Pickup List") { Task { await m.loadRerecordList() } }.buttonStyle(
+          QuietButtonStyle()
+        ).disabled(m.busy)
+      }
+    }.padding(16).studioCard(cornerRadius: 11)
+  }
+  private func regenerate() async {
+    // Match the storyboard's own regenerate path: honor a pending re-hire.
+    await m.perform(
+      "plan.generate",
+      label: "Storyboard regeneration",
+      params: ["director": m.selectedDirector])
   }
 }
 struct SceneCard: View {

@@ -20,11 +20,19 @@ import UniformTypeIdentifiers
   @Published var teleprompter: TeleprompterDocument?
   @Published var packaging: PackagingDocument?
   @Published var thumbnails: ThumbnailDocument?
+  /// Expressive-frame candidates for the selected project (`thumbnails.frames`);
+  /// loaded lazily when a frame picker opens, never on every refresh.
+  @Published var thumbnailFrames: ThumbnailFramesDocument?
   private var thumbnailLoadID = UUID()
   @Published var captions: CaptionList = CaptionList(
     style: "none", events: [], skippedRecordings: [])
   @Published var costsReport: CostsReport?
   @Published var showingCosts = false
+  /// `producer.advanceAll` results from the most recent library-wide pass.
+  @Published var advanceAllResults: [AdvanceAllOutcome] = []
+  @Published var showingAdvanceAll = false
+  /// Pickup list for the selected project (`rerecord.get`).
+  @Published var rerecord: RerecordList?
   @Published var finalMacros: [String] = []
   @Published var finalPresets: [String] = [
     "H.264 Master", "H.264 Narrative", "ProRes 422 HQ", "ProRes 422",
@@ -76,6 +84,7 @@ import UniformTypeIdentifiers
       }
     } catch { self.error = error.localizedDescription }
     await loadThumbnails()
+    await loadPerformance()
     await loadCaptions()
     await maybeRenderPreviews()
   }
@@ -131,6 +140,7 @@ import UniformTypeIdentifiers
     qa = nil
     packaging = nil
     thumbnails = nil
+    rerecord = nil
     autoPreviewedVersion = nil
     directorSyncedVersion = nil
     selectedDirector = "craftsman"
@@ -187,6 +197,41 @@ import UniformTypeIdentifiers
   /// catch-up for autonomous projects; script and publication stay human.
   func runProducer() async {
     await perform("producer.advance", label: "Run Producer")
+  }
+  /// One sequential Producer pass over every autonomous project in the
+  /// library; each project reports where it stopped. Crash-stranded builds
+  /// self-recover first, and one project's failure never stops the rest.
+  func runProducerAll() async {
+    guard !busy else { return }
+    busy = true
+    busyLabel = "Producer pass over every autonomous project"
+    error = nil
+    notice = nil
+    do {
+      advanceAllResults = try await runtime.call("producer.advanceAll")
+      showingAdvanceAll = true
+    } catch { self.error = error.localizedDescription }
+    // Clear busy before refreshing so auto-preview paths (guarded on !busy)
+    // behave exactly like every other Producer action.
+    busy = false
+    await refresh()
+  }
+  /// The pickup list: omitted script sentences with delivery context, so the
+  /// creator can record one short take and re-plan instead of reshooting.
+  func loadRerecordList() async {
+    guard let id = selectedID else { return }
+    do {
+      let list: RerecordList = try await runtime.call(
+        "rerecord.get", ["projectId": id])
+      // The response is project-scoped; a selection change mid-flight must
+      // not leak another project's pickups into the current one.
+      if selectedID == id { rerecord = list }
+    } catch {
+      if selectedID == id {
+        rerecord = nil
+        self.error = error.localizedDescription
+      }
+    }
   }
   func setAutonomy(_ mode: String) async {
     await perform(
@@ -267,6 +312,7 @@ import UniformTypeIdentifiers
         ])
     }
     await loadThumbnails()
+    await loadPerformance()
   }
   func chooseFile(types: [UTType]) -> URL? {
     let panel = NSOpenPanel()
@@ -393,6 +439,25 @@ import UniformTypeIdentifiers
       params: [
         "projectId": d.projectId, "packagingVersion": d.state.current.packagingVersion,
         "slots": slots.map { ["slot": $0.id, "expectedRevision": $0.version] as [String: Any] },
+      ])
+  }
+  /// Extract (or reuse the cached) expressive frames from the final render.
+  func loadThumbnailFrames() async {
+    guard let id = selectedID, project?.finalRender != nil else {
+      thumbnailFrames = nil
+      return
+    }
+    let document: ThumbnailFramesDocument? = try? await runtime.call(
+      "thumbnails.frames", ["projectId": id])
+    if selectedID == id { thumbnailFrames = document }
+  }
+  func setThumbnailFrame(_ slot: ThumbnailSlot, frame: ThumbnailFrame) async {
+    guard let d = thumbnails, d.projectId == selectedID else { return }
+    await perform(
+      "thumbnails.setFrame", label: "Thumbnail \(slot.id) from video frame",
+      params: [
+        "projectId": d.projectId, "packagingVersion": d.state.current.packagingVersion,
+        "slot": slot.id, "expectedRevision": slot.version, "frameId": frame.id,
       ])
   }
   func regenerateThumbnail(_ slot: ThumbnailSlot) async {

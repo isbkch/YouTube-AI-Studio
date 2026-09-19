@@ -21,6 +21,7 @@ import { validateEngines } from "./engines.ts";
 import {
   PREVIEW,
   analyzeAudio,
+  applyNarrationLead,
   detectAnomalies,
   extractAudio,
   mixAudio,
@@ -29,7 +30,9 @@ import {
   sampleFrames,
   verifyOutput,
   inspect,
+  type LeadNarrationSource,
 } from "../../media/src/index.ts";
+import { computeAudioLeads } from "./narration-lead.ts";
 import {
   VisualQAAgent,
   reviewStill,
@@ -750,6 +753,15 @@ export async function buildProject(
       showmanPops.length > 0;
     /** Set by the assembly task; later tasks read them after their dependency. */
     const concatOutput = { key: "", relative: previewPath };
+    // Narration leads are derived at assembly time from word timings — never
+    // stored on the plan — exactly like caption events.
+    const leadDecision = computeAudioLeads(
+      plan,
+      transcriptsForPlan(p, plan),
+      p.recordings,
+    );
+    const hasLeads = leadDecision.leads.length > 0;
+    const leadOutput = { key: "", relative: "" };
     const burnOutput = { key: "", relative: "" };
     // One cached transparent clip per caption event; the burn task composites
     // them all in a single pass. Keyed like graphics: identity is the event's
@@ -816,10 +828,10 @@ export async function buildProject(
           operation: "concat-v1",
         });
         concatOutput.key = concatKey;
-        // When captions burn or the mix re-encodes, the concat is an
+        // When leads, captions or the mix rewrite the cut, the concat is an
         // intermediate; otherwise it is already the preview deliverable.
         concatOutput.relative =
-          needsMix || hasCaptions
+          needsMix || hasCaptions || hasLeads
             ? `cache/concat-${concatKey}.mp4`
             : previewPath;
         // Copy referenced library tracks into the project so every timeline
@@ -913,6 +925,63 @@ export async function buildProject(
         ctx.log(
           `${c.reused ? "Reused" : "Assembled"} local rough cut and editable Resolve timelines.`,
         );
+        if (hasLeads) {
+          // Swap the assembled audio for the lead-shifted narration track;
+          // the picture is stream-copied, so it stays frame-exact.
+          const leadKey = hash({
+            concat: concatKey,
+            leads: leadDecision.scenes,
+            renderer: "narration-lead-v1",
+          });
+          leadOutput.key = leadKey;
+          leadOutput.relative =
+            needsMix || hasCaptions ? `cache/lead-${leadKey}.mp4` : previewPath;
+          const offsets = new Map(
+            leadDecision.scenes.map((s) => [s.sceneId, s]),
+          );
+          // Single-shift transform: every block keeps its exact source↔
+          // timeline mapping; only an outgoing tail extends, landing inside
+          // the next scene's leading silence. No word can move or drop.
+          const sources: LeadNarrationSource[] = [];
+          for (const scene of plan.scenes) {
+            const recording = p.recordings.find(
+              (r) => r.id === scene.camera.recordingId,
+            )!;
+            if (!recording.hasAudio) continue;
+            sources.push({
+              file: await safePath(dir, recording.proxyPath!),
+              startSec: scene.sourceInFrame / plan.frameRate,
+              endSec:
+                (scene.sourceInFrame + scene.durationFrames) / plan.frameRate +
+                (offsets.get(scene.id)?.tailLeadSec ?? 0),
+              atSec: scene.startFrame / plan.frameRate,
+              gainDb: scene.audio.gainDb,
+            });
+          }
+          const led = await cachedFile(
+            dir,
+            leadKey,
+            leadOutput.relative,
+            async (temp) => {
+              await applyNarrationLead({
+                video: await safePath(dir, concatOutput.relative),
+                output: temp,
+                duration: plan.durationFrames / plan.frameRate,
+                sources,
+                signal: ctx.signal,
+                progress: ctx.progress,
+              });
+              await verifyOutput(
+                temp,
+                plan.durationFrames / plan.frameRate,
+                ctx.signal,
+              );
+            },
+          );
+          ctx.log(
+            `${led.reused ? "Reused" : "Applied"} narration lead (${plan.narrationLead}): ${leadDecision.leads.length} boundary(ies), ${leadDecision.stats.totalSeconds.toFixed(2)}s of audio crossing cuts.`,
+          );
+        }
       },
     });
     if (hasCaptions) {
@@ -926,7 +995,7 @@ export async function buildProject(
         ],
         run: async (ctx) => {
           const burnKey = hash({
-            concat: concatOutput.key,
+            concat: leadOutput.key || concatOutput.key,
             style: captionStyle,
             clips: captions.events.map((e) => ({
               startFrame: e.startFrame,
@@ -958,7 +1027,10 @@ export async function buildProject(
                   endSec: e.endFrame / plan.frameRate,
                 });
               await overlayCaptions({
-                video: await safePath(dir, concatOutput.relative),
+                video: await safePath(
+                  dir,
+                  leadOutput.relative || concatOutput.relative,
+                ),
                 output: temp,
                 duration: plan.durationFrames / plan.frameRate,
                 captions: clips,
@@ -1025,7 +1097,7 @@ export async function buildProject(
               });
           }
           const mixKey = hash({
-            video: burnOutput.key || concatOutput.key,
+            video: burnOutput.key || leadOutput.key || concatOutput.key,
             music: generatedMusic
               ? {
                   bed: musicBed.key,
@@ -1060,7 +1132,9 @@ export async function buildProject(
             await mixAudio({
               video: await safePath(
                 dir,
-                burnOutput.relative || concatOutput.relative,
+                burnOutput.relative ||
+                  leadOutput.relative ||
+                  concatOutput.relative,
               ),
               output: temp,
               duration: plan.durationFrames / plan.frameRate,

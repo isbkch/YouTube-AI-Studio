@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { Store } from "../packages/orchestrator/src/store.ts";
@@ -13,6 +20,7 @@ import {
   MockImageProvider,
   type ImageRequest,
 } from "../packages/image-engine/src/index.ts";
+import { ffmpeg } from "../packages/media/src/index.ts";
 import {
   renderRequest,
   selectRequest,
@@ -116,6 +124,111 @@ test("thumbnails render A/B once, retain revisions, recompose headlines offline,
     } finally {
       reopened.close();
     }
+  }));
+
+test("video-frame backgrounds compose without an image provider and stay hash-frozen", () =>
+  temporary(async (store) => {
+    const { p, studio } = await thumbnailProject(store);
+    // Seed one verified expressive frame; extraction itself is covered in
+    // frames.test.ts against a real master.
+    const frameDir = path.join(
+      store.dir(p),
+      "packaging",
+      "thumbnails",
+      "frames",
+    );
+    await mkdir(frameDir, { recursive: true });
+    const frameFile = path.join(frameDir, "frame-0001.jpg");
+    await ffmpeg([
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=0x336699:s=1920x1080",
+      "-frames:v",
+      "1",
+      "-q:v",
+      "2",
+      frameFile,
+    ]);
+    const frameHash = await fileHash(frameFile);
+    store.update(p.id, (x) => {
+      x.thumbnailFrames = {
+        finalRenderHash: "master-hash",
+        planVersion: 1,
+        items: [
+          {
+            id: "frame-1",
+            seconds: 42,
+            timecode: "0:42",
+            captionText: "never trust defaults",
+            loudnessDb: -14.5,
+            path: "packaging/thumbnails/frames/frame-0001.jpg",
+            hash: frameHash,
+          },
+        ],
+      };
+    });
+    // Frames compose with no image provider configured at all.
+    studio.images = null;
+    const packagingVersion = studio.thumbnailDocument(p.id)!.state.current
+      .packagingVersion;
+    await assert.rejects(
+      () =>
+        studio.setThumbnailFrame(p.id, {
+          packagingVersion,
+          slot: "B",
+          expectedRevision: slotOf(studio, p.id, "B").version,
+          frameId: "frame-404",
+        }),
+      /Choose a frame/,
+    );
+    await studio.setThumbnailFrame(p.id, {
+      packagingVersion,
+      slot: "A",
+      expectedRevision: slotOf(studio, p.id, "A").version,
+      frameId: "frame-1",
+    });
+    const a = slotOf(studio, p.id, "A");
+    assert.equal(a.status, "READY");
+    assert.equal(a.background!.source, "frame");
+    assert.equal(a.background!.provider, "video-frame");
+    assert.equal(a.background!.frameId, "frame-1");
+    assert.equal(a.background!.hash, frameHash);
+    assert.equal(a.revisions.length, 1);
+    assert.equal(slotOf(studio, p.id, "B").status, "CONCEPT");
+    // A headline-only edit recomposes offline over the same frame bytes.
+    await studio.updateThumbnail(p.id, {
+      packagingVersion,
+      slot: "A",
+      expectedRevision: a.version,
+      conceptId: a.conceptId,
+      headline: "ONE SHARED FAILURE",
+      direction: a.direction,
+    });
+    await studio.renderThumbnails(p.id, renderRequest(studio, p.id, ["A"]));
+    const revised = slotOf(studio, p.id, "A").revisions.at(-1)!;
+    assert.equal(revised.revision, 2);
+    assert.equal(revised.background.source, "frame");
+    assert.equal(revised.background.hash, frameHash);
+    // Selection freezes the exact composed bytes into packaging approval.
+    await studio.selectThumbnail(p.id, selectRequest(studio, p.id, "A"));
+    await studio.approvePackaging(p.id, packagingVersion);
+    const approval = structuredClone(store.get(p.id).publishApproval);
+    // A tampered frame file can never silently recompose.
+    await writeFile(frameFile, "tampered");
+    await studio.updateThumbnail(p.id, {
+      packagingVersion,
+      slot: "A",
+      expectedRevision: slotOf(studio, p.id, "A").version,
+      conceptId: a.conceptId,
+      headline: "A THIRD HEADLINE",
+      direction: a.direction,
+    });
+    await assert.rejects(
+      () => studio.renderThumbnails(p.id, renderRequest(studio, p.id, ["A"])),
+      /changed or is missing/,
+    );
+    assert.deepEqual(store.get(p.id).publishApproval, approval);
   }));
 
 test("a failed B preserves A and retries only B; incomplete pairs cannot export", () =>

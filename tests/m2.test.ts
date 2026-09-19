@@ -727,7 +727,7 @@ test("v1 plans migrate to the v2 catalog schema and still validate", () => {
     ],
   };
   const migrated = validatePlan(migratePlan(v1));
-  assert.equal(migrated.schemaVersion, "4.5.0");
+  assert.equal(migrated.schemaVersion, "4.6.0");
   const flow = migrated.scenes[0].visual.graphic!;
   assert.deepEqual(flow.parameters, {
     title: "Old flow",

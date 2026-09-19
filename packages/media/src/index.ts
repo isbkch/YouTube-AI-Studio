@@ -489,6 +489,82 @@ export async function sampleFrames(
   return frames;
 }
 
+/**
+ * Full-resolution JPEG frames at the given seconds — thumbnail backgrounds
+ * need every pixel the master carries, unlike the downscaled review stills.
+ * An explicit `width` (even) scales; omitted, the frame is untouched.
+ */
+export async function extractFrames(
+  file: string,
+  times: number[],
+  outputDir: string,
+  options: { prefix?: string; width?: number } = {},
+  signal?: AbortSignal,
+) {
+  await mkdir(outputDir, { recursive: true });
+  const frames: string[] = [];
+  let index = 0;
+  for (const seconds of times) {
+    signal?.throwIfAborted();
+    if (!Number.isFinite(seconds) || seconds < 0) continue;
+    const output = path.join(
+      outputDir,
+      `${options.prefix ?? "frame"}-${String(++index).padStart(4, "0")}.jpg`,
+    );
+    const args = [
+      "-ss",
+      String(seconds),
+      "-protocol_whitelist",
+      "file,pipe",
+      "-i",
+      path.resolve(file),
+      "-frames:v",
+      "1",
+    ];
+    if (options.width)
+      args.push("-vf", `scale=${Math.round(options.width / 2) * 2}:-2`);
+    args.push("-q:v", "2", output);
+    await ffmpeg(args, signal);
+    frames.push(output);
+  }
+  return frames;
+}
+
+/**
+ * Momentary loudness over time (one ebur128 pass, ~10 points per second):
+ * the deterministic prosody signal behind expressive-frame scoring.
+ */
+export async function loudnessEnvelope(
+  file: string,
+  signal?: AbortSignal,
+): Promise<{ seconds: number; loudnessDb: number }[]> {
+  const { stderr } = await runTool(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-nostdin",
+      "-i",
+      path.resolve(file),
+      "-vn",
+      "-af",
+      "ebur128=peak=true",
+      "-f",
+      "null",
+      "-",
+    ],
+    { signal },
+  );
+  const points: { seconds: number; loudnessDb: number }[] = [];
+  for (const line of stderr.split("\n")) {
+    if (!line.includes("TARGET:")) continue;
+    const t = line.match(/\bt:\s*([\d.]+)/);
+    const m = line.match(/\bM:\s*(-?[\d.]+)/);
+    if (t && m)
+      points.push({ seconds: Number(t[1]), loudnessDb: Number(m[1]) });
+  }
+  return points;
+}
+
 /** Technical audio diagnostics; silence can be intentional and is a review warning. */
 export async function analyzeAudio(file: string, signal?: AbortSignal) {
   const { stderr } = await runTool(
@@ -702,6 +778,107 @@ export async function mixAudio(options: {
       "[aout]",
       "-t",
       String(o.duration),
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "192k",
+      "-ar",
+      "48000",
+      "-ac",
+      "2",
+      "-movflags",
+      "+faststart",
+      path.resolve(o.output),
+    ],
+    o.signal,
+    o.progress,
+    o.duration,
+  );
+}
+
+/** One scene's narration audio block for the lead pass. */
+export interface LeadNarrationSource {
+  /** Conformed recording proxy carrying the scene's A-roll audio. */
+  file: string;
+  /** Source-range start; identical to the scene's segment render. */
+  startSec: number;
+  /** Source-range end, extended by the scene's tail lead when it has one. */
+  endSec: number;
+  /** Output placement; identical to the scene's segment placement (≥ 0). */
+  atSec: number;
+  /** The scene's narration gain, matching what the segment render applies. */
+  gainDb: number;
+}
+/**
+ * Swap the assembled cut's audio for a narration track whose outgoing tails
+ * cross scene boundaries by the computed leads (packages/orchestrator/src/
+ * narration-lead.ts): each block is trimmed from its own proxy and placed at
+ * its original output time — only the tail extension crosses the cut — and
+ * the blocks are summed (overlaps are word-free room tone by construction).
+ * The video stream is stream-copied — the picture stays frame-exact.
+ */
+export async function applyNarrationLead(options: {
+  video: string;
+  output: string;
+  duration: number;
+  sources: LeadNarrationSource[];
+  signal?: AbortSignal;
+  progress?: (fraction: number) => void;
+}) {
+  const o = options;
+  if (path.resolve(o.video) === path.resolve(o.output))
+    throw new StudioError(
+      "INVALID_INPUT",
+      "Cannot overwrite the assembled cut.",
+    );
+  if (!o.sources.length)
+    throw new StudioError(
+      "INVALID_INPUT",
+      "The narration lead needs at least one audio source.",
+    );
+  const inputs = ["-i", path.resolve(o.video)];
+  const chains: string[] = [];
+  const labels: string[] = [];
+  o.sources.forEach((s, i) => {
+    const index = i + 1;
+    // A placement before timeline zero (not produced by the lead decision,
+    // which never moves placements) clips its pre-roll from the source so
+    // the source/time relationship stays single-shifted.
+    const preRollSec = Math.max(0, -s.atSec);
+    const startSec = s.startSec + preRollSec;
+    const delayMs = Math.max(0, Math.round(s.atSec * 1000));
+    if (
+      !Number.isFinite(startSec) ||
+      !Number.isFinite(s.endSec) ||
+      !Number.isFinite(s.gainDb) ||
+      s.endSec <= startSec
+    )
+      throw new StudioError(
+        "INVALID_INPUT",
+        `Invalid narration lead source range for input ${index}.`,
+      );
+    inputs.push("-i", path.resolve(s.file));
+    chains.push(
+      `[${index}:a]atrim=start=${startSec.toFixed(3)}:end=${s.endSec.toFixed(3)},asetpts=N/SR/TB,volume=${s.gainDb}dB,adelay=${delayMs}:all=1[lead${i}]`,
+    );
+    labels.push(`[lead${i}]`);
+  });
+  chains.push(
+    `${labels.join("")}amix=inputs=${labels.length}:duration=longest:normalize=0,apad,atrim=0:${o.duration.toFixed(3)},asetpts=N/SR/TB[aout]`,
+  );
+  await ffmpeg(
+    [
+      ...inputs,
+      "-filter_complex",
+      chains.join(";"),
+      "-map",
+      "0:v",
+      "-map",
+      "[aout]",
+      "-t",
+      String(o.duration + 0.02),
       "-c:v",
       "copy",
       "-c:a",

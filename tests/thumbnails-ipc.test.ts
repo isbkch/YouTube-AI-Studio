@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
 import { createInterface } from "node:readline";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { once } from "node:events";
 import { promisify } from "node:util";
 import os from "node:os";
@@ -10,6 +10,8 @@ import path from "node:path";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { renderRequest, thumbnailProject } from "./thumbnail-fixtures.ts";
 import type { ThumbnailState } from "../packages/orchestrator/src/thumbnail-model.ts";
+import { ffmpeg } from "../packages/media/src/index.ts";
+import { fileHash } from "../packages/shared/src/index.ts";
 
 test(
   "native IPC and CLI share thumbnail state, selection gates, editing and pair export",
@@ -19,6 +21,48 @@ test(
     const store = new Store(root);
     const { p, studio } = await thumbnailProject(store);
     await studio.renderThumbnails(p.id, renderRequest(studio, p.id));
+    // Seed a cached frame set keyed to the master's real bytes, so the IPC
+    // child serves `thumbnails.frames` from cache without running ffmpeg.
+    const frameDir = path.join(
+      store.dir(p),
+      "packaging",
+      "thumbnails",
+      "frames",
+    );
+    await mkdir(frameDir, { recursive: true });
+    const frameFile = path.join(frameDir, "frame-0001.jpg");
+    await ffmpeg([
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=0x336699:s=1920x1080",
+      "-frames:v",
+      "1",
+      "-q:v",
+      "2",
+      frameFile,
+    ]);
+    const masterHash = await fileHash(
+      path.join(store.dir(p), "renders/final.mp4"),
+    );
+    const frameHash = await fileHash(frameFile);
+    store.update(p.id, (x) => {
+      x.thumbnailFrames = {
+        finalRenderHash: masterHash,
+        planVersion: 1,
+        items: [
+          {
+            id: "frame-1",
+            seconds: 42,
+            timecode: "0:42",
+            captionText: "never trust defaults",
+            loudnessDb: -14.5,
+            path: "packaging/thumbnails/frames/frame-0001.jpg",
+            hash: frameHash,
+          },
+        ],
+      };
+    });
     store.close();
     const env = { ...process.env, WTS_HOME: root };
     const child = spawn(
@@ -107,6 +151,40 @@ test(
             packagingVersion: 1,
             slot: "A",
             expectedRevision: a.version - 1,
+          })
+        ).error?.kind,
+        "CONFLICT",
+      );
+      // Expressive frames serve from cache over IPC; setFrame keeps the same
+      // optimistic-version and frame-validation gates. (The compose path
+      // itself runs the real Remotion renderer and is covered by
+      // thumbnails.test.ts with the stubbed renderer.)
+      const frames = (await call("thumbnails.frames")).result as {
+        cached: boolean;
+        frames: { id: string; timecode: string }[];
+      };
+      assert.equal(frames.cached, true);
+      assert.equal(frames.frames[0]?.id, "frame-1");
+      assert.equal(frames.frames[0]?.timecode, "0:42");
+      const b = document.state.current.slots[1];
+      assert.equal(
+        (
+          await call("thumbnails.setFrame", {
+            packagingVersion: 1,
+            slot: "B",
+            expectedRevision: b.version,
+            frameId: "frame-404",
+          })
+        ).error?.kind,
+        "INVALID_INPUT",
+      );
+      assert.equal(
+        (
+          await call("thumbnails.setFrame", {
+            packagingVersion: 1,
+            slot: "B",
+            expectedRevision: b.version + 99,
+            frameId: "frame-1",
           })
         ).error?.kind,
         "CONFLICT",

@@ -51,6 +51,7 @@ const { positionals: a, values: v } = parseArgs({
     director: { type: "string" },
     density: { type: "string" },
     tightening: { type: "string" },
+    lead: { type: "string" },
     model: { type: "string", default: process.env.WTS_MODEL || "gpt-5.4" },
     description: { type: "string", default: "" },
     duration: { type: "string", default: "900" },
@@ -107,6 +108,8 @@ bun run wts thumbnails get <project>
 bun run wts thumbnails edit <project> A --headline "Headline" [--direction "Visual direction"] [--concept thumb-1]
 bun run wts thumbnails regenerate <project> B
 bun run wts thumbnails select <project> A --revision 1 | thumbnails select <project> none
+bun run wts thumbnails frames <project>   (expressive frames cut from the final render)
+bun run wts thumbnails frame <project> <A|B> <frame-id>   (compose a slot over an extracted frame)
 bun run wts thumbnails export <project> <absolute-destination-folder>
 bun run wts media inspect <file> | media import <project> <file>
 bun run wts transcript load <project> <transcript.json>
@@ -116,8 +119,8 @@ bun run wts transcript decide <project> --file <decision.json>
 bun run wts transcribe <project> [--transcriber whisper|openai]
 bun run wts align <project>
 bun run wts aroll <project> [--director purist|craftsman|showman] [--tightening natural|tight|punchy]
-bun run wts plan <project> [--provider openai] [--director purist|craftsman|showman] [--density minimal|balanced|rich] [--tightening natural|tight|punchy]
-                         (--director hires the persona that drives density, tightening, captions and audio polish; --density/--tightening override individual knobs)
+bun run wts plan <project> [--provider openai] [--director purist|craftsman|showman] [--density minimal|balanced|rich] [--tightening natural|tight|punchy] [--lead none|subtle|flowing]
+                         (--director hires the persona that drives density, tightening, captions, audio polish and narration lead; the other flags override individual knobs)
 bun run wts plan import <project> <plan.json>
 bun run wts plan validate <project>
 bun run wts plan approve <project> --version 1
@@ -290,17 +293,27 @@ try {
       result = await studio.previsualize(a[1], abort.signal);
     else if (a[0] === "teleprompter") result = await studio.teleprompter(a[1]);
     else if (a[0] === "thumbnails") {
-      const subcommands = ["get", "edit", "regenerate", "select", "export"];
+      const subcommands = [
+        "get",
+        "edit",
+        "regenerate",
+        "select",
+        "export",
+        "frames",
+        "frame",
+      ];
       const action = subcommands.includes(a[1]) ? a[1] : "render";
       const projectId = action === "render" ? a[1] : a[2];
-      const doc = studio.thumbnailDocument(projectId);
-      if (!doc)
+      // Frame extraction needs only the finished master, not packaging.
+      const doc =
+        action === "frames" ? null : studio.thumbnailDocument(projectId);
+      if (!doc && action !== "frames")
         throw new StudioError(
           "CONFLICT",
           "Generate packaging before thumbnails.",
         );
-      const packagingVersion = doc.state.current.packagingVersion;
-      const slots = doc.state.current.slots;
+      const packagingVersion = doc?.state.current.packagingVersion ?? 0;
+      const slots = doc?.state.current.slots ?? [];
       const slot = slots.find((s) => s.id === a[3]);
       if (
         !studio.images &&
@@ -311,7 +324,9 @@ try {
           { images, imageModel: stored.imageModel },
           credentials,
         );
-      if (action === "get") result = doc;
+      if (action === "frames")
+        result = await studio.thumbnailFrames(projectId, abort.signal);
+      else if (action === "get") result = doc;
       else if (action === "export")
         result = await studio.exportThumbnails(
           projectId,
@@ -350,14 +365,25 @@ try {
             ...context,
             revision: Number(v.revision ?? slot.currentRevision),
           });
-        else if (action === "regenerate")
+        else if (action === "frame") {
+          if (!a[4])
+            throw new StudioError(
+              "INVALID_INPUT",
+              "Choose a frame id — list them with: thumbnails frames.",
+            );
+          result = await studio.setThumbnailFrame(
+            projectId,
+            { ...context, frameId: a[4] },
+            abort.signal,
+          );
+        } else if (action === "regenerate")
           result = await studio.regenerateThumbnail(
             projectId,
             context,
             abort.signal,
           );
         else {
-          const concept = doc.state.current.slots.find(
+          const concept = doc!.state.current.slots.find(
             (s) => s.id === slot.id,
           )!;
           const proposal = studio
@@ -439,6 +465,11 @@ try {
           "INVALID_INPUT",
           "--density must be minimal, balanced or rich.",
         );
+      if (v.lead && !["none", "subtle", "flowing"].includes(v.lead))
+        throw new StudioError(
+          "INVALID_INPUT",
+          "--lead must be none, subtle or flowing.",
+        );
       result = await studio.generatePlan(
         a[1],
         {
@@ -446,6 +477,7 @@ try {
           fromReviewedTranscripts: v["from-reviewed-transcripts"],
           density: v.density as "minimal" | "balanced" | "rich" | undefined,
           tightening: tighteningArg(v.tightening),
+          lead: v.lead as "none" | "subtle" | "flowing" | undefined,
         },
         abort.signal,
       );
