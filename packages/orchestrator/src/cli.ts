@@ -65,6 +65,7 @@ const { positionals: a, values: v } = parseArgs({
     macro: { type: "string" },
     apply: { type: "boolean" },
     yes: { type: "boolean" },
+    all: { type: "boolean" },
     "from-reviewed-transcripts": { type: "boolean" },
     help: { type: "boolean" },
   },
@@ -89,6 +90,8 @@ bun run wts costs <project>   (estimated API spend: this project and the whole l
 bun run wts project delete <project> --yes   (files you imported from stay untouched)
 bun run wts autonomy <project> supervised|autonomous   (who satisfies the machine gates)
 bun run wts producer <project>   (autonomous projects: advance machine gates to the next stop; script and publication stay human)
+bun run wts producer --all   (one Producer pass over every autonomous project; crashed projects self-recover first)
+bun run wts rerecord <project>   (the pickup list: omitted sentences with context — record, import, transcribe, re-plan)
 bun run wts research <project> [--provider openai]
 bun run wts narrative <project> [--provider openai]
 bun run wts script draft <project> [--provider openai]
@@ -238,6 +241,18 @@ try {
             ? "The Producer advances machine gates; script and publication approval stay yours."
             : "Every gate waits for you again.",
       };
+    } else if (a[0] === "producer" && v.all) {
+      const results = await studio.advanceAll(abort.signal);
+      result = {
+        advanced: results.length,
+        results: results.map((r) => ({
+          project: r.id,
+          title: r.title,
+          stopped: r.stopped,
+          acted: r.acted,
+          failed: r.failed,
+        })),
+      };
     } else if (a[0] === "producer") {
       const advance = await studio.advance(a[1], abort.signal);
       result = {
@@ -250,6 +265,7 @@ try {
       };
     } else if (a[0] === "project" && a[1] === "recover")
       result = await studio.recover(a[2]);
+    else if (a[0] === "rerecord") result = await studio.rerecordList(a[1]);
     else if (a[0] === "project" && a[1] === "delete") {
       if (!v.yes)
         throw new StudioError(

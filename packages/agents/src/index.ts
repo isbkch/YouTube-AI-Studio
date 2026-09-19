@@ -488,6 +488,12 @@ export interface DirectorInput {
   targetDuration: number;
   /** Sentence-level source timing; null when no alignment was computed. */
   alignment: Alignment | null;
+  /**
+   * Channel style memory: conclusions mined from the creator's own past
+   * decisions (packages/orchestrator/src/style.ts). Absent for direct
+   * callers; the Director treats them as preferences, not overrides.
+   */
+  styleNotes?: string[];
 }
 /** Resolve the direction a plan is generated under, tolerating older inputs. */
 export function resolveDirected(input: DirectorInput): DirectedStyle {
@@ -539,6 +545,15 @@ const personaDirectives: Record<DirectorId, string> = {
 };
 const personaDirective = (persona: DirectorId) =>
   `\nDIRECTOR: this production is directed by ${DIRECTOR_PROFILES[persona].name} — ${personaDirectives[persona]}`;
+/**
+ * Channel style memory appended to direction prompts. The notes are counted
+ * conclusions from the creator's own history, never raw archives; the
+ * director weighs them below the production's explicit direction.
+ */
+const styleDirective = (notes: string[] | undefined) =>
+  notes?.length
+    ? `\nCHANNEL STYLE MEMORY (mined from this creator's past decisions; honor unless this production's direction conflicts):\n- ${notes.join("\n- ")}`
+    : "";
 /**
  * Persona-specific SFX temperament; the capabilities list carries the exact
  * trackIds (library plus built-ins) that may be cited.
@@ -596,7 +611,8 @@ export class DirectorAgent {
       instructions:
         storyboardDirectionInstructions +
         densityDirective(directed.visualDensity) +
-        personaDirective(directed.director),
+        personaDirective(directed.director) +
+        styleDirective(input.styleNotes),
       input: {
         script: input.script,
         creator: input.creator,
@@ -678,7 +694,8 @@ export class DirectorAgent {
       instructions:
         directorInstructions +
         densityDirective(directed.visualDensity) +
-        personaDirective(directed.director),
+        personaDirective(directed.director) +
+        styleDirective(input.styleNotes),
       input: {
         ...input,
         contract: {

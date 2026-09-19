@@ -1,21 +1,55 @@
 import { id, now } from "../../shared/src/index.ts";
-import type { ProductionPlan } from "../../production-plan/src/index.ts";
+import type {
+  Operation,
+  ProductionPlan,
+} from "../../production-plan/src/index.ts";
 import type { ProducerReview } from "./model.ts";
 
 /**
- * The deterministic Producer (v1): a pure, offline reviewer for the
- * machine-made gates. It re-derives nothing that generation already proved —
- * `validateSources` passed when the plan was created or imported — and instead
- * judges the editorial envelope: how much of the approved script survived,
- * whether the cut honors the target duration, and whether the QA document is
- * spotless. Verdicts are total: zero blockers approves the storyboard gate;
- * any QA warning, flagged scene or non-PASS status escalates the rough cut.
+ * The deterministic Producer (v2): a pure, offline reviewer and repair
+ * planner for the machine-made gates. It re-derives nothing that generation
+ * already proved — `validateSources` passed when the plan was created or
+ * imported — and instead judges the editorial envelope: how much of the
+ * approved script survived, whether the cut honors the target duration, and
+ * whether the QA document carries only findings the pipeline understands as
+ * benign. Storyboard verdicts are total: zero blockers approves. Rough-cut
+ * verdicts approve warnings in the benign set with the evidence recorded;
+ * everything else escalates. Mechanical escalations come with a deterministic
+ * repair plan (`planStoryboardRepair`/`planRoughCutRepair`) the advance loop
+ * may execute within its repair budget; semantic findings (coverage omissions,
+ * unknown warnings) never repair and always reach the human.
  */
-export const PRODUCER_REVIEWER = "deterministic-v1";
+export const PRODUCER_REVIEWER = "deterministic-v2";
 /** Above this share of omitted script sentences the storyboard escalates. */
 export const MAX_OMISSION_RATIO = 0.25;
 /** Duration bounds around the target, mirroring the Director's budget heuristics. */
 export const DURATION_FACTORS: readonly [number, number] = [0.4, 1.6];
+/**
+ * Repairs the advance loop may execute per invocation. Two is enough for the
+ * tightening ladder (natural → tight → punchy) or one disable round plus one
+ * gain round, and bounds billed Director regenerations on autonomous projects.
+ */
+export const MAX_PRODUCER_REPAIRS = 2;
+/**
+ * Rough-cut warning codes the Producer may approve with recorded evidence.
+ * Each is advisory by construction: pacing pauses are the hired director's
+ * choice, mock transcripts only exist in mock pipelines, spare unused takes
+ * are normal, and the storyboard gate has already bounded duration (QA's
+ * 0.5×–1.5× band is stricter than the 0.4×–1.6× gate). Unknown codes are
+ * never benign — an unclassifiable warning escalates.
+ */
+export const BENIGN_WARNING_CODES: ReadonlySet<string> = new Set([
+  "audio.silence",
+  "transcript.mock",
+  "coverage.unusedRecording",
+  "duration.offTarget",
+]);
+/** Scene-gain step (dB) applied by the peaks repair, inside the schema floor. */
+const PEAKS_GAIN_STEP_DB = 2;
+/** At most this many scenes — and at most a quarter of the cut — may have
+ * their visual treatment auto-disabled by one repair; beyond that the flags
+ * describe a systemic problem the creator must see. */
+const MAX_REPAIR_DISABLED_SCENES = 3;
 
 /** Tightening outcome of the deterministic A-roll decision for this plan. */
 export interface TighteningStats {
@@ -154,9 +188,13 @@ export function reviewStoryboard(
 }
 
 /**
- * Review the rough-cut gate against the persisted QA document. Strict: the
- * verdict approves only a spotless PASS — any warning, flagged scene or still,
- * or non-PASS status escalates with the deviation triaged inline.
+ * Review the rough-cut gate against the persisted QA document. The verdict
+ * approves a PASS whose warnings are all understood as benign — pacing
+ * pauses, mock transcripts, spare takes, advisory duration — and records the
+ * accepted codes as evidence. Any blocker (flagged scene/still, non-PASS),
+ * any warning outside the benign set (peaks, placeholders, anomalies,
+ * unclassifiable prose), or a hot mix escalates with the deviation triaged
+ * inline.
  */
 export function reviewRoughCut(
   plan: ProductionPlan,
@@ -188,14 +226,16 @@ export function reviewRoughCut(
       code: "audio.peaks",
       message: `Audio peaks at ${qa.audio.maxVolumeDb.toFixed(1)} dBFS, above the -1 dBFS ceiling.`,
     });
+  const codes = new Set(findings.map((f) => f.code));
+  const approvedWith = [...codes].filter((c) => BENIGN_WARNING_CODES.has(c));
   return {
     id: id("producer-review"),
     gate: "rough-cut",
     planVersion: plan.version,
     verdict:
       qa.status === "PASS" &&
-      qa.warnings.length === 0 &&
-      qa.attention.length === 0
+      qa.attention.length === 0 &&
+      codes.size === approvedWith.length
         ? "approved"
         : "escalated",
     checkedAt: now(),
@@ -210,6 +250,138 @@ export function reviewRoughCut(
       qaStatus: qa.status,
       warnings: qa.warnings.length,
       attention: qa.attention.length,
+      ...(approvedWith.length ? { approvedWithWarnings: approvedWith } : {}),
     },
+  };
+}
+
+/**
+ * A deterministic fix the Producer may execute for an escalated review:
+ * re-direct the plan at a different silence-tightening level, or apply a
+ * patch of existing plan operations. Null means the escalation is semantic
+ * (or already at the mechanical limit) and must reach the creator.
+ */
+export type ProducerRepair =
+  | {
+      kind: "regenerate";
+      tightening: "natural" | "tight" | "punchy";
+      reason: string;
+    }
+  | {
+      kind: "patch";
+      operations: Operation[];
+      affectedScenes: string[];
+      rationale: string;
+    };
+
+const TIGHTENING_ORDER = ["natural", "tight", "punchy"] as const;
+const stepTightening = (
+  level: ProductionPlan["silenceTightening"],
+  direction: 1 | -1,
+): ProductionPlan["silenceTightening"] | null => {
+  const index = TIGHTENING_ORDER.indexOf(level);
+  const next = TIGHTENING_ORDER[index + direction];
+  return next ?? null;
+};
+
+const blockerCodes = (review: ProducerReview) =>
+  review.findings.filter((f) => f.severity === "blocker").map((f) => f.code);
+
+/**
+ * Repair plan for an escalated storyboard review. Duration blockers repair by
+ * re-directing the plan one tightening step toward the target — a shorter
+ * (tighter) cut when over, a longer (looser) cut when under — reusing the
+ * plan's own persona, density, captions and polish so only pacing changes.
+ * Coverage omissions never repair: missing spoken words are the creator's to
+ * re-record, not the Producer's to route around.
+ */
+export function planStoryboardRepair(
+  review: ProducerReview,
+  plan: ProductionPlan,
+): Extract<ProducerRepair, { kind: "regenerate" }> | null {
+  const blockers = blockerCodes(review);
+  if (blockers.includes("coverage.omissionRatio")) return null;
+  const over = blockers.includes("duration.over");
+  const under = blockers.includes("duration.under");
+  if (over === under) return null; // Nothing mechanical (or contradictory).
+  const next = stepTightening(plan.silenceTightening, over ? 1 : -1);
+  if (!next) return null; // Already at the mechanical limit.
+  const finding = review.findings.find(
+    (f) => f.code === (over ? "duration.over" : "duration.under"),
+  );
+  return {
+    kind: "regenerate",
+    tightening: next,
+    reason: `${finding?.code ?? "duration"}: ${finding?.message ?? "cut is off target"} Re-directing at ${next} pacing.`,
+  };
+}
+
+/**
+ * Repair plan for an escalated rough-cut review. Visual-attention flags
+ * repair by disabling the flagged scenes' visual treatments — the A-roll,
+ * audio and duration are untouched, so the cut stays honest while the broken
+ * overlay comes out — bounded by {@link MAX_REPAIR_DISABLED_SCENES} and only
+ * when every flagged scene actually has a removable treatment. Hot peaks
+ * repair by backing every scene's narration gain off
+ * {@link PEAKS_GAIN_STEP_DB} dB within the schema floor. Anything else —
+ * unremovable flags, too many flags, placeholders, anomalies, unknown
+ * warnings — is for the creator.
+ */
+export function planRoughCutRepair(
+  review: ProducerReview,
+  plan: ProductionPlan,
+  qa: QAReportInput,
+): Extract<ProducerRepair, { kind: "patch" }> | null {
+  const blockers = blockerCodes(review);
+  const operations: Operation[] = [];
+  const affectedScenes: string[] = [];
+  const reasons: string[] = [];
+  if (blockers.includes("qa.attention")) {
+    const flagged = [...new Set(qa.attention)];
+    const removable = flagged.filter((sceneId) => {
+      const scene = plan.scenes.find((s) => s.id === sceneId);
+      return (
+        !!scene &&
+        scene.enabled &&
+        (!!scene.visual.graphic || scene.broll.length > 0)
+      );
+    });
+    if (removable.length !== flagged.length) return null; // A flag we cannot remove.
+    if (
+      flagged.length > MAX_REPAIR_DISABLED_SCENES ||
+      flagged.length > Math.ceil(plan.scenes.length / 4)
+    )
+      return null; // Systemic, not scene-local.
+    for (const sceneId of removable) {
+      operations.push({ type: "disableScene", sceneId, disabled: true });
+      affectedScenes.push(sceneId);
+    }
+    reasons.push(
+      `disabled the visual treatment of ${removable.length} QA-flagged scene(s) (${removable.join(", ")})`,
+    );
+  }
+  const codes = new Set(review.findings.map((f) => f.code));
+  if (codes.has("audio.peaks")) {
+    const floor = Math.min(...plan.scenes.map((s) => s.audio.gainDb));
+    if (floor - PEAKS_GAIN_STEP_DB >= -24) {
+      for (const scene of plan.scenes) {
+        operations.push({
+          type: "updateAudio",
+          sceneId: scene.id,
+          gainDb: scene.audio.gainDb - PEAKS_GAIN_STEP_DB,
+        });
+        affectedScenes.push(scene.id);
+      }
+      reasons.push(
+        `backed every scene's narration gain off by ${PEAKS_GAIN_STEP_DB} dB below the -1 dBFS ceiling`,
+      );
+    }
+  }
+  if (!operations.length) return null;
+  return {
+    kind: "patch",
+    operations,
+    affectedScenes: [...new Set(affectedScenes)],
+    rationale: `Producer auto-repair: ${reasons.join("; ")}.`,
   };
 }

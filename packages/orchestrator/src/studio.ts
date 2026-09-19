@@ -131,9 +131,15 @@ import {
 import { reviewRetakes } from "./retakes.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import { computeCaptionEvents } from "./captions.ts";
+import { styleProfile } from "./style.ts";
 import {
+  MAX_PRODUCER_REPAIRS,
+  PRODUCER_REVIEWER,
+  planRoughCutRepair,
+  planStoryboardRepair,
   reviewRoughCut,
   reviewStoryboard,
+  type ProducerRepair,
   type TighteningStats,
 } from "./producer.ts";
 import {
@@ -688,6 +694,87 @@ export class Studio {
       return null;
     }
   }
+  /**
+   * The pickup list: script sentences no usable take contains, in script
+   * order, each with the surrounding included sentences as delivery context
+   * and the recorded omission reason. The workflow this serves: record the
+   * listed sentences as one short pickup take, import and transcribe it, then
+   * re-run plan generation — the alignment matches across every take, so the
+   * pickup closes the omissions without a reshoot. Before a plan exists the
+   * list falls back to raw alignment rows (match === null).
+   */
+  async rerecordList(projectId: string) {
+    const alignment = await this.computeAlignment(projectId);
+    const p = this.store.get(projectId);
+    const plan = p.plans.at(-1);
+    const rows = alignment.sentences;
+    const rowByText = new Map(rows.map((r) => [r.text, r]));
+    const neighbor = (index: number, direction: -1 | 1) => {
+      for (
+        let i = index + direction;
+        i >= 0 && i < rows.length;
+        i += direction
+      ) {
+        if (rows[i].match) return rows[i].text;
+      }
+      return null;
+    };
+    const omitted: {
+      id: string;
+      index: number;
+      heading: string | null;
+      text: string;
+      reason: string;
+      before: string | null;
+      after: string | null;
+    }[] = [];
+    const coverage = plan?.scriptCoverage?.sentences ?? [];
+    if (coverage.length) {
+      // The plan's coverage is exactly what the storyboard gate measures.
+      for (const sentence of coverage) {
+        if (sentence.status !== "omitted") continue;
+        const row = rowByText.get(sentence.text);
+        const index = row?.index ?? omitted.length;
+        omitted.push({
+          id: row?.id ?? `sent-${String(index + 1).padStart(3, "0")}`,
+          index,
+          heading: row?.heading ?? null,
+          text: sentence.text,
+          reason: sentence.reason ?? "No take matched this sentence.",
+          before: row ? neighbor(row.index, -1) : null,
+          after: row ? neighbor(row.index, 1) : null,
+        });
+      }
+    } else {
+      for (const row of rows) {
+        if (row.match) continue;
+        omitted.push({
+          id: row.id,
+          index: row.index,
+          heading: row.heading,
+          text: row.text,
+          reason: "No take matched this sentence (no plan generated yet).",
+          before: neighbor(row.index, -1),
+          after: neighbor(row.index, 1),
+        });
+      }
+    }
+    this.store.event(p.id, {
+      event: "rerecord.listed",
+      scriptVersion: alignment.scriptVersion,
+      planVersion: plan?.version ?? null,
+      omitted: omitted.length,
+    });
+    return {
+      projectId: p.id,
+      scriptVersion: alignment.scriptVersion,
+      planVersion: plan?.version ?? null,
+      sentences: rows.length,
+      included: rows.length - rows.filter((r) => !r.match).length,
+      omitted,
+      next: "Record the listed sentence(s) as one pickup take, import and transcribe it, then re-run plan generation; the alignment splices the pickup in across takes.",
+    };
+  }
   private async loadPreproductionArtifact(
     p: Project,
     kind: "research",
@@ -1154,6 +1241,10 @@ export class Studio {
                 version: p.plans.length + 1,
                 targetDuration: p.targetDuration,
                 alignment,
+                // The channel's learned style rides along: counted
+                // conclusions from the creator's own past decisions and the
+                // audience's measured retention.
+                styleNotes: this.directorStyleNotes(),
               },
               signal,
               async (candidate) => {
@@ -1206,6 +1297,13 @@ export class Studio {
     this.autoAdvance(projectId);
     return result;
   }
+  /**
+   * Style memory for the Director: the creator's mined taste plus, when a
+   * real channel (synced or CSV-imported — never the fictional sample)
+   * carries observed average view percentages, the audience's measured
+   * verdict on past structure. Latest complete-ish basic report per video.
+   */
+  private directorStyleNotes(): string[] { return styleProfile(this.store.list()).notes; }
   /**
    * Import an externally authored plan (human or offline AI direction).
    * It passes the exact validation an in-app Director plan must pass.
@@ -1962,6 +2060,36 @@ export class Studio {
       });
     });
   }
+  /**
+   * Persist a deterministic Producer repair as a PROPOSED patch (validated
+   * fail-closed exactly like a creator proposal) so applying it goes through
+   * the normal revision flow: new plan version, downstream approvals
+   * invalidated, `decidedBy: "producer"` on the audit trail.
+   */
+  private async proposeRepairPatch(
+    projectId: string,
+    repair: Extract<ProducerRepair, { kind: "patch" }>,
+  ) {
+    return this.locked(projectId, async (p) => {
+      this.revisionAllowed(p);
+      const plan = validatePlan(p.plans.at(-1));
+      const patch: PlanPatch = {
+        id: id("patch"),
+        createdAt: now(),
+        originatingRequest: `Producer auto-repair (${PRODUCER_REVIEWER})`,
+        rationale: repair.rationale,
+        affectedScenes: repair.affectedScenes,
+        previousVersion: plan.version,
+        resultingVersion: plan.version + 1,
+        operations: repair.operations,
+      };
+      this.validateProposal(p, patch);
+      this.store.update(p.id, (x) => {
+        x.revisions.push({ patch, status: "PROPOSED", decidedAt: null });
+      });
+      return patch.id;
+    });
+  }
   async approveRoughCut(
     projectId: string,
     version: number,
@@ -2336,8 +2464,37 @@ export class Studio {
       );
     this.advancing.add(projectId);
     const acted: string[] = [];
+    // Self-heal: a runtime crash mid-operation leaves the project in an
+    // interrupt state this loop cannot step from. Recovering here (a live
+    // owner's lock is still never bypassed — acquire throws) lets the next
+    // advance rebuild from verified outputs instead of waiting for a manual
+    // `wts project recover`.
+    if (
+      ["TRANSCRIBING", "PLANNING", "GENERATING_ASSETS", "ASSEMBLING"].includes(
+        this.store.get(projectId).status,
+      )
+    )
+      await this.recover(projectId);
+    // Mechanical escalations repair deterministically within this budget;
+    // semantic findings (or an exhausted budget) stop for the creator.
+    let repairs = 0;
+    const repairEvent = (
+      gate: "storyboard" | "rough-cut",
+      review: { findings: { severity: string; code: string }[] },
+      action: string,
+      planVersion: number,
+    ) =>
+      this.store.event(projectId, {
+        event: "producer.repaired",
+        gate,
+        codes: review.findings
+          .filter((f) => f.severity === "blocker" || f.severity === "warn")
+          .map((f) => f.code),
+        action,
+        planVersion,
+      });
     try {
-      for (let guard = 0; guard < 16; guard++) {
+      for (let guard = 0; guard < 32; guard++) {
         const p = this.store.get(projectId);
         const plan = p.plans.at(-1);
         const stop = (reason: string) => {
@@ -2378,8 +2535,36 @@ export class Studio {
               verdict: review.verdict,
               planVersion: plan.version,
             });
-            if (review.verdict === "escalated")
-              return stop("storyboard-escalated");
+            if (review.verdict === "escalated") {
+              const repair =
+                repairs < MAX_PRODUCER_REPAIRS
+                  ? planStoryboardRepair(review, plan)
+                  : null;
+              if (!repair) return stop("storyboard-escalated");
+              repairs++;
+              repairEvent(
+                "storyboard",
+                review,
+                `re-direct at ${repair.tightening} pacing`,
+                plan.version,
+              );
+              await step(
+                `storyboard repair: re-directed v${plan.version} at ${repair.tightening}`,
+                () =>
+                  this.generatePlan(
+                    projectId,
+                    {
+                      director: plan.directorPersona,
+                      density: plan.visualDensity,
+                      tightening: repair.tightening,
+                      captions: plan.captionStyle,
+                      polish: plan.audioPolish,
+                    },
+                    signal,
+                  ),
+              );
+              continue;
+            }
             await step(`storyboard v${plan.version} approved`, () =>
               this.approvePlan(projectId, plan.version, "producer"),
             );
@@ -2435,8 +2620,29 @@ export class Studio {
                 verdict: review.verdict,
                 planVersion: plan.version,
               });
-              if (review.verdict === "escalated")
-                return stop("rough-cut-escalated");
+              if (review.verdict === "escalated") {
+                const repair =
+                  repairs < MAX_PRODUCER_REPAIRS
+                    ? planRoughCutRepair(review, plan, qa)
+                    : null;
+                if (!repair) return stop("rough-cut-escalated");
+                repairs++;
+                const patchId = await this.proposeRepairPatch(
+                  projectId,
+                  repair,
+                );
+                repairEvent(
+                  "rough-cut",
+                  review,
+                  repair.rationale.replace(/^Producer auto-repair: /, ""),
+                  plan.version,
+                );
+                await step(
+                  `rough-cut repair: ${repair.operations.length} operation(s) on v${plan.version}`,
+                  () => this.decidePatch(projectId, patchId, true, "producer"),
+                );
+                continue;
+              }
               await step(`rough cut v${plan.version} approved`, () =>
                 this.approveRoughCut(projectId, plan.version, {
                   by: "producer",
@@ -2481,6 +2687,47 @@ export class Studio {
     } finally {
       this.advancing.delete(projectId);
     }
+  }
+  /**
+   * Advance every autonomous project in the library once, sequentially — the
+   * one-command Producer pass for a channel in flight (`wts producer --all`).
+   * Each project reports where it stopped; a project the Producer is already
+   * running on reports `busy` and one project's failure never stops the rest.
+   */
+  async advanceAll(signal?: AbortSignal) {
+    const results: {
+      id: string;
+      title: string;
+      stopped: string;
+      acted: string[];
+      failed: { reason: string } | null;
+    }[] = [];
+    for (const p of this.store
+      .list()
+      .filter((x) => x.autonomy === "autonomous")) {
+      try {
+        const advance = await this.advance(p.id, signal);
+        results.push({
+          id: p.id,
+          title: p.title,
+          stopped: advance.stopped,
+          acted: advance.acted,
+          failed: advance.failed,
+        });
+      } catch (e) {
+        const busy = e instanceof StudioError && e.kind === "CONFLICT";
+        results.push({
+          id: p.id,
+          title: p.title,
+          stopped: busy ? "busy" : "failed",
+          acted: [],
+          failed: busy
+            ? null
+            : { reason: e instanceof Error ? e.message : String(e) },
+        });
+      }
+    }
+    return results;
   }
   /**
    * Tightening and caption evidence for a storyboard review, derived on

@@ -72,8 +72,12 @@ async function dispatch(
     }
     case "producer.advance":
       return studio.advance(project.parse(params).projectId, signal);
+    case "producer.advanceAll":
+      return studio.advanceAll(signal);
     case "project.recover":
       return studio.recover(project.parse(params).projectId);
+    case "rerecord.get":
+      return studio.rerecordList(project.parse(params).projectId);
     case "project.delete":
       return studio.deleteProject(project.parse(params).projectId);
     case "project.get":
