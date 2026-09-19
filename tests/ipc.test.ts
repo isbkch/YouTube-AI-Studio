@@ -46,6 +46,18 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
   const timer = setTimeout(() => child.kill(), 15000);
   try {
     await ready;
+    for (const method of [
+      "analytics.snapshot",
+      "analytics.connection.begin",
+      "channel.strategy.get",
+      "outcomes.save",
+      "reviews.save",
+      "topics.generate",
+      "performance.get",
+    ]) {
+      const removed = await call(method);
+      assert.equal((removed.error as { kind: string }).kind, "UNSUPPORTED");
+    }
     const created = await call("project.create", {
       title: "IPC Project",
       description: "Test",

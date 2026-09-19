@@ -231,8 +231,7 @@ export class PackagingAgent {
       name: "video_packaging",
       schema: packagingSchema,
       signal,
-      instructions:
-        packagingInstructions,
+      instructions: packagingInstructions,
       input: {
         projectId: input.projectId,
         videoTitle: input.videoTitle,

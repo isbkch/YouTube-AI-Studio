@@ -1,0 +1,22 @@
+#!/bin/sh
+# Only rewritten free-edition history belongs in the public repository.
+set -eu
+case "${2:-}" in
+  https://github.com/isbkch/YouTube-AI-Studio.git|https://github.com/isbkch/YouTube-AI-Studio|git@github.com:isbkch/YouTube-AI-Studio.git|ssh://git@github.com/isbkch/YouTube-AI-Studio.git) ;;
+  *) echo 'Push blocked: this checkout publishes only to the public free-edition repository.' >&2; exit 1 ;;
+esac
+while read -r local_ref local_oid remote_ref remote_oid; do
+  case "$local_ref:$remote_ref" in
+    refs/heads/premium/*:*|*:refs/heads/premium/*)
+      echo 'Push blocked: premium branches belong only in the private premium repository.' >&2
+      exit 1 ;;
+  esac
+  case "$local_oid" in 0000000000000000000000000000000000000000) continue ;; esac
+  commit=$(git rev-parse --verify "$local_oid^{commit}") || exit 1
+  roots=$(git rev-list --max-parents=0 "$commit")
+  if [ "$roots" != '6eca766502fec65a6df277d5c86d02941c84754d' ]; then
+    echo 'Push blocked: old or mixed repository history would restore removed premium code.' >&2
+    echo 'Port an explicitly reviewed free-only patch onto the rewritten public main.' >&2
+    exit 1
+  fi
+done
