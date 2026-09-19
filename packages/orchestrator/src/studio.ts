@@ -1304,7 +1304,9 @@ export class Studio {
     this.autoAdvance(projectId);
     return result;
   }
-  private directorStyleNotes(): string[] { return styleProfile(this.store.list()).notes; }
+  private directorStyleNotes(): string[] {
+    return styleProfile(this.store.list()).notes;
+  }
   /**
    * Import an externally authored plan (human or offline AI direction).
    * It passes the exact validation an in-app Director plan must pass.

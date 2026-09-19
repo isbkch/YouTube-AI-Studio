@@ -5,6 +5,8 @@ cd "$WTS_REPO_ROOT"
 swift build --package-path apps/macos -c release
 WTS_APP="$WTS_REPO_ROOT/dist/YouTube-AI-Studio.app"
 mkdir -p "$WTS_APP/Contents/MacOS" "$WTS_APP/Contents/Resources"
+# Remove the legacy channel connection resource when rebuilding an older bundle.
+rm -f "$WTS_APP/Contents/Resources/youtube-oauth-client.json"
 cp apps/macos/.build/release/YTAIStudio "$WTS_APP/Contents/MacOS/YTAIStudio"
 python3 - "$WTS_APP" "$WTS_REPO_ROOT" <<'PY'
 import plistlib,sys

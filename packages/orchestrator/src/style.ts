@@ -35,8 +35,7 @@ const creatorDecided = (r: Project["revisions"][number]) =>
   (r.decidedBy ?? "creator") === "creator" &&
   !r.patch.originatingRequest.startsWith("Producer auto-repair");
 
-export function styleProfile(projects: Project[]
-): StyleProfile {
+export function styleProfile(projects: Project[]): StyleProfile {
   const evidence: StyleProfile["evidence"] = {
     projects: projects.length,
     published: 0,

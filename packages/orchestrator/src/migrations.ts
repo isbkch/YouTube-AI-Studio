@@ -22,6 +22,8 @@ export function migrateLibrary(db: DatabaseSync) {
       CREATE TABLE IF NOT EXISTS locks (project_id TEXT PRIMARY KEY, pid INTEGER NOT NULL, token TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, project_id TEXT, created_at TEXT NOT NULL, data TEXT NOT NULL);
     `);
+    // Keep the version used by existing libraries. Extra legacy tables remain
+    // untouched so opening the free edition does not destroy saved user data.
     db.exec("PRAGMA user_version=2; COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
