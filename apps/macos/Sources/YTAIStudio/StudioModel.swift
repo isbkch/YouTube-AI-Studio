@@ -84,7 +84,6 @@ import UniformTypeIdentifiers
       }
     } catch { self.error = error.localizedDescription }
     await loadThumbnails()
-    await loadPerformance()
     await loadCaptions()
     await maybeRenderPreviews()
   }
@@ -207,12 +206,15 @@ import UniformTypeIdentifiers
     busyLabel = "Producer pass over every autonomous project"
     error = nil
     notice = nil
+    // The shared Cancel button only works against a tracked request id.
+    let requestID = UUID().uuidString
+    activeRequest = requestID
     do {
-      advanceAllResults = try await runtime.call("producer.advanceAll")
+      advanceAllResults = try await runtime.call(
+        "producer.advanceAll", [:], id: requestID)
       showingAdvanceAll = true
     } catch { self.error = error.localizedDescription }
-    // Clear busy before refreshing so auto-preview paths (guarded on !busy)
-    // behave exactly like every other Producer action.
+    activeRequest = nil
     busy = false
     await refresh()
   }
@@ -312,7 +314,6 @@ import UniformTypeIdentifiers
         ])
     }
     await loadThumbnails()
-    await loadPerformance()
   }
   func chooseFile(types: [UTType]) -> URL? {
     let panel = NSOpenPanel()
@@ -442,14 +443,23 @@ import UniformTypeIdentifiers
       ])
   }
   /// Extract (or reuse the cached) expressive frames from the final render.
+  /// A failed extraction surfaces as an error instead of leaving the picker
+  /// in its loading state forever.
   func loadThumbnailFrames() async {
     guard let id = selectedID, project?.finalRender != nil else {
       thumbnailFrames = nil
       return
     }
-    let document: ThumbnailFramesDocument? = try? await runtime.call(
-      "thumbnails.frames", ["projectId": id])
-    if selectedID == id { thumbnailFrames = document }
+    do {
+      let document: ThumbnailFramesDocument = try await runtime.call(
+        "thumbnails.frames", ["projectId": id])
+      if selectedID == id { thumbnailFrames = document }
+    } catch {
+      if selectedID == id {
+        thumbnailFrames = nil
+        self.error = error.localizedDescription
+      }
+    }
   }
   func setThumbnailFrame(_ slot: ThumbnailSlot, frame: ThumbnailFrame) async {
     guard let d = thumbnails, d.projectId == selectedID else { return }

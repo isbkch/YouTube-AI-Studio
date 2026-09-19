@@ -542,7 +542,12 @@ struct ThumbnailFramePicker: View {
         Button("Done") { dismiss() }.buttonStyle(QuietButtonStyle())
           .keyboardShortcut(.cancelAction)
       }
-      if let p = m.project, let doc = m.thumbnailFrames, doc.projectId == p.id {
+      // The plan-version check refuses a cached frame list from a previous
+      // render while extraction for the current one is still running; the
+      // backend independently hash-checks the master before any compose.
+      if let p = m.project, let doc = m.thumbnailFrames, doc.projectId == p.id,
+        doc.planVersion == p.plan?.version
+      {
         if doc.frames.isEmpty {
           Text(
             "No expressive moments were found in this render — punchline captions and chapter beats both came up empty."

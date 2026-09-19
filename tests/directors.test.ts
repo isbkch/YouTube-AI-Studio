@@ -20,7 +20,10 @@ import {
   BUILTIN_SFX,
   builtinSfxTracks,
 } from "../packages/orchestrator/src/sfx.ts";
-import { mockVisualPass } from "../packages/agents/src/index.ts";
+import {
+  mockVisualPass,
+  resolveDirected,
+} from "../packages/agents/src/index.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { fixture } from "./fixtures.ts";
@@ -449,4 +452,37 @@ test("mock visual pass follows the persona's SFX temperament", () => {
     capabilities: { ...capabilities, sfxTracks: [] },
   });
   assert.equal(bare.sfx.length, 0);
+});
+
+test("a pre-4.6 directed object inherits the persona's narration lead", () => {
+  const creator = { ...defaultCreator, director: "craftsman" as const };
+  // The craftsman resolves to a subtle lead; a directed object recorded
+  // before narrationLead existed must not silently degrade to "none".
+  const legacy = resolveDirected({
+    projectId: "p",
+    creator,
+    directed: {
+      director: "craftsman",
+      visualDensity: "rich",
+      silenceTightening: "tight",
+      captionStyle: "pop",
+      audioPolish: "polished",
+    },
+  } as Parameters<typeof resolveDirected>[0]);
+  assert.equal(legacy.narrationLead, "subtle");
+  assert.equal(legacy.visualDensity, "rich", "explicit fields pass through");
+  // An explicit lead still wins over the persona default.
+  const explicit = resolveDirected({
+    projectId: "p",
+    creator,
+    directed: {
+      director: "craftsman",
+      visualDensity: "rich",
+      silenceTightening: "tight",
+      captionStyle: "pop",
+      audioPolish: "polished",
+      narrationLead: "none",
+    },
+  } as Parameters<typeof resolveDirected>[0]);
+  assert.equal(explicit.narrationLead, "none");
 });

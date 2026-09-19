@@ -151,9 +151,12 @@ test("video-frame backgrounds compose without an image provider and stay hash-fr
       frameFile,
     ]);
     const frameHash = await fileHash(frameFile);
+    const masterHash = await fileHash(
+      path.join(store.dir(p), "renders/final.mp4"),
+    );
     store.update(p.id, (x) => {
       x.thumbnailFrames = {
-        finalRenderHash: "master-hash",
+        finalRenderHash: masterHash,
         planVersion: 1,
         items: [
           {
@@ -172,6 +175,30 @@ test("video-frame backgrounds compose without an image provider and stay hash-fr
     studio.images = null;
     const packagingVersion = studio.thumbnailDocument(p.id)!.state.current
       .packagingVersion;
+    // A candidate set from a previous render is refused, not silently used:
+    // re-rendering changes the master's bytes and invalidates old frame ids.
+    store.update(p.id, (x) => {
+      x.thumbnailFrames = {
+        ...x.thumbnailFrames!,
+        finalRenderHash: "an-older-render",
+      };
+    });
+    await assert.rejects(
+      () =>
+        studio.setThumbnailFrame(p.id, {
+          packagingVersion,
+          slot: "A",
+          expectedRevision: slotOf(studio, p.id, "A").version,
+          frameId: "frame-1",
+        }),
+      /out of date/,
+    );
+    store.update(p.id, (x) => {
+      x.thumbnailFrames = {
+        ...x.thumbnailFrames!,
+        finalRenderHash: masterHash,
+      };
+    });
     await assert.rejects(
       () =>
         studio.setThumbnailFrame(p.id, {

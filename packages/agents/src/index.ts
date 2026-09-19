@@ -498,9 +498,19 @@ export interface DirectorInput {
 }
 /** Resolve the direction a plan is generated under, tolerating older inputs. */
 export function resolveDirected(input: DirectorInput): DirectedStyle {
-  if (input.directed) return input.directed;
-  const director = asDirectorPersona(input.creator.director);
+  const director = asDirectorPersona(
+    input.directed?.director ?? input.creator.director,
+  );
   const style = DIRECTOR_PROFILES[director];
+  if (input.directed) {
+    // Pre-4.6 directed objects predate narrationLead; the hired persona's
+    // default fills the gap instead of silently degrading to "none".
+    const legacy = input.directed as Partial<DirectedStyle>;
+    return {
+      ...input.directed,
+      narrationLead: legacy.narrationLead ?? style.narrationLead,
+    };
+  }
   return {
     director,
     visualDensity: asVisualDensity(input.creator.visualDensity),

@@ -69,18 +69,6 @@ export type ThumbnailSelection = {
   path: string;
   outputHash: string;
 };
-export interface ThumbnailBackground {
-  path: string;
-  hash: string;
-  inputHash: string;
-  provider: string;
-  model: string;
-  /** Where the background came from; legacy rows read as "generated". */
-  source?: "generated" | "frame";
-  /** Frame sources: the candidate id and its timestamp in the master. */
-  frameId?: string;
-  frameSeconds?: number;
-}
 /** One extracted expressive frame, cached against the master's bytes. */
 export interface ThumbnailFrame {
   id: string;
@@ -106,6 +94,11 @@ export interface ThumbnailBackground {
   inputHash: string;
   provider: string;
   model: string;
+  /** Where the background came from; legacy rows read as "generated". */
+  source?: "generated" | "frame";
+  /** Frame sources: the candidate id and its timestamp in the master. */
+  frameId?: string;
+  frameSeconds?: number;
 }
 export interface ThumbnailRevision {
   revision: number;
