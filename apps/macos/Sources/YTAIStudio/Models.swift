@@ -24,6 +24,8 @@ struct ProducerReviewEvidence: Decodable {
   let qaStatus: String?
   let warnings: Int?
   let attention: Int?
+  /// Benign warning codes an approved verdict accepted, with evidence.
+  let approvedWithWarnings: [String]?
 }
 struct ProducerReview: Decodable, Identifiable {
   let id: String
@@ -165,6 +167,11 @@ struct ThumbnailBackground: Decodable {
   let path: String
   let provider: String
   let model: String
+  /// "generated" or "video-frame"; legacy rows decode as nil (= generated).
+  let source: String?
+  let frameId: String?
+  let frameSeconds: Double?
+  var isFrame: Bool { source == "frame" }
 }
 struct ThumbnailRevision: Decodable, Identifiable {
   var id: Int { revision }
@@ -211,6 +218,22 @@ struct ThumbnailDocument: Decodable {
 struct ThumbnailExport: Decodable {
   let directory: String
   let files: [String]
+}
+/// Expressive frames cut from the finished render (`thumbnails.frames`).
+struct ThumbnailFrame: Decodable, Identifiable {
+  let id: String
+  let seconds: Double
+  let timecode: String
+  let captionText: String?
+  let loudnessDb: Double?
+  let path: String
+  let hash: String
+}
+struct ThumbnailFramesDocument: Decodable {
+  let projectId: String
+  let planVersion: Int
+  let frames: [ThumbnailFrame]
+  let cached: Bool
 }
 struct Recording: Decodable, Identifiable {
   let id: String
@@ -425,6 +448,7 @@ struct Plan: Decodable {
   let directorPersona: String?
   let captionStyle: String?
   let audioPolish: String?
+  let narrationLead: String?
   let audioDesign: AudioDesign?
   let scriptCoverage: ScriptCoverage?
   var brollCount: Int { scenes.reduce(0) { $0 + ($1.broll?.count ?? 0) } }
@@ -447,6 +471,10 @@ struct Plan: Decodable {
   }
   var polish: String {
     ["polished", "loud"].contains(audioPolish ?? "") ? audioPolish! : "natural"
+  }
+  /// Audio-lead level at scene boundaries; legacy plans keep the hard cut.
+  var lead: String {
+    ["subtle", "flowing"].contains(narrationLead ?? "") ? narrationLead! : "none"
   }
 }
 /// Derived punch-line captions (IPC `captions.list`); never plan data.
@@ -820,6 +848,57 @@ struct Creator: Codable {
   }
 }
 struct AnyResponse: Decodable {}
+/// `producer.advanceAll` — where one autonomous project stopped after a
+/// single sequential Producer pass over the library.
+struct AdvanceAllFailure: Decodable {
+  let reason: String
+}
+struct AdvanceAllOutcome: Decodable, Identifiable {
+  let id: String
+  let title: String
+  let stopped: String
+  let acted: [String]
+  let failed: AdvanceAllFailure?
+  /// Where this project stands for the creator: needs-you stops read as
+  /// actions, machine stops read as states.
+  var stoppedLabel: String {
+    switch stopped {
+    case "publication": return "Waiting at the publication gate — yours"
+    case "storyboard-escalated": return "Storyboard escalated to you"
+    case "rough-cut-escalated": return "Rough cut escalated to you"
+    case "failed": return "Stopped on a failure"
+    case "busy": return "Busy — the Producer was already running"
+    case "idle": return "Idle — nothing to advance"
+    default: return stopped
+    }
+  }
+  /// True when this stop is the creator's move — including the publication
+  /// gate, which is permanently human in every mode.
+  var needsYou: Bool {
+    [
+      "publication", "storyboard-escalated", "rough-cut-escalated", "failed",
+    ].contains(stopped)
+  }
+}
+/// `rerecord.get` — the pickup list: script sentences no usable take
+/// contains, with the surrounding included sentences as delivery context.
+struct RerecordEntry: Decodable, Identifiable {
+  let id: String
+  let index: Int
+  let heading: String?
+  let text: String
+  let reason: String
+  let before: String?
+  let after: String?
+}
+struct RerecordList: Decodable {
+  let scriptVersion: Int
+  let planVersion: Int?
+  let sentences: Int
+  let included: Int
+  let omitted: [RerecordEntry]
+  let next: String
+}
 enum JSONValue: Codable {
   case string(String)
   case number(Double)

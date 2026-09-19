@@ -54,6 +54,13 @@ export const thumbnailSelectSchema = thumbnailContextSchema
   );
 export type ThumbnailEdit = z.infer<typeof thumbnailEditSchema>;
 export type ThumbnailRender = z.infer<typeof thumbnailRenderSchema>;
+export const thumbnailSetFrameSchema = thumbnailContextSchema.extend({
+  slot: thumbnailSlotSchema,
+  expectedRevision: z.number().int().nonnegative(),
+  /** A frame id from the project's extracted expressive-frame candidates. */
+  frameId: z.string().min(1).max(120),
+});
+export type ThumbnailSetFrame = z.infer<typeof thumbnailSetFrameSchema>;
 export type ThumbnailSelection = {
   packagingVersion: number;
   packagingHash: string;
@@ -62,6 +69,37 @@ export type ThumbnailSelection = {
   path: string;
   outputHash: string;
 };
+export interface ThumbnailBackground {
+  path: string;
+  hash: string;
+  inputHash: string;
+  provider: string;
+  model: string;
+  /** Where the background came from; legacy rows read as "generated". */
+  source?: "generated" | "frame";
+  /** Frame sources: the candidate id and its timestamp in the master. */
+  frameId?: string;
+  frameSeconds?: number;
+}
+/** One extracted expressive frame, cached against the master's bytes. */
+export interface ThumbnailFrame {
+  id: string;
+  seconds: number;
+  /** `m:ss` in the final render. */
+  timecode: string;
+  /** The punchline spoken at that moment, when the caption picker found one. */
+  captionText: string | null;
+  /** Mean momentary loudness around the frame; null when audio was silent. */
+  loudnessDb: number | null;
+  path: string;
+  hash: string;
+}
+export interface ThumbnailFrames {
+  /** File hash of the final render the frames were cut from. */
+  finalRenderHash: string;
+  planVersion: number;
+  items: ThumbnailFrame[];
+}
 export interface ThumbnailBackground {
   path: string;
   hash: string;

@@ -128,6 +128,14 @@ async function dispatch(
       );
     case "thumbnails.select":
       return studio.selectThumbnail(project.parse(params).projectId, params);
+    case "thumbnails.frames":
+      return studio.thumbnailFrames(project.parse(params).projectId, signal);
+    case "thumbnails.setFrame":
+      return studio.setThumbnailFrame(
+        project.parse(params).projectId,
+        params,
+        signal,
+      );
     case "thumbnails.export": {
       const p = project
         .extend({
@@ -210,6 +218,7 @@ async function dispatch(
           fromReviewedTranscripts: z.boolean().optional(),
           density: z.enum(["minimal", "balanced", "rich"]).optional(),
           tightening: z.enum(["natural", "tight", "punchy"]).optional(),
+          lead: z.enum(["none", "subtle", "flowing"]).optional(),
         })
         .parse(params);
       return studio.generatePlan(
@@ -219,6 +228,7 @@ async function dispatch(
           fromReviewedTranscripts: p.fromReviewedTranscripts,
           density: p.density,
           tightening: p.tightening,
+          lead: p.lead,
         },
         signal,
       );

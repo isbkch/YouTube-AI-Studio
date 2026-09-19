@@ -4,7 +4,7 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "4.5.0"
+      "const": "4.6.0"
     },
     "id": {
       "type": "string",
@@ -1320,6 +1320,11 @@
       "type": "string",
       "enum": ["natural", "polished", "loud"]
     },
+    "narrationLead": {
+      "default": "none",
+      "type": "string",
+      "enum": ["none", "subtle", "flowing"]
+    },
     "audioDesign": {
       "default": {
         "music": null,
@@ -1536,6 +1541,7 @@
     "directorPersona",
     "captionStyle",
     "audioPolish",
+    "narrationLead",
     "audioDesign",
     "scriptCoverage"
   ],

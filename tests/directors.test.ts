@@ -88,11 +88,13 @@ test("each director owns a coherent, escalating style bundle", () => {
     captionStyle: "none",
     sfxDensity: "sparse",
     audioPolish: "natural",
+    narrationLead: "none",
   });
   assert.equal(DIRECTOR_PROFILES.craftsman.visualDensity, "rich");
   assert.equal(DIRECTOR_PROFILES.craftsman.silenceTightening, "tight");
   assert.equal(DIRECTOR_PROFILES.craftsman.captionStyle, "pop");
   assert.equal(DIRECTOR_PROFILES.craftsman.audioPolish, "polished");
+  assert.equal(DIRECTOR_PROFILES.craftsman.narrationLead, "subtle");
   assert.equal(defaultCreator.director, "craftsman");
 });
 
@@ -101,7 +103,7 @@ test("v4.4 plans migrate to v4.5 keeping legacy behavior", () => {
     JSON.stringify({ ...fixture(), schemaVersion: "4.4.0" }),
   );
   const migrated = validatePlan(migratePlan(legacy));
-  assert.equal(migrated.schemaVersion, "4.5.0");
+  assert.equal(migrated.schemaVersion, "4.6.0");
   // The defaults preserve what a pre-director plan built: no captions, no
   // narration processing, no persona steering.
   assert.equal(migrated.directorPersona, "purist");

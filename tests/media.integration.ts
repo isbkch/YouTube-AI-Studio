@@ -1,4 +1,6 @@
 import { test } from "node:test";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, stat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -23,6 +25,7 @@ import {
 } from "../packages/remotion-engine/src/index.ts";
 import { MockImageProvider } from "../packages/image-engine/src/index.ts";
 import { builtinSfxFile } from "../packages/orchestrator/src/sfx.ts";
+import { computeAudioLeads } from "../packages/orchestrator/src/narration-lead.ts";
 import { Store } from "../packages/orchestrator/src/store.ts";
 import { Studio } from "../packages/orchestrator/src/studio.ts";
 import {
@@ -634,3 +637,129 @@ test("the Producer drives an autonomous project through the full chain to the hu
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("narration leads cross scene boundaries with word-safe audio", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-leads-"));
+  const clips = path.join(root, "clips");
+  const store = new Store(root);
+  try {
+    await mkdir(clips, { recursive: true });
+    const clipA = await syntheticClip(clips, "take-a.mp4", 3, 0x2060a0);
+    const clipB = await syntheticClip(clips, "take-b.mp4", 3, 0xa06020);
+    const studio = new Studio(store);
+    const p = store.create("Lead build", "Narration lead integration", 4);
+    await studio.saveScript(p.id, "Opening thought. Closing thought.");
+    await studio.approveScript(p.id, 1);
+    await studio.importMedia(p.id, clipA);
+    await studio.importMedia(p.id, clipB);
+    const WORD = 0.36;
+    const worded = (recordingId: string, text: string) => ({
+      schemaVersion: "1.0.0",
+      language: "en",
+      provider: "mock",
+      model: "fixture",
+      recordingId,
+      segments: [
+        {
+          id: `${recordingId}-1`,
+          start: 0.5,
+          end: 0.5 + text.split(" ").length * WORD,
+          text,
+          words: text.split(" ").map((w, j) => ({
+            start: 0.5 + j * WORD,
+            end: 0.5 + (j + 1) * WORD,
+            text: w,
+          })),
+        },
+      ],
+    });
+    const imported = store.get(p.id);
+    await studio.loadTranscript(
+      p.id,
+      worded(imported.recordings[0].id, "Opening thought."),
+    );
+    await studio.loadTranscript(
+      p.id,
+      worded(imported.recordings[1].id, "Closing thought."),
+    );
+    await studio.generatePlan(p.id, { lead: "flowing" });
+    const built = store.get(p.id);
+    const plan = built.plans[0];
+    assert.equal(plan.narrationLead, "flowing");
+    assert.equal(plan.scenes.length, 2, "one scene per recording");
+    // Precondition: the word timings actually earn a lead at the boundary.
+    const decision = computeAudioLeads(
+      plan,
+      built.transcripts,
+      built.recordings,
+    );
+    assert.equal(decision.leads.length, 1);
+    const lead = decision.leads[0].seconds;
+    assert.ok(lead >= 0.05);
+    await studio.approvePlan(p.id, plan.version);
+    await studio.build(p.id);
+    const latest = store.get(p.id).builds.at(-1)!;
+    const preview = path.join(store.dir(p), latest.previewPath);
+    // The lead pass rewrites only the audio; duration and decode still hold.
+    await verifyOutput(preview, plan.durationFrames / plan.frameRate);
+    const info = await inspect(preview);
+    assert.ok(info.hasAudio);
+    const logs = store
+      .jobs(store.get(p.id).id)
+      .flatMap((j) => j.logs)
+      .join("\n");
+    assert.match(logs, /narration lead \(flowing\): 1 boundary/);
+    // Audio-content proof, not just decode: each synthetic take is a distinct
+    // constant sine, so during the crossing window both tones play (louder
+    // than a single-tone window inside scene B). Ideal summation is +3 dB;
+    // the two tones sit in one AAC critical band, so the decoded sum lands
+    // lower — a hard cut or mis-placed block measures ≈0 dB. The build is
+    // deterministic, so the 1 dB bar is stable.
+    const boundary = plan.scenes[1].startFrame / plan.frameRate;
+    const crossing = await windowRmsDb(
+      preview,
+      boundary + lead * 0.25,
+      lead * 0.5,
+    );
+    const interior = await windowRmsDb(
+      preview,
+      boundary + (plan.scenes[1].durationFrames / plan.frameRate) * 0.6,
+      0.25,
+    );
+    assert.ok(
+      crossing - interior > 1.0,
+      `the crossing window sums both takes' tones (crossing ${crossing.toFixed(1)} dB vs interior ${interior.toFixed(1)} dB)`,
+    );
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+/** Overall RMS (dB) of a short audio window, via ffmpeg astats. */
+async function windowRmsDb(file: string, start: number, seconds: number) {
+  const { stderr } = await promisify(execFile)(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-ss",
+      String(start),
+      "-t",
+      String(seconds),
+      "-i",
+      file,
+      "-map",
+      "0:a",
+      "-af",
+      "astats=measure_overall=RMS_level:measure_perchannel=none",
+      "-f",
+      "null",
+      "-",
+    ],
+    { maxBuffer: 1 << 20 },
+  );
+  const levels = [...stderr.matchAll(/RMS level dB:\s*(-?[\d.]+|-inf)/g)];
+  const value = levels.at(-1)?.[1];
+  assert.ok(value, `astats reported an RMS level for [${start}, ${seconds}]`);
+  return value === "-inf" ? -Infinity : Number(value);
+}

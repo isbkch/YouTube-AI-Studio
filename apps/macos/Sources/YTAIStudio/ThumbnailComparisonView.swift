@@ -174,6 +174,7 @@ struct ThumbnailComparisonView: View {
   let projectID: String
   @State private var feedSize = false
   @State private var editing: ThumbnailSlot?
+  @State private var pickingFrame: ThumbnailSlot?
   @State private var fullImage: ThumbnailRevision?
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -216,6 +217,7 @@ struct ThumbnailComparisonView: View {
               ThumbnailVariantCard(
                 p: p, slot: slot, selected: d.state.selected, feedSize: feedSize,
                 canGenerate: d.provider != nil, edit: { editing = slot },
+                pickFrame: { pickingFrame = slot },
                 preview: { fullImage = $0 })
             }
           }
@@ -271,6 +273,9 @@ struct ThumbnailComparisonView: View {
       .sheet(item: $editing) { slot in
         ThumbnailEditor(slot: slot, projectID: projectID).environmentObject(m)
       }
+      .sheet(item: $pickingFrame) { slot in
+        ThumbnailFramePicker(slot: slot).environmentObject(m)
+      }
       .sheet(item: $fullImage) { revision in
         if let p = m.project, p.id == projectID {
           VStack(alignment: .leading, spacing: 12) {
@@ -303,6 +308,7 @@ struct ThumbnailVariantCard: View {
   let feedSize: Bool
   let canGenerate: Bool
   let edit: () -> Void
+  let pickFrame: () -> Void
   let preview: (ThumbnailRevision) -> Void
   @State private var viewingRevision: Int?
   private var revision: ThumbnailRevision? {
@@ -364,6 +370,11 @@ struct ThumbnailVariantCard: View {
       HStack {
         if mutable {
           Button("Edit…", action: edit).buttonStyle(QuietButtonStyle()).disabled(m.busy)
+          if p.finalRender != nil {
+            Button("Video frame…", action: pickFrame).buttonStyle(QuietButtonStyle())
+              .disabled(m.busy)
+              .help("Compose this slot over a frame cut from the finished render — no image generation")
+          }
           if slot.status != "READY" {
             Button(slot.error == nil ? "Render \(slot.id)" : "Retry \(slot.id)") {
               Task { await m.renderThumbnails([slot]) }
@@ -475,5 +486,105 @@ struct ThumbnailEditor: View {
         Button("Discard edits", role: .destructive) { dismiss() }
         Button("Keep editing", role: .cancel) {}
       }
+  }
+}
+
+/// Frame thumbnail decoding for the picker — same source-and-cache pattern
+/// as `ThumbnailImage`, keyed on the frame's path and content hash.
+struct FrameImage: View {
+  let p: Project
+  let frame: ThumbnailFrame
+  @State private var loadedImage: NSImage?
+  @State private var loadedKey: String?
+  private var imageKey: String { "\(p.id):\(frame.path):\(frame.hash)" }
+  var body: some View {
+    Group {
+      if loadedKey == imageKey, let image = loadedImage {
+        Image(nsImage: image).resizable().aspectRatio(16 / 9, contentMode: .fit)
+      } else {
+        ZStack {
+          Color.studioInk.opacity(0.06)
+          Image(systemName: "film").font(.title3).foregroundStyle(.secondary)
+        }.aspectRatio(16 / 9, contentMode: .fit)
+      }
+    }.clipShape(RoundedRectangle(cornerRadius: 7))
+      .task(id: imageKey) {
+        loadedImage = nil
+        loadedKey = nil
+        guard let url = p.url(frame.path) else { return }
+        let decoded = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+          guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+          return CGImageSourceCreateImageAtIndex(
+            source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+        }.value
+        guard !Task.isCancelled else { return }
+        loadedKey = imageKey
+        if let decoded { loadedImage = NSImage(cgImage: decoded, size: .zero) }
+      }
+  }
+}
+
+/// Choose an extracted expressive frame as a slot's background.
+struct ThumbnailFramePicker: View {
+  @EnvironmentObject var m: StudioModel
+  @Environment(\.dismiss) private var dismiss
+  let slot: ThumbnailSlot
+  var body: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Video frame · thumbnail \(slot.id)").studioHeading(22)
+          Text(
+            "Frames are cut from your finished render at punchline moments, ranked by the vocal energy around them. No image generation involved."
+          ).font(.caption).foregroundStyle(.secondary)
+        }
+        Spacer()
+        Button("Done") { dismiss() }.buttonStyle(QuietButtonStyle())
+          .keyboardShortcut(.cancelAction)
+      }
+      if let p = m.project, let doc = m.thumbnailFrames, doc.projectId == p.id {
+        if doc.frames.isEmpty {
+          Text(
+            "No expressive moments were found in this render — punchline captions and chapter beats both came up empty."
+          ).font(.caption).foregroundStyle(.secondary)
+        } else {
+          ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 14) {
+              ForEach(doc.frames) { frame in
+                VStack(alignment: .leading, spacing: 6) {
+                  FrameImage(p: p, frame: frame).frame(width: 224)
+                  Text(frame.timecode).font(.caption.monospacedDigit())
+                    .foregroundStyle(Color.studioAccent)
+                  if let caption = frame.captionText {
+                    Text("“\(caption)”").font(.caption2).foregroundStyle(.secondary)
+                      .lineLimit(3)
+                  } else {
+                    Text("Chapter beat").font(.caption2).foregroundStyle(.secondary)
+                  }
+                  if let db = frame.loudnessDb {
+                    Text(String(format: "%.1f dB momentary", db))
+                      .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                  }
+                  Button("Compose \(slot.id)") {
+                    Task {
+                      dismiss()
+                      await m.setThumbnailFrame(slot, frame: frame)
+                    }
+                  }.buttonStyle(QuietButtonStyle()).disabled(m.busy)
+                }.frame(width: 224, alignment: .topLeading)
+              }
+            }
+          }
+        }
+      } else if m.busy {
+        HStack {
+          ProgressView().controlSize(.small)
+          Text(m.busyLabel.isEmpty ? "Extracting frames" : m.busyLabel).font(.caption)
+        }
+      } else {
+        Text("Loading frames…").font(.caption).foregroundStyle(.secondary)
+      }
+    }.padding(24).frame(width: 980, height: 430).background(Color.studioBackground)
+      .task { await m.loadThumbnailFrames() }
   }
 }

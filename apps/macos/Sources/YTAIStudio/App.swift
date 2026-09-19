@@ -99,6 +99,23 @@ struct StudioView: View {
         } label: {
           Label("New Project", systemImage: "plus").frame(maxWidth: .infinity)
         }.buttonStyle(PrimaryActionButtonStyle()).disabled(m.busy)
+        Button {
+          m.showingAdvanceAll = true
+        } label: {
+          HStack(spacing: 6) {
+            Image(systemName: "wand.and.stars").foregroundStyle(Color.studioAccent)
+            Text("Producer — All Projects").font(.system(size: 12, weight: .medium))
+            Spacer()
+            Text("\(m.projects.filter { $0.isAutonomous }.count)")
+              .font(.system(size: 10, weight: .semibold, design: .monospaced))
+              .foregroundStyle(.secondary)
+          }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            .background(
+              m.showingAdvanceAll ? Color.studioAccent.opacity(0.10) : .clear,
+              in: RoundedRectangle(cornerRadius: 10))
+        }.buttonStyle(.plain).help(
+          "One Producer pass over every autonomous project — advance machine gates, self-recover crashed builds, stop at your script and publication gates"
+        )
         Text("PRODUCTIONS").font(.system(size: 10, weight: .semibold)).tracking(2).foregroundStyle(
           .secondary)
         ScrollView {
@@ -114,6 +131,11 @@ struct StudioView: View {
                     Text(p.statusLabel).font(.system(size: 10)).foregroundStyle(
                       m.selectedID == p.id ? Color.studioAccent : Color.secondary
                     ).lineLimit(2)
+                    if p.isAutonomous {
+                      Image(systemName: "wand.and.stars").font(.system(size: 9))
+                        .foregroundStyle(Color.studioAccent)
+                        .help("Autonomous — the Producer carries the machine gates")
+                    }
                     if let total = p.costs?.totalUSD, total > 0 {
                       Text("· \(money(total))").font(
                         .system(size: 10, weight: .medium, design: .monospaced)
@@ -265,6 +287,9 @@ struct StudioView: View {
       }
       .sheet(isPresented: $m.showingCosts) {
         CostsSheet().environmentObject(m).frame(width: 700, height: 660)
+      }
+      .sheet(isPresented: $m.showingAdvanceAll) {
+        AdvanceAllSheet().environmentObject(m).frame(width: 720, height: 620)
       }
       .overlay(alignment: .bottomTrailing) {
         ConnectionLoader(runtime: m.runtime, onReady: { Task { await m.load() } })

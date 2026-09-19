@@ -277,7 +277,7 @@ test("v4.3 plans migrate through v4.5 recording the natural tightening level", (
     JSON.stringify({ ...fixture(), schemaVersion: "4.3.0" }),
   );
   const migrated = validatePlan(migratePlan(legacy));
-  assert.equal(migrated.schemaVersion, "4.5.0");
+  assert.equal(migrated.schemaVersion, "4.6.0");
   assert.equal(migrated.silenceTightening, "natural");
 });
 

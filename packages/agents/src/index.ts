@@ -28,6 +28,7 @@ import {
   StudioError,
   asAudioPolish,
   asCaptionStyle,
+  asNarrationLead,
   asDirectorPersona,
   asSilenceTightening,
   asVisualDensity,
@@ -506,6 +507,7 @@ export function resolveDirected(input: DirectorInput): DirectedStyle {
     silenceTightening: asSilenceTightening(input.creator.silenceTightening),
     captionStyle: asCaptionStyle(style.captionStyle),
     audioPolish: asAudioPolish(style.audioPolish),
+    narrationLead: asNarrationLead(style.narrationLead),
   };
 }
 const directorInstructions = `You are the editorial Director for a technical YouTube channel. Return a frame-accurate production plan as strict JSON.
@@ -647,6 +649,7 @@ export class DirectorAgent {
       directorPersona: directed.director,
       captionStyle: directed.captionStyle,
       audioPolish: directed.audioPolish,
+      narrationLead: directed.narrationLead,
       director: {
         provider: result.usage.provider,
         model: result.usage.model,
@@ -698,7 +701,7 @@ export class DirectorAgent {
         ...input,
         contract: {
           id: id("plan"),
-          schemaVersion: "4.5.0",
+          schemaVersion: "4.6.0",
           projectId: input.projectId,
           version: input.version,
           scriptVersion: input.script.version,
@@ -746,6 +749,7 @@ export class DirectorAgent {
           directorPersona: directed.director,
           captionStyle: directed.captionStyle,
           audioPolish: directed.audioPolish,
+          narrationLead: directed.narrationLead,
         }),
       ),
       input.transcripts,
@@ -1272,7 +1276,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     for (const s of edit.scenes)
       for (const idx of s.sentences) sceneIdBySentence.set(idx, s.id);
     return validatePlan({
-      schemaVersion: "4.5.0",
+      schemaVersion: "4.6.0",
       id: id("plan"),
       projectId: input.projectId,
       version: input.version,
@@ -1287,6 +1291,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
       directorPersona: directed.director,
       captionStyle: directed.captionStyle,
       audioPolish: directed.audioPolish,
+      narrationLead: directed.narrationLead,
       director: {
         provider: "mock",
         model: "deterministic-v1",
@@ -1421,7 +1426,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     timelineFrame += total;
   }
   return validatePlan({
-    schemaVersion: "4.5.0",
+    schemaVersion: "4.6.0",
     id: id("plan"),
     projectId: input.projectId,
     version: input.version,
@@ -1436,6 +1441,7 @@ export function mockPlan(input: DirectorInput): ProductionPlan {
     directorPersona: directed.director,
     captionStyle: directed.captionStyle,
     audioPolish: directed.audioPolish,
+    narrationLead: directed.narrationLead,
     director: {
       provider: "mock",
       model: "deterministic-v1",

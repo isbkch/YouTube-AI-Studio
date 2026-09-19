@@ -32,6 +32,7 @@ import {
   thumbnailRenderSchema,
   thumbnailRegenerateSchema,
   thumbnailSelectSchema,
+  thumbnailSetFrameSchema,
   type ThumbnailBackground,
   type ThumbnailPackage,
   type ThumbnailSelection,
@@ -362,6 +363,49 @@ export class Thumbnails {
     this.state.selected = selected;
     this.save(changed);
     return this.state;
+  }
+  /**
+   * Set a slot's background to an extracted expressive frame and compose it
+   * through the normal pipeline — no image provider involved. The frame's
+   * bytes are hash-verified before use; headline-only edits later recompose
+   * offline exactly like generated backgrounds.
+   */
+  async setFrame(input: unknown, signal?: AbortSignal) {
+    const request = thumbnailSetFrameSchema.parse(input);
+    this.context(request.packagingVersion);
+    const slot = this.slot(request.slot, request.expectedRevision);
+    const frame = this.project.thumbnailFrames?.items.find(
+      (f) => f.id === request.frameId,
+    );
+    if (!frame)
+      throw new StudioError(
+        "INVALID_INPUT",
+        "Choose a frame from this render's extracted candidates.",
+        "Reload the frame list and retry.",
+      );
+    await verifiedPath(this.store, this.project, frame.path, frame.hash);
+    slot.background = {
+      path: frame.path,
+      hash: frame.hash,
+      inputHash: hash({ frame: frame.hash, frameId: frame.id }),
+      provider: "video-frame",
+      model: "final-render",
+      source: "frame",
+      frameId: frame.id,
+      frameSeconds: frame.seconds,
+    };
+    slot.version++;
+    slot.status = "CONCEPT";
+    slot.error = null;
+    slot.stage = null;
+    this.save();
+    return this.render(
+      {
+        packagingVersion: request.packagingVersion,
+        slots: [{ slot: slot.id, expectedRevision: slot.version }],
+      },
+      signal,
+    );
   }
   async regenerate(input: unknown, signal?: AbortSignal) {
     const request = thumbnailRegenerateSchema.parse(input);

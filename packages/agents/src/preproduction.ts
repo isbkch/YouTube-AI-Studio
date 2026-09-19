@@ -162,7 +162,8 @@ export class NarrativeAgent {
       name: "narrative_outline",
       schema: narrativeSchema,
       signal,
-      instructions: narrativeInstructions,
+      instructions:
+        narrativeInstructions,
       input: {
         projectId: input.projectId,
         idea: input.idea,
@@ -339,7 +340,8 @@ export class ScriptAgent {
       name: "video_script",
       schema: videoScriptSchema,
       signal,
-      instructions: scriptInstructions,
+      instructions:
+        scriptInstructions,
       input: {
         projectId: input.projectId,
         idea: input.idea,

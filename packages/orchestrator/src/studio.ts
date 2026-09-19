@@ -53,11 +53,13 @@ import {
   asAudioPolish,
   asCaptionStyle,
   asDirectorPersona,
+  asNarrationLead,
   asSilenceTightening,
   asVisualDensity,
   DIRECTOR_PROFILES,
   type AudioPolish,
   type CaptionStyle,
+  type NarrationLead,
   type CreatorProfile,
   type DirectorId,
   type SilenceTightening,
@@ -131,7 +133,9 @@ import {
 import { reviewRetakes } from "./retakes.ts";
 import { buildEditDecision, suggestGraphic } from "./aroll.ts";
 import { computeCaptionEvents } from "./captions.ts";
+import { extractExpressiveFrames } from "./frames.ts";
 import { styleProfile } from "./style.ts";
+import { computeAudioLeads } from "./narration-lead.ts";
 import {
   MAX_PRODUCER_REPAIRS,
   PRODUCER_REVIEWER,
@@ -1157,6 +1161,7 @@ export class Studio {
       tightening?: SilenceTightening;
       captions?: CaptionStyle;
       polish?: AudioPolish;
+      lead?: NarrationLead;
       fromReviewedTranscripts?: boolean;
     } = {},
     signal?: AbortSignal,
@@ -1164,9 +1169,9 @@ export class Studio {
     const result = await this.locked(projectId, async (p) => {
       if (options.fromReviewedTranscripts) requireTranscriptIdle(p);
       // The hired director owns the defaults: its persona resolves the density,
-      // tightening, caption style and audio polish this plan is directed at.
-      // Explicit options still override individual knobs for advanced calls;
-      // the plan records whichever values were used.
+      // tightening, caption style, audio polish and narration lead this plan
+      // is directed at. Explicit options still override individual knobs for
+      // advanced calls; the plan records whichever values were used.
       const director = asDirectorPersona(
         options.director ?? p.creator.director,
       );
@@ -1177,6 +1182,7 @@ export class Studio {
       );
       const captions = asCaptionStyle(options.captions ?? style.captionStyle);
       const polish = asAudioPolish(options.polish ?? style.audioPolish);
+      const lead = asNarrationLead(options.lead ?? style.narrationLead);
       const transcripts = p.recordings
         .map((r) => p.transcripts.findLast((t) => t.recordingId === r.id))
         .filter((t): t is Transcript => !!t);
@@ -1237,6 +1243,7 @@ export class Studio {
                   silenceTightening: tightening,
                   captionStyle: captions,
                   audioPolish: polish,
+                  narrationLead: lead,
                 },
                 version: p.plans.length + 1,
                 targetDuration: p.targetDuration,
@@ -1297,12 +1304,6 @@ export class Studio {
     this.autoAdvance(projectId);
     return result;
   }
-  /**
-   * Style memory for the Director: the creator's mined taste plus, when a
-   * real channel (synced or CSV-imported — never the fictional sample)
-   * carries observed average view percentages, the audience's measured
-   * verdict on past structure. Latest complete-ish basic report per video.
-   */
   private directorStyleNotes(): string[] { return styleProfile(this.store.list()).notes; }
   /**
    * Import an externally authored plan (human or offline AI direction).
@@ -2201,14 +2202,18 @@ export class Studio {
             return fallback;
           };
           let produced: string | null = null;
-          // Burned-in punch-line captions and narration processing only exist
-          // when there is actually something to burn: a caption-styled plan
-          // with no qualifying punch lines cuts like any other. Resolve would
-          // re-edit from FCPXML and silently lose real burn-ins, so those
-          // plans finish from the verified rough-cut bytes.
+          // Burned-in punch-line captions, narration processing and narration
+          // leads only exist when there is actually something to burn or
+          // cross: a styled plan with no qualifying punch lines or word gaps
+          // cuts like any other. Resolve would re-edit from FCPXML and
+          // silently lose those deterministic layers, so those plans finish
+          // from the verified rough-cut bytes.
           const burnIn =
             computeCaptionEvents(plan, transcriptsForPlan(p, plan)).events
-              .length > 0 || plan.audioPolish !== "natural";
+              .length > 0 ||
+            plan.audioPolish !== "natural" ||
+            computeAudioLeads(plan, transcriptsForPlan(p, plan), p.recordings)
+              .leads.length > 0;
           try {
             if (burnIn) {
               engine = "ffmpeg";
@@ -2559,6 +2564,7 @@ export class Studio {
                       tightening: repair.tightening,
                       captions: plan.captionStyle,
                       polish: plan.audioPolish,
+                      lead: plan.narrationLead,
                     },
                     signal,
                   ),
@@ -2915,6 +2921,36 @@ export class Studio {
     signal?: AbortSignal,
   ) {
     await this.withThumbnails(projectId, (s) => s.render(request, signal));
+    return this.thumbnailDocument(projectId);
+  }
+  /**
+   * Expressive-frame candidates cut from the finished master: punchline
+   * moments ranked by vocal energy, plus chapter beats. Read-only cache —
+   * recomputed only when the final render's bytes change.
+   */
+  async thumbnailFrames(projectId: string, signal?: AbortSignal) {
+    const result = await this.locked(projectId, async (p) => {
+      const { frames, cached } = await extractExpressiveFrames(
+        this.store,
+        p,
+        signal,
+      );
+      return {
+        projectId: p.id,
+        planVersion: frames.planVersion,
+        frames: frames.items,
+        cached,
+      };
+    });
+    this.notify?.({ event: "thumbnails.updated", projectId });
+    return result;
+  }
+  async setThumbnailFrame(
+    projectId: string,
+    request: unknown,
+    signal?: AbortSignal,
+  ) {
+    await this.withThumbnails(projectId, (s) => s.setFrame(request, signal));
     return this.thumbnailDocument(projectId);
   }
   async updateThumbnail(projectId: string, request: unknown) {
