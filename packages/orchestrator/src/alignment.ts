@@ -136,6 +136,12 @@ export interface SpanMatch {
   segmentIds: string[];
   /** Token count of the transcript segment the span lands in (context size). */
   contextTokens: number;
+  /**
+   * Delivery penalty (0–0.08) for ranking only: filler-dense or off-pace
+   * spans rank below clean deliveries of the same sentence. Never subtracted
+   * from `score`, so thresholds and persisted rows are untouched.
+   */
+  deliveryPenalty: number;
 }
 
 /** Smith-Waterman local alignment of sentence tokens inside a token stream. */
@@ -232,9 +238,11 @@ function bestSpan(tokens: string[], stream: TimedToken[]) {
 /**
  * Identity of the matching algorithm that produced an alignment. Stored
  * alongside the artifact so a library can detect alignments computed by an
- * older algorithm and recompute instead of silently reusing them.
+ * older algorithm and recompute instead of silently reusing them. v7 ranks
+ * candidate takes by delivery (filler density, speaking pace) in addition to
+ * text-match score.
  */
-export const ALIGNMENT_ALGORITHM = "smith-waterman-v6-transcript-qa";
+export const ALIGNMENT_ALGORITHM = "smith-waterman-v7-delivery-aware";
 
 export const alignmentSchema = z.strictObject({
   schemaVersion: z.literal("2.0.0"),
@@ -293,6 +301,51 @@ const SHORT_CONTINUITY_BONUS = 0.15;
 const MONOTONIC_TOLERANCE = 0.65;
 const HEAD_PAD = 0.14;
 const TAIL_PAD = 0.3;
+
+/** Spoken-noise tokens counted against a take's delivery. */
+const FILLER_TOKENS = new Set([
+  "um",
+  "umm",
+  "uh",
+  "uhh",
+  "er",
+  "erm",
+  "ah",
+  "eh",
+  "hmm",
+  "hm",
+  "mmm",
+  "mm",
+]);
+/** Comfortable narration pace in words per minute; outside it ranks lower. */
+const COMFORTABLE_WPM: readonly [number, number] = [120, 210];
+/** Delivery can reorder takes but never outweigh a strong text mismatch. */
+const MAX_DELIVERY_PENALTY = 0.08;
+
+/**
+ * Delivery quality of one candidate span from its own word timings: filler
+ * density plus pace deviation from comfortable narration. Ranking-only —
+ * thresholds and persisted scores never see it, so a sloppy delivery can
+ * lose a take contest but never unmatch a sentence.
+ */
+function deliveryPenalty(
+  span: { start: number; end: number },
+  stream: TimedToken[],
+): number {
+  const inSpan = stream.filter((t) => t.end > span.start && t.start < span.end);
+  if (inSpan.length < 3) return 0;
+  const fillers = inSpan.filter((t) => FILLER_TOKENS.has(t.token)).length;
+  const fillerRate = fillers / inSpan.length;
+  const seconds = span.end - span.start;
+  const wpm = seconds > 0 ? (inSpan.length / seconds) * 60 : 0;
+  const [lo, hi] = COMFORTABLE_WPM;
+  const paceDeviation =
+    wpm < lo ? (lo - wpm) / lo : wpm > hi ? (wpm - hi) / hi : 0;
+  return Math.min(
+    MAX_DELIVERY_PENALTY,
+    fillerRate * 1.5 + Math.min(0.05, paceDeviation * 0.25),
+  );
+}
 
 export interface AlignInput {
   script: string;
@@ -395,6 +448,7 @@ export function alignScript(input: AlignInput): Alignment {
         contextTokens: overlapping.length
           ? Math.max(1, tokenize(overlapping[0].text).length)
           : sentence.tokens.length,
+        deliveryPenalty: deliveryPenalty({ start, end }, all),
       });
     }
     const bonus = short ? SHORT_CONTINUITY_BONUS : CONTINUITY_BONUS;
@@ -419,9 +473,12 @@ export function alignScript(input: AlignInput): Alignment {
         0.6;
     const ranked = [...pool].sort(
       (a, b) =>
-        b.score +
+        b.score -
+        b.deliveryPenalty +
         (b.recordingId === previousRecording ? bonus : 0) -
-        (a.score + (a.recordingId === previousRecording ? bonus : 0)),
+        (a.score -
+          a.deliveryPenalty +
+          (a.recordingId === previousRecording ? bonus : 0)),
     );
     const row = used[sentence.index];
     row.alternates = ranked
@@ -532,9 +589,12 @@ export function alignScript(input: AlignInput): Alignment {
         contextTokens: overlapping.length
           ? Math.max(1, tokenize(overlapping[0].text).length)
           : sentence.tokens.length,
+        deliveryPenalty: deliveryPenalty({ start, end }, stream),
       });
     }
-    fillIns.sort((a, b) => b.score - a.score);
+    fillIns.sort(
+      (a, b) => b.score - b.deliveryPenalty - (a.score - a.deliveryPenalty),
+    );
     // Rhetorical beats belong to a take already in use around them; another
     // take may supply one only as a complete beat, not an unrelated mention.
     const rescue = fillIns.find(

@@ -91,6 +91,11 @@ export interface BuildContext {
   provider: AIProvider | null;
 }
 const visualQAEnabled = () => process.env.WTS_VISUAL_QA !== "off";
+/** Parallel jobs the DAG scheduler may run, 1–8 (WTS_BUILD_CONCURRENCY). */
+const buildConcurrency = () => {
+  const raw = Number(process.env.WTS_BUILD_CONCURRENCY);
+  return Number.isInteger(raw) && raw >= 1 && raw <= 8 ? raw : 4;
+};
 export { cachedFile, recordAsset, type Cached } from "./cache.ts";
 import { cachedFile, recordAsset, type Cached } from "./cache.ts";
 export async function buildProject(
@@ -1019,7 +1024,7 @@ export async function buildProject(
               })),
             ],
             narration: plan.audioPolish,
-            renderer: "mix-v3-persona-audio",
+            renderer: "mix-v4-limiter-ceiling",
           });
           const c = await cachedFile(dir, mixKey, previewPath, async (temp) => {
             await mixAudio({
@@ -1281,6 +1286,9 @@ export async function buildProject(
       if (x.status === "AWAITING_STORYBOARD_APPROVAL")
         x.status = transition(x.status, "GENERATING_ASSETS");
     });
+    // Independent leaf tasks (per-scene graphics, proxies, caption clips,
+    // music) dominate the graph; WTS_BUILD_CONCURRENCY tunes 1–8, defaulting
+    // to 4 for Apple Silicon-class machines.
     const graph = new JobGraph(
       tasks,
       p.id,
@@ -1288,7 +1296,7 @@ export async function buildProject(
         store.job(job);
         onJob?.(job);
       },
-      2,
+      buildConcurrency(),
     );
     await graph.run(signal);
     store.update(p.id, (x) => {

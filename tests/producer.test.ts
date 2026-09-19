@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { hash, now } from "../packages/shared/src/index.ts";
 import {
   MAX_OMISSION_RATIO,
+  planRoughCutRepair,
+  planStoryboardRepair,
   reviewRoughCut,
   reviewStoryboard,
 } from "../packages/orchestrator/src/producer.ts";
@@ -86,7 +88,7 @@ test("storyboard review approves a covered, on-target plan", () => {
   const review = reviewStoryboard(coveredPlan(["included", "included"]), 6);
   assert.equal(review.verdict, "approved");
   assert.equal(review.gate, "storyboard");
-  assert.equal(review.reviewer, "deterministic-v1");
+  assert.equal(review.reviewer, "deterministic-v2");
   assert.equal(review.evidence.sentences, 2);
   assert.equal(review.evidence.omitted, 0);
   assert.equal(review.evidence.scenes, 1);
@@ -313,12 +315,13 @@ async function temporary<T>(fn: (root: string, store: Store) => Promise<T>) {
 async function plannableProject(
   store: Store,
   autonomy: "supervised" | "autonomous",
+  target = 15,
 ) {
   store.setCreator({ ...store.creator(), director: "purist" });
   const p = store.create(
     "Producer e2e",
     "Deterministic autonomy",
-    15,
+    target,
     autonomy,
   );
   const studio = new Studio(store);
@@ -423,4 +426,407 @@ test("supervised projects keep every gate and advance refuses them", async () =>
     assert.equal(result.snapshot.planApproval?.approvedBy, "producer");
     assert.ok(result.acted.length > 0);
     assert.ok(eventNames(store, p.id).includes("producer.failed"));
+  }));
+
+// ---------------------------------------------------------------------------
+// deterministic-v2: approve-with-evidence and the repair planners.
+// ---------------------------------------------------------------------------
+
+test("rough-cut review approves benign warnings with the evidence recorded", () => {
+  const review = reviewRoughCut(fixture(), {
+    status: "PASS",
+    warnings: [
+      "2 silence interval(s) of 2 seconds or more: review pacing.",
+      "Synthetic or imported mock transcript; factual and spoken-word alignment requires human review.",
+      "1 imported recording(s) unused by this cut: take-2.mp4.",
+      "Rough cut runs 9s against a 12s target; review pacing.",
+    ],
+    attention: [],
+    audio: { silenceStarts: [3.2], maxVolumeDb: -6 },
+  });
+  assert.equal(review.verdict, "approved");
+  assert.deepEqual(review.evidence.approvedWithWarnings, [
+    "audio.silence",
+    "transcript.mock",
+    "coverage.unusedRecording",
+    "duration.offTarget",
+  ]);
+  // The accepted findings stay visible as warnings, not swept under the rug.
+  assert.equal(
+    review.findings.filter((f) => f.severity === "warn").length,
+    5,
+    "four warning strings plus the derived audio.silence finding",
+  );
+});
+
+test("hot peaks and unclassifiable warnings still escalate the rough cut", () => {
+  const hot = reviewRoughCut(fixture(), {
+    status: "PASS",
+    warnings: [],
+    attention: [],
+    audio: { silenceStarts: [], maxVolumeDb: -0.4 },
+  });
+  assert.equal(hot.verdict, "escalated");
+  assert.equal(hot.evidence.approvedWithWarnings, undefined);
+  const unknown = reviewRoughCut(fixture(), {
+    status: "PASS",
+    warnings: ["Something unclassified happened."],
+    attention: [],
+  });
+  assert.equal(unknown.verdict, "escalated");
+});
+
+test("storyboard repair steps tightening toward the target and stops at the limits", () => {
+  // The fixture cut runs 3s: 3× a 1s target is over, 0.2× a 15s target is under.
+  const over = reviewStoryboard(coveredPlan(["included"]), 1);
+  const under = reviewStoryboard(coveredPlan(["included"]), 15);
+  assert.equal(
+    planStoryboardRepair(over, coveredPlan(["included"]))?.tightening,
+    "tight",
+    "an over-target natural cut re-directs tighter",
+  );
+  assert.equal(
+    planStoryboardRepair(
+      over,
+      coveredPlan(["included"], { silenceTightening: "punchy" }),
+    ),
+    null,
+    "punchy is the mechanical limit",
+  );
+  assert.equal(
+    planStoryboardRepair(
+      under,
+      coveredPlan(["included"], { silenceTightening: "punchy" }),
+    )?.tightening,
+    "tight",
+    "an under-target punchy cut re-directs looser",
+  );
+  assert.equal(
+    planStoryboardRepair(under, coveredPlan(["included"])),
+    null,
+    "a natural cut cannot loosen further",
+  );
+  // Coverage omissions are semantic: no repair routes around missing words,
+  // even when a duration blocker coexists.
+  const omissions = reviewStoryboard(
+    coveredPlan(["omitted", "omitted", "included"]),
+    4,
+  );
+  const omissionsAndOver = reviewStoryboard(
+    coveredPlan(["omitted", "omitted", "included"]),
+    1,
+  );
+  assert.ok(
+    omissions.findings.some((f) => f.code === "coverage.omissionRatio"),
+  );
+  assert.equal(
+    planStoryboardRepair(omissions, coveredPlan(["included"])),
+    null,
+  );
+  assert.equal(
+    planStoryboardRepair(omissionsAndOver, coveredPlan(["included"])),
+    null,
+  );
+});
+
+const calloutVisual = () => ({
+  type: "graphic" as const,
+  description: "Callout",
+  graphic: {
+    engine: "remotion" as const,
+    template: "Callout" as const,
+    templateVersion: "1.0.0" as const,
+    parameters: { title: "Caching", subtitle: "L1 vs L2" },
+  },
+});
+
+/** Four contiguous scenes; every scene except the last carries a Callout. */
+const treatedPlan = () => {
+  const plan = structuredClone(fixture());
+  plan.scenes = [0, 1, 2, 3].map((i) => ({
+    ...plan.scenes[0],
+    id: `scene-${i + 1}`,
+    startFrame: i * 90,
+    visual: i === 3 ? plan.scenes[0].visual : calloutVisual(),
+  }));
+  return plan;
+};
+
+test("rough-cut repair disables flagged treated scenes within the bounds", () => {
+  const plan = treatedPlan();
+  const qa = {
+    status: "ATTENTION",
+    warnings: [],
+    attention: ["scene-1"],
+    audio: { silenceStarts: [], maxVolumeDb: -3 },
+  };
+  const repair = planRoughCutRepair(reviewRoughCut(plan, qa), plan, qa);
+  assert.equal(repair?.kind, "patch");
+  assert.deepEqual(repair?.operations, [
+    { type: "disableScene", sceneId: "scene-1", disabled: true },
+  ]);
+  assert.deepEqual(repair?.affectedScenes, ["scene-1"]);
+  // A presenter-only flag has no removable treatment.
+  const presenterOnly = { ...qa, attention: ["scene-4"] };
+  assert.equal(
+    planRoughCutRepair(
+      reviewRoughCut(plan, presenterOnly),
+      plan,
+      presenterOnly,
+    ),
+    null,
+  );
+  // More than a quarter of the cut flagged is systemic, not scene-local.
+  const systemic = { ...qa, attention: ["scene-1", "scene-2"] };
+  assert.equal(
+    planRoughCutRepair(reviewRoughCut(plan, systemic), plan, systemic),
+    null,
+  );
+});
+
+test("rough-cut repair backs scene gains off the schema floor for hot peaks", () => {
+  const plan = treatedPlan();
+  const qa = {
+    status: "PASS",
+    warnings: [],
+    attention: [],
+    audio: { silenceStarts: [], maxVolumeDb: -0.5 },
+  };
+  const repair = planRoughCutRepair(reviewRoughCut(plan, qa), plan, qa);
+  assert.equal(repair?.kind, "patch");
+  assert.deepEqual(
+    repair?.operations.map((o) => o.type),
+    ["updateAudio", "updateAudio", "updateAudio", "updateAudio"],
+  );
+  assert.ok(
+    repair!.operations.every(
+      (o) => o.type === "updateAudio" && o.gainDb === -2,
+    ),
+  );
+  // At the floor there is nothing mechanical left; the finding goes to the human.
+  const floor = structuredClone(plan);
+  for (const s of floor.scenes) s.audio.gainDb = -23;
+  assert.equal(planRoughCutRepair(reviewRoughCut(floor, qa), floor, qa), null);
+  // Attention + peaks combine into one patch.
+  const both = { ...qa, status: "ATTENTION", attention: ["scene-2"] };
+  const combined = planRoughCutRepair(reviewRoughCut(plan, both), plan, both);
+  assert.deepEqual(
+    combined?.operations.map((o) => o.type),
+    [
+      "disableScene",
+      "updateAudio",
+      "updateAudio",
+      "updateAudio",
+      "updateAudio",
+    ],
+  );
+});
+
+test("the Producer repairs an over-target storyboard by re-directing pacing", async () =>
+  temporary(async (_root, store) => {
+    // The mock cut runs ≈8.7s at natural pacing and ≈6.7s tight: against a 5s
+    // target v1 escalates (1.75×) and the repaired v2 passes (1.34×).
+    const { p, studio } = await plannableProject(store, "autonomous", 5);
+    await studio.generatePlan(p.id);
+    const done = await untilEvent(
+      store,
+      p.id,
+      "producer.failed",
+      "the chain still ends at the media-less build failure",
+    );
+    assert.equal(
+      done.plans.length,
+      3,
+      "v1 escalated, v2 re-directed, v3 visual pass",
+    );
+    assert.equal(done.plans[1].silenceTightening, "tight");
+    assert.equal(
+      done.plans[2].silenceTightening,
+      "tight",
+      "the visual pass inherits the repair",
+    );
+    assert.equal(done.planApproval?.version, 3);
+    assert.equal(done.planApproval?.approvedBy, "producer");
+    const events = eventNames(store, p.id);
+    assert.equal(
+      events.filter((e) => e === "producer.repaired").length,
+      1,
+      "exactly one storyboard repair",
+    );
+    assert.deepEqual(
+      done.producerReviews
+        .filter((r) => r.gate === "storyboard")
+        .map((r) => [r.planVersion, r.verdict]),
+      [
+        [1, "escalated"],
+        [2, "approved"],
+        [3, "approved"],
+      ],
+    );
+  }));
+
+test("the repair budget exhausts at the tightening ladder's end and stops escalated", async () =>
+  temporary(async (_root, store) => {
+    // ≈8.7s/6.7s/6.0s against a 3.5s target: every level stays over 1.6×.
+    const { p, studio } = await plannableProject(store, "autonomous", 3.5);
+    await studio.generatePlan(p.id);
+    const done = await untilEvent(
+      store,
+      p.id,
+      "producer.stopped",
+      "the Producer stops instead of looping",
+    );
+    assert.deepEqual(
+      done.plans.map((plan) => plan.silenceTightening),
+      ["natural", "tight", "punchy"],
+    );
+    assert.equal(
+      eventNames(store, p.id).filter((e) => e === "producer.repaired").length,
+      2,
+      "both repairs spent",
+    );
+    assert.equal(done.planApproval, null);
+    assert.equal(done.status, "AWAITING_STORYBOARD_APPROVAL");
+    assert.ok(
+      done.producerReviews.some(
+        (r) =>
+          r.gate === "storyboard" &&
+          r.planVersion === 3 &&
+          r.verdict === "escalated",
+      ),
+    );
+  }));
+
+test("the Producer repairs QA-flagged scenes by disabling their treatments", async () =>
+  temporary(async (_root, store) => {
+    const { p, studio } = await plannableProject(store, "supervised");
+    await studio.generatePlan(p.id);
+    // Give the mock plan's single scene a removable graphic, then park the
+    // project at a flagged rough cut the deterministic editor could not see.
+    store.update(p.id, (x) => {
+      x.plans[0].scenes[0].visual = calloutVisual();
+    });
+    await studio.approvePlan(p.id, 1);
+    const qaRel = "renders/qa-v1-repair.json";
+    const dir = store.dir(store.get(p.id));
+    await mkdir(path.join(dir, "renders"), { recursive: true });
+    await writeFile(
+      path.join(dir, qaRel),
+      JSON.stringify({
+        status: "ATTENTION",
+        warnings: [],
+        attention: ["scene-001"],
+        metadata: { duration: 8 },
+        audio: { silenceStarts: [], maxVolumeDb: -3 },
+      }),
+    );
+    store.update(p.id, (x) => {
+      x.status = "AWAITING_ROUGH_CUT_APPROVAL";
+      x.builds = [
+        {
+          planVersion: 1,
+          previewPath: "renders/preview.mp4",
+          timelinePath: "renders/timeline.json",
+          exportPath: "renders/export.fcpxml",
+          qaPath: qaRel,
+          completedAt: now(),
+        },
+      ];
+    });
+    await studio.setAutonomy(p.id, "autonomous");
+    const result = await studio.advance(p.id);
+    const repaired = store.get(p.id);
+    const repair = repaired.revisions.find((r) =>
+      r.patch.originatingRequest.startsWith("Producer auto-repair"),
+    );
+    assert.equal(repair?.status, "APPLIED");
+    assert.equal(repair?.decidedBy, "producer");
+    assert.deepEqual(repair?.patch.operations, [
+      { type: "disableScene", sceneId: "scene-001", disabled: true },
+    ]);
+    assert.ok(eventNames(store, p.id).includes("producer.repaired"));
+    // The repaired version keeps the footage with the treatment disabled.
+    assert.equal(repaired.plans[1].scenes[0].enabled, false);
+    assert.equal(
+      repaired.plans[1].durationFrames,
+      repaired.plans[0].durationFrames,
+    );
+    // The chain re-enters the storyboard gate, re-approves, and still dies at
+    // the media-less build — state consistent, repair visible on the trail.
+    assert.equal(result.stopped, "failed");
+    assert.equal(repaired.planApproval?.version, repaired.plans.length);
+  }));
+
+// ---------------------------------------------------------------------------
+// Batch advance and self-healing recovery.
+// ---------------------------------------------------------------------------
+
+test("advance self-heals a project stranded mid-build by a crash", async () =>
+  temporary(async (_root, store) => {
+    const { p, studio } = await plannableProject(store, "autonomous");
+    await studio.generatePlan(p.id);
+    await untilEvent(
+      store,
+      p.id,
+      "producer.failed",
+      "the initial pass ends at the media-less build",
+    );
+    // Simulate the crash: the project is stranded mid-build with a live job row.
+    store.update(p.id, (x) => {
+      x.status = "GENERATING_ASSETS";
+    });
+    const job = {
+      id: "run-crash-proxy",
+      projectId: p.id,
+      runId: "run-crash",
+      type: "proxy",
+      label: "Proxy rec-producer",
+      status: "RUNNING" as const,
+      dependencies: [],
+      progress: 0.4,
+      logs: [],
+      startedAt: now(),
+      completedAt: null,
+      error: null,
+      retryCount: 0,
+      producedAssets: [],
+    };
+    store.job(job);
+    const result = await studio.advance(p.id);
+    const events = eventNames(store, p.id);
+    assert.ok(events.includes("project.recovered"), "recovery ran first");
+    assert.equal(
+      store.jobs(p.id).find((j) => j.id === job.id)?.status,
+      "FAILED",
+    );
+    // After recovery the Producer retries the build, which still fails on the
+    // missing recording file — but from clean, consistent state.
+    assert.equal(result.stopped, "failed");
+    assert.equal(store.get(p.id).status, "AWAITING_STORYBOARD_APPROVAL");
+  }));
+
+test("advanceAll touches every autonomous project and skips supervised ones", async () =>
+  temporary(async (_root, store) => {
+    const busy = await plannableProject(store, "autonomous");
+    await busy.studio.generatePlan(busy.p.id);
+    await untilEvent(
+      store,
+      busy.p.id,
+      "producer.failed",
+      "the media-less build failure parks the first project",
+    );
+    store.create("Idle autonomous", "Nothing planned", 300, "autonomous");
+    store.create("Supervised", "Stays human", 300, "supervised");
+    const results = await busy.studio.advanceAll();
+    assert.deepEqual(
+      results.map((r) => r.title).sort(),
+      ["Idle autonomous", "Producer e2e"],
+      "supervised projects are never touched",
+    );
+    const idleResult = results.find((r) => r.title === "Idle autonomous")!;
+    assert.equal(idleResult.stopped, "idle");
+    assert.deepEqual(idleResult.acted, []);
+    const busyResult = results.find((r) => r.title === "Producer e2e")!;
+    assert.equal(busyResult.stopped, "failed");
+    assert.ok(busyResult.failed);
   }));

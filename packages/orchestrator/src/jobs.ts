@@ -45,10 +45,10 @@ export class JobGraph {
     private concurrency = 2,
   ) {
     validateGraph(tasks);
-    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4)
+    if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 8)
       throw new StudioError(
         "INVALID_INPUT",
-        "Job concurrency must be between 1 and 4.",
+        "Job concurrency must be between 1 and 8.",
       );
     const runId = id("run");
     this.jobs = tasks.map((t) => ({

@@ -686,7 +686,10 @@ export async function mixAudio(options: {
     mixLabels.push(`[sfx${i}]`);
   });
   chains.push(
-    `${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=longest:normalize=0,alimiter=limit=0.95[aout]`,
+    // 0.891 linear ≈ −1.01 dBFS: the limiter enforces the same ceiling QA
+    // measures against, so a mixed cut can never ship hotter than its own
+    // review allows.
+    `${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=longest:normalize=0,alimiter=limit=0.891[aout]`,
   );
   await ffmpeg(
     [

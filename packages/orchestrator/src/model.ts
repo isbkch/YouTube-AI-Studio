@@ -80,7 +80,8 @@ export interface ProducerReview {
   planVersion: number;
   verdict: "approved" | "escalated";
   checkedAt: string;
-  reviewer: "deterministic-v1";
+  /** Which deterministic review semantics produced this row. */
+  reviewer: "deterministic-v1" | "deterministic-v2";
   findings: {
     severity: "info" | "warn" | "blocker";
     code: string;
@@ -94,6 +95,8 @@ export interface ProducerReview {
     qaStatus?: string;
     warnings?: number;
     attention?: number;
+    /** Benign warning codes an approved verdict accepted, with evidence. */
+    approvedWithWarnings?: string[];
   };
 }
 /** One Resolve review marker mapped onto the plan's output frames. */

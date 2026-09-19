@@ -114,3 +114,25 @@ test("cancellation persists and prevents blocked work", async () => {
   await assert.rejects(graph.run(abort.signal));
   assert.ok(graph.jobs.every((j) => j.status === "CANCELLED"));
 });
+test("concurrency accepts up to 8 parallel jobs and rejects beyond", async () => {
+  let active = 0,
+    max = 0;
+  const tasks = Array.from({ length: 8 }, (_, i) => ({
+    id: `t${i}`,
+    type: "render",
+    label: `t${i}`,
+    dependencies: [],
+    run: async () => {
+      active++;
+      max = Math.max(max, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+    },
+  }));
+  await new JobGraph(tasks, "p", () => {}, 8).run();
+  assert.equal(max, 8, "all eight independent leaves may run at once");
+  assert.throws(
+    () => new JobGraph(tasks.slice(0, 1), "p", () => {}, 9),
+    /between 1 and 8/,
+  );
+});
