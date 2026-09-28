@@ -1,2 +1,2 @@
 whisperx==3.8.6
-silero-vad==6.2.2
+silero-vad==6.2.3
