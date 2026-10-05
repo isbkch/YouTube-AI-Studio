@@ -291,6 +291,15 @@ export type DirectorId = "purist" | "craftsman";
 export function asDirectorPersona(value: unknown): DirectorId {
   return value === "purist" ? value : "craftsman";
 }
+/** Strict validation for a new director selection, rather than a stored row. */
+export function parseDirector(value: unknown): DirectorId {
+  if (value === "purist" || value === "craftsman") return value;
+  throw new StudioError(
+    "INVALID_INPUT",
+    "Director must be purist or craftsman.",
+    "Choose an available director and retry.",
+  );
+}
 /** The derived style each director brings to a production. */
 export interface DirectorStyle {
   name: string;

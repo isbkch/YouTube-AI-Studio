@@ -19,4 +19,11 @@ while read -r local_ref local_oid remote_ref remote_oid; do
     echo 'Port an explicitly reviewed free-only patch onto the rewritten public main.' >&2
     exit 1
   fi
+  removed_director_commit='d7fd7864dc9bfcd8d9f77e287cd849d3ccd50342'
+  if git cat-file -e "$removed_director_commit^{commit}" 2>/dev/null &&
+     git merge-base --is-ancestor "$removed_director_commit" "$commit"; then
+    echo 'Push blocked: pre-cleanup director history would restore premium code.' >&2
+    echo 'Re-clone the free repository or port a reviewed patch onto its cleaned history.' >&2
+    exit 1
+  fi
 done

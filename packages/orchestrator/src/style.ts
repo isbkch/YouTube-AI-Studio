@@ -1,5 +1,8 @@
 import type { Project } from "./model.ts";
-import { DIRECTOR_PROFILES } from "../../shared/src/index.ts";
+import {
+  asDirectorPersona,
+  DIRECTOR_PROFILES,
+} from "../../shared/src/index.ts";
 
 /**
  * Channel-level style memory: deterministic mining of the creator's own past
@@ -78,7 +81,8 @@ export function styleProfile(projects: Project[]): StyleProfile {
         // the hired persona's default is an explicit creator override.
         if (
           plan.visualDensity !==
-          DIRECTOR_PROFILES[plan.directorPersona].visualDensity
+          DIRECTOR_PROFILES[asDirectorPersona(plan.directorPersona)]
+            .visualDensity
         )
           densityOverrides.push(plan.visualDensity);
       }
