@@ -8,6 +8,7 @@ import {
   defaultCreator,
   hash,
   now,
+  type DirectorId,
 } from "../packages/shared/src/index.ts";
 import {
   captionKey,
@@ -82,7 +83,8 @@ const transcriptWithWords = (
   };
 };
 
-test("each director owns a coherent, escalating style bundle", () => {
+test("the free edition offers two coherent director style bundles", () => {
+  assert.deepEqual(Object.keys(DIRECTOR_PROFILES), ["purist", "craftsman"]);
   assert.deepEqual(DIRECTOR_PROFILES.purist, {
     name: "The Purist",
     tagline: "Let the content speak.",
@@ -114,6 +116,66 @@ test("v4.4 plans migrate to v4.5 keeping legacy behavior", () => {
   assert.equal(migrated.audioPolish, "natural");
 });
 
+test("unavailable directors are rejected without changing saved production data", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-free-directors-"));
+  const store = new Store(root);
+  try {
+    const p = store.create("Free directors");
+    const studio = new Studio(store);
+    const director = "unavailable-director" as DirectorId;
+    assert.throws(() =>
+      validatePlan({ ...fixture(), directorPersona: director }),
+    );
+    assert.throws(() => studio.setCreator({ ...defaultCreator, director }));
+    await assert.rejects(
+      studio.generatePlan(p.id, { director }),
+      /Director must be/,
+    );
+    await assert.rejects(
+      studio.draftAroll(p.id, { director }),
+      /Director must be/,
+    );
+    assert.deepEqual(store.get(p.id), p);
+    assert.equal(store.creator().director, "craftsman");
+  } finally {
+    store.db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("stored unavailable creator directors fall back without rewriting plan approvals", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "wts-legacy-directors-"));
+  const store = new Store(root);
+  try {
+    const director = "unavailable-director" as DirectorId;
+    store.setCreator({
+      ...defaultCreator,
+      director,
+      silenceTightening: "punchy",
+    });
+    assert.equal(store.creator().director, "craftsman");
+    assert.equal(store.creator().silenceTightening, "tight");
+    const p = store.create("Existing library");
+    store.update(p.id, (x) => {
+      x.creator.director = director;
+      x.plans = [{ ...fixture(), directorPersona: director }];
+      x.planApproval = {
+        version: 1,
+        hash: hash(x.plans[0]),
+        approvedAt: now(),
+        approvedBy: "creator",
+      };
+    });
+    const restored = store.get(p.id);
+    assert.equal(restored.creator.director, "craftsman");
+    assert.equal(restored.plans[0].directorPersona, director);
+    assert.equal(restored.planApproval!.hash, hash(restored.plans[0]));
+  } finally {
+    store.db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("generatePlan records the hired director and its derived settings", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "wts-directors-"));
   const store = new Store(root);
@@ -137,7 +199,9 @@ test("generatePlan records the hired director and its derived settings", async (
       ];
       x.status = "MEDIA_IMPORTED";
     });
-    const craftsman = await studio.generatePlan(p.id, { director: "craftsman" });
+    const craftsman = await studio.generatePlan(p.id, {
+      director: "craftsman",
+    });
     const plan = craftsman.plans.at(-1)!;
     assert.equal(plan.directorPersona, "craftsman");
     assert.equal(plan.visualDensity, "rich");
@@ -193,8 +257,8 @@ test("draftAroll maps the director to a tightening level", async () => {
       "natural",
     );
     assert.equal(
-      (await studio.draftAroll(p.id, { director: "craftsman" })).stats.tightening
-        .level,
+      (await studio.draftAroll(p.id, { director: "craftsman" })).stats
+        .tightening.level,
       "tight",
     );
     // An explicit tightening still wins over the persona default.

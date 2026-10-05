@@ -53,6 +53,7 @@ import {
   asAudioPolish,
   asCaptionStyle,
   asDirectorPersona,
+  parseDirector,
   asNarrationLead,
   asSilenceTightening,
   asVisualDensity,
@@ -1172,9 +1173,10 @@ export class Studio {
       // tightening, caption style, audio polish and narration lead this plan
       // is directed at. Explicit options still override individual knobs for
       // advanced calls; the plan records whichever values were used.
-      const director = asDirectorPersona(
-        options.director ?? p.creator.director,
-      );
+      const director =
+        options.director === undefined
+          ? asDirectorPersona(p.creator.director)
+          : parseDirector(options.director);
       const style = DIRECTOR_PROFILES[director];
       const density = asVisualDensity(options.density ?? style.visualDensity);
       const tightening = asSilenceTightening(
@@ -1380,11 +1382,12 @@ export class Studio {
     options: { director?: DirectorId; tightening?: SilenceTightening } = {},
   ) {
     const p = this.store.get(projectId);
+    const director =
+      options.director === undefined
+        ? asDirectorPersona(p.creator.director)
+        : parseDirector(options.director);
     const alignment = await this.computeAlignment(projectId);
-    const style =
-      DIRECTOR_PROFILES[
-        asDirectorPersona(options.director ?? p.creator.director)
-      ];
+    const style = DIRECTOR_PROFILES[director];
     return buildEditDecision(
       alignment,
       p.recordings.map((r) =>
@@ -3211,9 +3214,7 @@ export class Studio {
         format: z.string().max(300),
         targetMinutes: z.tuple([z.number().positive(), z.number().positive()]),
         subjects: z.array(z.string().max(100)),
-        director: z
-          .enum(["purist", "craftsman"])
-          .default("craftsman"),
+        director: z.enum(["purist", "craftsman"]).default("craftsman"),
         visualDensity: z
           .enum(["minimal", "balanced", "rich"])
           .default("balanced"),

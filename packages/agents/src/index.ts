@@ -30,6 +30,7 @@ import {
   asCaptionStyle,
   asNarrationLead,
   asDirectorPersona,
+  parseDirector,
   asSilenceTightening,
   asVisualDensity,
   DIRECTOR_PROFILES,
@@ -498,9 +499,9 @@ export interface DirectorInput {
 }
 /** Resolve the direction a plan is generated under, tolerating older inputs. */
 export function resolveDirected(input: DirectorInput): DirectedStyle {
-  const director = asDirectorPersona(
-    input.directed?.director ?? input.creator.director,
-  );
+  const director = input.directed
+    ? parseDirector(input.directed.director)
+    : asDirectorPersona(input.creator.director);
   const style = DIRECTOR_PROFILES[director];
   if (input.directed) {
     // Pre-4.6 directed objects predate narrationLead; the hired persona's
@@ -1072,8 +1073,9 @@ export function mockVisualPass(input: VisualPassInput): VisualPass {
 
 /**
  * Deterministic persona SFX for the mock pass: purist stays silent, the
- * craftsman punctuates chapter starts. Only trackIds actually present in the capabilities may be
- * cited; without a fitting track the event is skipped, never invented.
+ * craftsman punctuates chapter starts. Only trackIds actually present in the
+ * capabilities may be cited; without a fitting track the event is skipped,
+ * never invented.
  */
 function mockPassSfx(
   input: VisualPassInput,

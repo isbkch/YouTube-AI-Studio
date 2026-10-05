@@ -35,8 +35,18 @@ import { interruptedThumbnails } from "./thumbnails.ts";
 function normalizeProject(p: Project): Project {
   const approval = (a: Approval | null): Approval | null =>
     a ? { ...a, approvedBy: a.approvedBy ?? "creator" } : null;
+  const director = asDirectorPersona(p.creator.director);
   return {
     ...p,
+    creator:
+      p.creator.director === director
+        ? p.creator
+        : {
+            ...p.creator,
+            director,
+            visualDensity: DIRECTOR_PROFILES[director].visualDensity,
+            silenceTightening: DIRECTOR_PROFILES[director].silenceTightening,
+          },
     autonomy: p.autonomy === "autonomous" ? "autonomous" : "supervised",
     producerReviews: Array.isArray(p.producerReviews) ? p.producerReviews : [],
     resolveMarkers: Array.isArray(p.resolveMarkers) ? p.resolveMarkers : [],

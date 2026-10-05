@@ -737,8 +737,7 @@ export async function buildProject(
     const hasAudioDesign = !!(design.music || design.sfx.length);
     // The narration itself gets engineered (compression/loudness) even when
     // the plan designs no music or SFX — the mix then runs narration-only.
-    const needsMix =
-      hasAudioDesign || plan.audioPolish !== "natural";
+    const needsMix = hasAudioDesign || plan.audioPolish !== "natural";
     /** Set by the assembly task; later tasks read them after their dependency. */
     const concatOutput = { key: "", relative: previewPath };
     // Narration leads are derived at assembly time from word timings — never

@@ -66,6 +66,16 @@ test("private IPC launches, shares domain gates, rejects unknown actions and emi
     const p = created.result as { id: string; autonomy: string };
     assert.ok(p.id);
     assert.equal(p.autonomy, "supervised", "projects default to supervised");
+    for (const method of ["plan.generate", "aroll.draft"]) {
+      const unavailable = await call(method, {
+        projectId: p.id,
+        director: "unavailable-director",
+      });
+      assert.ok(
+        unavailable.error,
+        "unsupported directors fail at the IPC boundary",
+      );
+    }
     const blocked = await call("media.import", {
       projectId: p.id,
       path: "/never-read.mp4",

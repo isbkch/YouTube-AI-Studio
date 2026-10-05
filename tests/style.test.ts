@@ -189,8 +189,10 @@ test("consistent density overrides across published videos become a preference",
   );
   // Mixed overrides say nothing.
   assert.deepEqual(
-    styleProfile([published("minimal", "craftsman"), published("rich", "purist")])
-      .notes,
+    styleProfile([
+      published("minimal", "craftsman"),
+      published("rich", "purist"),
+    ]).notes,
     [],
   );
 });

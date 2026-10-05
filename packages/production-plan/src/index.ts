@@ -499,7 +499,8 @@ export const silenceTighteningSchema = z.enum(["natural", "tight", "punchy"]);
 /**
  * The director persona the plan was directed under: "purist" (presenter-led,
  * straight cuts), "craftsman" (polished: rich visuals, tight pacing, punch-line
- * captions, engineered narration). Legacy plans default to "purist" so their
+ * captions, engineered narration) (max retention: everything the
+ * craftsman does, turned up). Legacy plans default to "purist" so their
  * behavior never changes; the runtime records the persona, never the model.
  */
 export const directorPersonaSchema = z.enum(["purist", "craftsman"]);
