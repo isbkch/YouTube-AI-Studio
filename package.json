@@ -46,7 +46,7 @@
   "dependencies": {
     "@remotion/bundler": "4.0.533",
     "@remotion/renderer": "4.0.533",
-    "openai": "7.18.0",
+    "openai": "7.28.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "remotion": "4.0.533",
