@@ -190,6 +190,7 @@ export interface Asset {
     | "audio-mix"
     | "caption-render"
     | "caption-burn"
+    | "watermark"
     | "builtin-sfx";
   sceneId: string | null;
   productionPlanVersion: number;

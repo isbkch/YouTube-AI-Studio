@@ -34,6 +34,11 @@ import {
 } from "../../media/src/index.ts";
 import { computeAudioLeads } from "./narration-lead.ts";
 import {
+  applyFreeWatermark,
+  freeWatermarkIdentity,
+  FREE_WATERMARK_TEXT,
+} from "../../media/src/watermark.ts";
+import {
   VisualQAAgent,
   reviewStill,
   type AIProvider,
@@ -724,11 +729,13 @@ export async function buildProject(
         },
       });
     }
+    const watermark = await freeWatermarkIdentity();
     const signature = hash({
       plan,
       templateSourceHash,
       brand: p.creator.brand,
       preview: "v1",
+      watermark,
     }).slice(0, 12);
     const previewPath = `renders/rough-cut-v${plan.version}-${signature}.mp4`,
       timelinePath = `renders/timeline-v${plan.version}-${signature}.json`,
@@ -739,7 +746,7 @@ export async function buildProject(
     // the plan designs no music or SFX — the mix then runs narration-only.
     const needsMix = hasAudioDesign || plan.audioPolish !== "natural";
     /** Set by the assembly task; later tasks read them after their dependency. */
-    const concatOutput = { key: "", relative: previewPath };
+    const concatOutput = { key: "", relative: "" };
     // Narration leads are derived at assembly time from word timings — never
     // stored on the plan — exactly like caption events.
     const leadDecision = computeAudioLeads(
@@ -750,6 +757,7 @@ export async function buildProject(
     const hasLeads = leadDecision.leads.length > 0;
     const leadOutput = { key: "", relative: "" };
     const burnOutput = { key: "", relative: "" };
+    const mixOutput = { relative: "" };
     // One cached transparent clip per caption event; the burn task composites
     // them all in a single pass. Keyed like graphics: identity is the event's
     // text/timings plus brand and renderer, never the plan version.
@@ -815,12 +823,9 @@ export async function buildProject(
           operation: "concat-v1",
         });
         concatOutput.key = concatKey;
-        // When leads, captions or the mix rewrite the cut, the concat is an
-        // intermediate; otherwise it is already the preview deliverable.
-        concatOutput.relative =
-          needsMix || hasCaptions || hasLeads
-            ? `cache/concat-${concatKey}.mp4`
-            : previewPath;
+        // Unmarked intermediates stay reusable; only the watermark task
+        // produces the free edition's preview deliverable.
+        concatOutput.relative = `cache/concat-${concatKey}.mp4`;
         // Copy referenced library tracks into the project so every timeline
         // path stays project-relative (and survives library reorganization);
         // generated beds already live in the project cache.
@@ -923,8 +928,7 @@ export async function buildProject(
             renderer: "narration-lead-v2",
           });
           leadOutput.key = leadKey;
-          leadOutput.relative =
-            needsMix || hasCaptions ? `cache/lead-${leadKey}.mp4` : previewPath;
+          leadOutput.relative = `cache/lead-${leadKey}.mp4`;
           const tailOf = new Map(
             leadDecision.scenes.map((s) => [s.sceneId, s.tailLeadSec]),
           );
@@ -997,12 +1001,8 @@ export async function buildProject(
             })),
             operation: "caption-burn-v1",
           });
-          // With a mix following, the burn is an intermediate; otherwise its
-          // output is already the preview deliverable.
           burnOutput.key = burnKey;
-          burnOutput.relative = needsMix
-            ? `cache/captions-${burnKey}.mp4`
-            : previewPath;
+          burnOutput.relative = `cache/captions-${burnKey}.mp4`;
           const c = await cachedFile(
             dir,
             burnKey,
@@ -1103,54 +1103,60 @@ export async function buildProject(
             narration: plan.audioPolish,
             renderer: "mix-v4-limiter-ceiling",
           });
-          const c = await cachedFile(dir, mixKey, previewPath, async (temp) => {
-            await mixAudio({
-              video: await safePath(
-                dir,
-                burnOutput.relative ||
-                  leadOutput.relative ||
-                  concatOutput.relative,
-              ),
-              output: temp,
-              duration: plan.durationFrames / plan.frameRate,
-              music:
-                generatedMusic || (musicTrack && design.music)
-                  ? {
-                      file: generatedMusic
-                        ? await safePath(dir, musicBed.file)
-                        : musicTrack!.file,
-                      gainDb: design.music!.gainDb,
-                      duckToDb: design.music!.duckToDb,
-                      fadeInSec: design.music!.fadeInSec,
-                      fadeOutSec: design.music!.fadeOutSec,
-                      // Generated beds are synthesized to loop seamlessly; a
-                      // library bed loops only when its manifest says so.
-                      loopable: generatedMusic
-                        ? true
-                        : musicTrack!.track.loopable,
-                      segments: musicSegments,
-                    }
-                  : null,
-              sfx: [
-                ...sfxTracks.map((s) => ({
-                  file: s.file,
-                  atSec: s.event.atFrame / plan.frameRate,
-                  gainDb: s.event.gainDb,
-                })),
-              ],
-              narration:
-                plan.audioPolish === "polished" || plan.audioPolish === "loud"
-                  ? plan.audioPolish
-                  : undefined,
-              signal: ctx.signal,
-              progress: ctx.progress,
-            });
-            await verifyOutput(
-              temp,
-              plan.durationFrames / plan.frameRate,
-              ctx.signal,
-            );
-          });
+          mixOutput.relative = `cache/mix-${mixKey}.mp4`;
+          const c = await cachedFile(
+            dir,
+            mixKey,
+            mixOutput.relative,
+            async (temp) => {
+              await mixAudio({
+                video: await safePath(
+                  dir,
+                  burnOutput.relative ||
+                    leadOutput.relative ||
+                    concatOutput.relative,
+                ),
+                output: temp,
+                duration: plan.durationFrames / plan.frameRate,
+                music:
+                  generatedMusic || (musicTrack && design.music)
+                    ? {
+                        file: generatedMusic
+                          ? await safePath(dir, musicBed.file)
+                          : musicTrack!.file,
+                        gainDb: design.music!.gainDb,
+                        duckToDb: design.music!.duckToDb,
+                        fadeInSec: design.music!.fadeInSec,
+                        fadeOutSec: design.music!.fadeOutSec,
+                        // Generated beds are synthesized to loop seamlessly; a
+                        // library bed loops only when its manifest says so.
+                        loopable: generatedMusic
+                          ? true
+                          : musicTrack!.track.loopable,
+                        segments: musicSegments,
+                      }
+                    : null,
+                sfx: [
+                  ...sfxTracks.map((s) => ({
+                    file: s.file,
+                    atSec: s.event.atFrame / plan.frameRate,
+                    gainDb: s.event.gainDb,
+                  })),
+                ],
+                narration:
+                  plan.audioPolish === "polished" || plan.audioPolish === "loud"
+                    ? plan.audioPolish
+                    : undefined,
+                signal: ctx.signal,
+                progress: ctx.progress,
+              });
+              await verifyOutput(
+                temp,
+                plan.durationFrames / plan.frameRate,
+                ctx.signal,
+              );
+            },
+          );
           persistAsset(ctx, "audio-mix", mixKey, c, null, {
             generator: "ffmpeg-sidechain",
             parameters: {
@@ -1165,18 +1171,55 @@ export async function buildProject(
         },
       });
     }
-    // QA verifies the preview deliverable, so it waits on whichever task
-    // produced it: the mix, the caption burn, or assembly itself.
     const previewProducer = needsMix
       ? "mix"
       : hasCaptions
         ? "captions"
         : "assembly";
     tasks.push({
+      id: "watermark",
+      type: "watermark",
+      label: "Apply free edition watermark",
+      dependencies: [previewProducer],
+      run: async (ctx) => {
+        const input = await safePath(
+          dir,
+          mixOutput.relative ||
+            burnOutput.relative ||
+            leadOutput.relative ||
+            concatOutput.relative,
+        );
+        const key = hash({ video: await fileHash(input), watermark });
+        const c = await cachedFile(dir, key, previewPath, async (temp) => {
+          await applyFreeWatermark({
+            video: input,
+            output: temp,
+            signal: ctx.signal,
+            progress: ctx.progress,
+          });
+          await verifyOutput(
+            temp,
+            plan.durationFrames / plan.frameRate,
+            ctx.signal,
+            plan.durationFrames,
+          );
+        });
+        persistAsset(ctx, "watermark", key, c, null, {
+          template: "FreeEditionWatermark",
+          templateVersion: hash(watermark),
+          parameters: { text: FREE_WATERMARK_TEXT, watermark },
+        });
+        ctx.log(
+          `${c.reused ? "Reused" : "Applied"} “${FREE_WATERMARK_TEXT}” watermark.`,
+        );
+      },
+    });
+    // QA measures the actual watermarked deliverable.
+    tasks.push({
       id: "qa",
       type: "qa",
       label: "QA • decode, duration and asset completeness",
-      dependencies: [previewProducer],
+      dependencies: ["watermark"],
       run: async (ctx) => {
         const meta = await verifyOutput(
           await safePath(dir, previewPath),

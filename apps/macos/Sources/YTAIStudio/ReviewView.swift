@@ -27,6 +27,7 @@ struct ReviewView: View {
             }.foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 300).studioCard(
               cornerRadius: 12)
           }
+          FreeEditionRenderNotice()
           if let build = p.latestBuild {
             HStack {
               Text("Rough cut v\(build.planVersion)").font(.headline)
@@ -400,7 +401,7 @@ struct FinalRenderView: View {
         "Approving the rough cut starts the final render autonomously: Resolve first, with an automatic FFmpeg fallback when Resolve cannot finish. The pickers below override the engine for a manual re-render."
       ).font(.caption).foregroundStyle(.secondary)
       Text(
-        "Finished grading in Resolve instead? Deliver your exported MP4/MOV: it is verified against the plan (resolution, frame rate, duration, audio) and adopted as the final master."
+        "Finished grading in Resolve instead? Deliver your exported MP4/MOV: it is verified against the plan (resolution, frame rate, duration, audio), watermarked and saved as the final master."
       ).font(.caption).foregroundStyle(.secondary)
       HStack {
         Picker("Preset", selection: $preset) {
@@ -430,6 +431,21 @@ struct FinalRenderView: View {
         }
       }
     }.padding(16).studioCard(cornerRadius: 11)
+  }
+}
+
+struct FreeEditionRenderNotice: View {
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Label("Free edition", systemImage: "info.circle").font(.headline)
+      Text("Rendered videos include “Created by YT AI Studio”.")
+        .font(.caption).foregroundStyle(.secondary)
+      Link(
+        "Get Premium for watermark-free videos",
+        destination: URL(string: "https://ytaistudio.app/")!
+      )
+      .font(.callout).foregroundStyle(Color.studioAccent)
+    }.frame(maxWidth: .infinity, alignment: .leading).padding(16).studioCard(cornerRadius: 11)
   }
 }
 

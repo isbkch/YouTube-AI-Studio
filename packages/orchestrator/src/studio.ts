@@ -106,6 +106,11 @@ import {
   type Transcript,
 } from "./model.ts";
 import { buildProject } from "./build.ts";
+import { cachedFile } from "./cache.ts";
+import {
+  applyFreeWatermark,
+  freeWatermarkIdentity,
+} from "../../media/src/watermark.ts";
 import { renderStoryboardPreviews } from "./previews.ts";
 import { JobGraph } from "./jobs.ts";
 import { engineCapabilities, validateEngines } from "./engines.ts";
@@ -2181,8 +2186,9 @@ export class Studio {
         (options.macroId ? `-${options.macroId}` : "");
       const output = await safePath(
         dir,
-        `renders/final-v${plan.version}-${slug}.mp4`,
+        `cache/final-v${plan.version}-${slug}-resolve.mp4`,
       );
+      const watermark = await freeWatermarkIdentity();
       let relative: string | null = null;
       let engine: "resolve" | "ffmpeg" = "resolve";
       await this.operation(
@@ -2194,17 +2200,40 @@ export class Studio {
             // The approved rough cut is already the full-resolution 1080p30
             // H.264 master with the mixed bed; its verified bytes are the
             // fallback deliverable, never a silent re-edit.
-            const fallback = await safePath(
+            const preview = await safePath(dir, build.previewPath);
+            const previewHash = await fileHash(preview);
+            // Current builds already carry the overlay. Older approved cuts
+            // receive it here without changing their approval or source bytes.
+            const marked = this.store
+              .assets(p.id)
+              .some(
+                (a) =>
+                  a.type === "watermark" &&
+                  a.path === build.previewPath &&
+                  a.outputHash === previewHash &&
+                  a.templateVersion === hash(watermark),
+              );
+            const c = await cachedFile(
               dir,
+              hash({ video: previewHash, watermark, marked }),
               `renders/final-v${plan.version}-ffmpeg.mp4`,
+              async (temp) => {
+                if (marked) await copyFile(preview, temp);
+                else
+                  await applyFreeWatermark({
+                    video: preview,
+                    output: temp,
+                    signal,
+                  });
+                await verifyOutput(
+                  temp,
+                  plan.durationFrames / plan.frameRate,
+                  signal,
+                  plan.durationFrames,
+                );
+              },
             );
-            await copyFile(await safePath(dir, build.previewPath), fallback);
-            await verifyOutput(
-              fallback,
-              plan.durationFrames / plan.frameRate,
-              signal,
-            );
-            return fallback;
+            return safePath(dir, c.path);
           };
           let produced: string | null = null;
           // Burned-in punch-line captions, narration processing and narration
@@ -2253,7 +2282,25 @@ export class Studio {
                 plan.durationFrames / plan.frameRate,
                 signal,
               );
-              produced = result.output;
+              const c = await cachedFile(
+                dir,
+                hash({ video: await fileHash(result.output), watermark }),
+                `renders/final-v${plan.version}-${slug}.mp4`,
+                async (temp) => {
+                  await applyFreeWatermark({
+                    video: result.output!,
+                    output: temp,
+                    signal,
+                  });
+                  await verifyOutput(
+                    temp,
+                    plan.durationFrames / plan.frameRate,
+                    signal,
+                    plan.durationFrames,
+                  );
+                },
+              );
+              produced = await safePath(dir, c.path);
             }
           } catch (err) {
             if (signal?.aborted || options.signal?.aborted) throw err;
@@ -2274,6 +2321,7 @@ export class Studio {
           preset,
           macro: options.macroId ?? null,
           engine,
+          watermark,
         });
       });
     });
@@ -2329,8 +2377,8 @@ export class Studio {
   /**
    * Adopt a render the creator finished manually in Resolve as the project's
    * final render. The delivered bytes are verified against the approved plan
-   * (resolution, frame rate, duration, decodability) and copied into the
-   * library; nothing is parsed out of the Resolve project itself. Recorded
+   * (resolution, frame rate, duration, decodability), watermarked and saved in
+   * the library; nothing is parsed out of the Resolve project itself. Recorded
    * with `finalRenderEngine: "resolve-delivered"` and invalidated by plan
    * revisions exactly like a pipeline render.
    */
@@ -2367,6 +2415,7 @@ export class Studio {
       const plan = validatePlan(p.plans.at(-1));
       const expected = plan.durationFrames / plan.frameRate;
       const dir = this.store.dir(p);
+      const watermark = await freeWatermarkIdentity();
       let relative: string | null = null;
       let provenance:
         | {
@@ -2401,16 +2450,18 @@ export class Studio {
               "Delivered render has no audio stream.",
             );
           await verifyOutput(file, expected, signal);
-          const hash = (await fileHash(file)).slice(0, 8);
-          const target = await safePath(
+          const sourceHash = await fileHash(file);
+          const key = hash({ video: sourceHash, watermark });
+          const c = await cachedFile(
             dir,
-            `renders/final-v${plan.version}-delivered-${hash}${ext}`,
+            key,
+            `renders/final-v${plan.version}-delivered-${key.slice(0, 8)}.mp4`,
+            async (temp) => {
+              await applyFreeWatermark({ video: file, output: temp, signal });
+              await verifyOutput(temp, expected, signal, plan.durationFrames);
+            },
           );
-          await copyFile(file, target);
-          // Verify the adopted copy, not just the source: the library's bytes
-          // are the deliverable from here on.
-          await verifyOutput(target, expected, signal);
-          relative = path.relative(dir, target);
+          relative = c.path;
           provenance = {
             source: path.basename(file),
             bytes: meta.bytes,
@@ -2427,6 +2478,7 @@ export class Studio {
           event: "final.delivered",
           planVersion: plan.version,
           engine: "resolve-delivered",
+          watermark,
           ...provenance,
         });
       });

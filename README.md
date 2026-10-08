@@ -2,6 +2,8 @@
 
 This is the free production edition. Channel strategy and analytics workflows are available in the private premium edition. See [free-edition development](docs/free-development.md) for the repository boundary and Git setup.
 
+Rough cuts and final videos include a persistent **Created by YT AI Studio** watermark in the lower-right corner, including videos finished in Resolve and delivered back to the app. Get [YT AI Studio Premium](https://ytaistudio.app/) for watermark-free videos.
+
 [![CI](https://github.com/isbkch/YouTube-AI-Studio/actions/workflows/ci.yml/badge.svg)](https://github.com/isbkch/YouTube-AI-Studio/actions/workflows/ci.yml)
 [![License: ELv2](https://img.shields.io/badge/License-Elastic%20License%202.0-blue.svg)](LICENSE)
 

@@ -27,6 +27,8 @@ import {
 } from "../packages/agents/src/index.ts";
 import { executable, runBinary } from "../packages/media/src/index.ts";
 import { fixture } from "./fixtures.ts";
+import { fileHash } from "../packages/shared/src/index.ts";
+import { assertWatermarkPixels } from "./watermark-fixtures.ts";
 import {
   validatePlan,
   type ProductionPlan,
@@ -322,6 +324,7 @@ test("delivering a Resolve-finished render verifies and adopts it as the final m
       `${plan.resolution.width}x${plan.resolution.height}`,
     );
     const studio = new Studio(store);
+    const sourceHash = await fileHash(compliant);
     await studio.deliverFinal(p.id, compliant);
     const after = store.get(p.id);
     assert.equal(after.finalRenderEngine, "resolve-delivered");
@@ -330,6 +333,25 @@ test("delivering a Resolve-finished render verifies and adopts it as the final m
       /^renders\/final-v1-delivered-[0-9a-f]{8}\.mp4$/,
     );
     assert.ok(existsSync(path.join(store.dir(after), after.finalRender!)));
+    const adopted = path.join(store.dir(after), after.finalRender!);
+    await assertWatermarkPixels(adopted, 0.25, root);
+    await assertWatermarkPixels(
+      adopted,
+      plan.durationFrames / plan.frameRate - 0.1,
+      root,
+    );
+    assert.equal(
+      await fileHash(compliant),
+      sourceHash,
+      "delivery preserves the creator's master",
+    );
+    const adoptedHash = await fileHash(adopted);
+    await studio.deliverFinal(p.id, compliant);
+    assert.equal(
+      await fileHash(adopted),
+      adoptedHash,
+      "retry reuses the marked master without stacking overlays",
+    );
     assert.ok(
       store
         .events(p.id)
@@ -424,6 +446,70 @@ test("packaging walks a final render to YouTube publication through the local CL
       if (before.WTS_YOUTUBEUPLOADER_PATH === undefined)
         delete process.env.WTS_YOUTUBEUPLOADER_PATH;
       if (before.WTS_ARGS_FILE === undefined) delete process.env.WTS_ARGS_FILE;
+    }
+  }));
+
+test("a scripted Resolve final receives the watermark before becoming the master", async () =>
+  temporary(async (root, store) => {
+    const p = await finishedProject(store);
+    const source = path.join(root, "resolve-output.mp4");
+    const plan = validatePlan(p.plans[0]);
+    await runBinary(await executable("ffmpeg"), [
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=black:s=1920x1080:r=30",
+      "-f",
+      "lavfi",
+      "-i",
+      "anullsrc=r=48000:cl=stereo",
+      "-t",
+      String(plan.durationFrames / plan.frameRate),
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-y",
+      source,
+    ]);
+    const app = path.join(root, "Resolve.app");
+    const interpreter = path.join(app, "Contents/Applications/ResolvePython");
+    await mkdir(path.dirname(interpreter), { recursive: true });
+    await writeFile(
+      interpreter,
+      `#!${process.execPath}
+import { copyFileSync } from "node:fs";
+import path from "node:path";
+import assert from "node:assert/strict";
+assert.equal(process.argv[3], "render");
+const output = process.argv[6];
+copyFileSync(path.resolve(import.meta.dirname, "../../../resolve-output.mp4"), output);
+console.log("WTS_RESULT:" + JSON.stringify({ available: true, output, renderStatus: "Complete" }));
+`,
+      { mode: 0o755 },
+    );
+    const previousResolve = process.env.WTS_RESOLVE_APP;
+    process.env.WTS_RESOLVE_APP = app;
+    try {
+      await new Studio(store).renderFinal(p.id);
+      const after = store.get(p.id);
+      assert.equal(after.finalRenderEngine, "resolve");
+      assert.match(after.finalRender!, /^renders\//);
+      const master = path.join(store.dir(p), after.finalRender!);
+      assert.notEqual(await fileHash(master), await fileHash(source));
+      await assertWatermarkPixels(master, 0.1, root);
+      await assertWatermarkPixels(
+        master,
+        plan.durationFrames / plan.frameRate - 0.1,
+        root,
+      );
+    } finally {
+      if (previousResolve === undefined) delete process.env.WTS_RESOLVE_APP;
+      else process.env.WTS_RESOLVE_APP = previousResolve;
     }
   }));
 
@@ -584,7 +670,7 @@ test("rough-cut approval starts the autonomous final render with an FFmpeg fallb
       "-f",
       "lavfi",
       "-i",
-      "color=c=black:s=128x80:r=30",
+      "color=c=black:s=1920x1080:r=30",
       "-f",
       "lavfi",
       "-i",
@@ -620,6 +706,11 @@ test("rough-cut approval starts the autonomous final render with an FFmpeg fallb
       assert.equal(after.finalRender, "renders/final-v1-ffmpeg.mp4");
       assert.equal(after.finalRenderEngine, "ffmpeg");
       assert.ok(existsSync(path.join(store.dir(after), after.finalRender)));
+      await assertWatermarkPixels(
+        path.join(store.dir(after), after.finalRender),
+        duration - 0.1,
+        root,
+      );
     } finally {
       if (oldApp === undefined) delete process.env.WTS_RESOLVE_APP;
       else process.env.WTS_RESOLVE_APP = oldApp;

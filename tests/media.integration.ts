@@ -32,6 +32,7 @@ import {
   type Graphic,
 } from "../packages/production-plan/src/index.ts";
 import { fixture } from "./fixtures.ts";
+import { assertWatermarkPixels } from "./watermark-fixtures.ts";
 
 async function syntheticClip(
   dir: string,
@@ -267,7 +268,7 @@ test("two real recordings plan and build one timeline end to end", async () => {
       transcripts.map((t) => t.recordingId),
       imported.recordings.map((r) => r.id),
     );
-    await studio.generatePlan(p.id);
+    await studio.generatePlan(p.id, { director: "purist" });
     const plan = store.get(p.id).plans[0];
     assert.equal(plan.scenes.length, 2);
     assert.equal(plan.durationFrames, 150);
@@ -277,6 +278,43 @@ test("two real recordings plan and build one timeline end to end", async () => {
     const latest = store.get(p.id).builds.at(-1)!;
     const preview = path.join(store.dir(p), latest.previewPath);
     await verifyOutput(preview, 5);
+    await assertWatermarkPixels(preview, 0.1, clips);
+    await assertWatermarkPixels(preview, 4.9, clips);
+    assert.ok(
+      store
+        .assets(p.id)
+        .some((a) => a.type === "watermark" && a.path === latest.previewPath),
+    );
+    const previewHash = await fileHash(preview);
+    await studio.build(p.id);
+    assert.equal(
+      await fileHash(preview),
+      previewHash,
+      "unchanged build reuses the marked preview",
+    );
+    assert.ok(
+      store
+        .assets(p.id)
+        .filter((a) => a.type === "watermark")
+        .at(-1)!.reused,
+    );
+    await studio.approveRoughCut(p.id, 1, { deferRender: true });
+    const previousResolve = process.env.WTS_RESOLVE_APP;
+    process.env.WTS_RESOLVE_APP = path.join(root, "Missing Resolve.app");
+    try {
+      await studio.renderFinal(p.id, { autonomous: true });
+    } finally {
+      if (previousResolve === undefined) delete process.env.WTS_RESOLVE_APP;
+      else process.env.WTS_RESOLVE_APP = previousResolve;
+    }
+    const final = path.join(store.dir(p), store.get(p.id).finalRender!);
+    assert.equal(store.get(p.id).finalRenderEngine, "ffmpeg");
+    assert.equal(
+      await fileHash(final),
+      previewHash,
+      "the current preview is copied without a second overlay",
+    );
+    await assertWatermarkPixels(final, 4.9, clips);
     const fcpxml = await readFile(
       path.join(store.dir(p), latest.exportPath),
       "utf8",
@@ -708,26 +746,34 @@ test("narration leads cross scene boundaries with word-safe audio", async () => 
       .flatMap((j) => j.logs)
       .join("\n");
     assert.match(logs, /narration lead \(flowing\): 1 boundary/);
-    // Audio-content proof, not just decode: each synthetic take is a distinct
-    // constant sine, so during the crossing window both tones play (louder
-    // than a single-tone window inside scene B). Ideal summation is +3 dB;
-    // the two tones sit in one AAC critical band, so the decoded sum lands
-    // lower — a hard cut or mis-placed block measures ≈0 dB. The build is
-    // deterministic, so the 1 dB bar is stable.
+    // Each take has a distinct constant tone. During the lead, scene A's
+    // tone must remain audible while B's leading room tone is muted; after
+    // the lead only B plays. This distinguishes an earned lead from a hard
+    // cut without relying on the superseded double-room-tone summation.
     const boundary = plan.scenes[1].startFrame / plan.frameRate;
-    const crossing = await windowRmsDb(
-      preview,
-      boundary + lead * 0.25,
-      lead * 0.5,
-    );
-    const interior = await windowRmsDb(
-      preview,
-      boundary + (plan.scenes[1].durationFrames / plan.frameRate) * 0.6,
-      0.25,
+    const tone = (at: number, seconds: number, frequency: number) =>
+      windowRmsDb(
+        preview,
+        at,
+        seconds,
+        `bandpass=f=${frequency}:width_type=h:w=20,`,
+      );
+    const toneA = 400 + (0x2060a0 % 200);
+    const toneB = 400 + (0xa06020 % 200);
+    const crossingAt = boundary + lead * 0.25;
+    const crossingA = await tone(crossingAt, lead * 0.5, toneA);
+    const crossingB = await tone(crossingAt, lead * 0.5, toneB);
+    const interiorAt =
+      boundary + (plan.scenes[1].durationFrames / plan.frameRate) * 0.6;
+    const interiorA = await tone(interiorAt, 0.25, toneA);
+    const interiorB = await tone(interiorAt, 0.25, toneB);
+    assert.ok(
+      crossingA - crossingB > 6,
+      `the outgoing take occupies the crossing (${crossingA.toFixed(1)} dB A vs ${crossingB.toFixed(1)} dB B)`,
     );
     assert.ok(
-      crossing - interior > 1.0,
-      `the crossing window sums both takes' tones (crossing ${crossing.toFixed(1)} dB vs interior ${interior.toFixed(1)} dB)`,
+      interiorB - interiorA > 6,
+      "the incoming take resumes after the lead",
     );
   } finally {
     store.close();
@@ -736,7 +782,12 @@ test("narration leads cross scene boundaries with word-safe audio", async () => 
 });
 
 /** Overall RMS (dB) of a short audio window, via ffmpeg astats. */
-async function windowRmsDb(file: string, start: number, seconds: number) {
+async function windowRmsDb(
+  file: string,
+  start: number,
+  seconds: number,
+  filter = "",
+) {
   const { stderr } = await runTool("ffmpeg", [
     "-hide_banner",
     "-nostdin",
@@ -749,7 +800,7 @@ async function windowRmsDb(file: string, start: number, seconds: number) {
     "-map",
     "0:a",
     "-af",
-    "astats=measure_overall=RMS_level:measure_perchannel=none",
+    `${filter}astats=measure_overall=RMS_level:measure_perchannel=none`,
     "-f",
     "null",
     "-",
